@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "mobile",
+    "slug": "mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ],
+    "extra": {
+      "expoPublicApiBaseUrl": "http://localhost:3000",
+      "expoPublicSupabaseUrl": "https://jevviwdsnyvvtpnqbecm.supabase.co",
+      "expoPublicSupabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpldnZpd2Rzbnl2dnRwbnFiZWNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM0NDY1NDIsImV4cCI6MjA2OTAyMjU0Mn0.AfPBcGnrOnqNVP3v3bJr58OCGFSH_6fhIIGgEM3qN6A"
+    }
+  }
+}
