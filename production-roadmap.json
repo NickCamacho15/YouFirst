@@ -1,0 +1,219 @@
+{
+  "project": "YouFirst Tracker",
+  "lastUpdated": "2025-08-11",
+  "owners": ["mobile", "backend", "web-admin"],
+  "environments": {
+    "development": { "apiBaseUrl": "http://localhost:3000" },
+    "staging": { "apiBaseUrl": "https://staging.api.youfirsttracker.com" },
+    "production": { "apiBaseUrl": "https://api.youfirsttracker.com" }
+  },
+  "technicalDecisions": {
+    "mobileAuthShortTerm": "Use existing Node/Express auth with cookies + JWT (replace X-User-Data header)",
+    "mobileAuthLongTerm": "Migrate to Supabase Auth (email/OAuth/Apple) with RLS",
+    "dataAccessShortTerm": "Expo app -> Node/Express REST -> Drizzle -> Supabase Postgres",
+    "dataAccessLongTerm": "Client and Edge Functions via supabase-js with RLS; keep Node API for complex aggregations",
+    "adminPortal": "Next.js app (App Router), server-only API routes with RBAC, never expose service role to client"
+  },
+  "phases": [
+    {
+      "id": 0,
+      "name": "Baseline & Local Dev",
+      "goals": [
+        "Expo app boots on iOS Simulator and device",
+        "Legacy API runs locally with stable seed data",
+        "Unified env config documented"
+      ],
+      "tasks": [
+        "Create .env templates for API and mobile",
+        "Run Node API at :3000; verify CORS and cookies",
+        "Document LAN IP workflow for device testing"
+      ],
+      "acceptanceCriteria": [
+        "Login/register works locally via API",
+        "Expo app network requests succeed on simulator and device"
+      ],
+      "dependencies": [],
+      "risk": "low"
+    },
+    {
+      "id": 1,
+      "name": "Mobile API Client & Auth (Short-Term)",
+      "goals": ["Thin API client in Expo mirroring legacy web client"],
+      "tasks": [
+        "Implement apiClient with baseURL, credentials, error handling",
+        "Replace X-User-Data fallback with signed JWT returned by /api/auth/login",
+        "Persist session/JWT securely (expo-secure-store)"
+      ],
+      "acceptanceCriteria": [
+        "Auth flow: register, login, logout, restore session",
+        "401 redirects to AuthScreen"
+      ],
+      "dependencies": [0],
+      "risk": "medium"
+    },
+    {
+      "id": 2,
+      "name": "Screen Wiring (Core Features)",
+      "goals": [
+        "Hook screens to API: goals, habits/rules/challenges, reading, meditation, workouts, body metrics",
+        "Add optimistic updates and pagination where needed"
+      ],
+      "tasks": [
+        "Goals/Micro-goals CRUD",
+        "Habits toggle/logs; Rules CRUD/toggle; Challenges CRUD/day updates",
+        "Reading: sessions+list; Meditation: stats+sessions",
+        "Workouts: list/create/delete; entries; exercises; sessions; templates",
+        "Body weight logs list/create"
+      ],
+      "acceptanceCriteria": [
+        "All listed domains read/write successfully against API",
+        "Basic error and loading states"
+      ],
+      "dependencies": [1],
+      "risk": "medium"
+    },
+    {
+      "id": 3,
+      "name": "Security Hardening",
+      "goals": [
+        "HTTPS everywhere",
+        "JWT-based mobile auth end-to-end",
+        "Start enabling RLS for low-risk tables"
+      ],
+      "tasks": [
+        "Terminate TLS for API (Cloud + CDN)",
+        "Issue JWT on login; rotate secrets; set secure cookies for web",
+        "Enable RLS on read-only tables first; add SELECT policies"
+      ],
+      "acceptanceCriteria": [
+        "Network traffic encrypted",
+        "JWT validated on API; tokens rotated",
+        "RLS enabled for initial table set with tests"
+      ],
+      "dependencies": [2],
+      "risk": "medium"
+    },
+    {
+      "id": 4,
+      "name": "Supabase Auth Migration (Mid-Term)",
+      "goals": [
+        "Migrate users to auth.users",
+        "Create profiles table keyed to auth.users(id)",
+        "Enable RLS across user-owned tables"
+      ],
+      "tasks": [
+        "Backfill users -> auth.users; map legacy IDs",
+        "Signup trigger for profiles; email verification",
+        "Per-table RLS policies for SELECT/INSERT/UPDATE/DELETE with WITH CHECK"
+      ],
+      "acceptanceCriteria": [
+        "New signups via Supabase Auth",
+        "Mobile login via supabase-js succeeds",
+        "RLS test suite passes"
+      ],
+      "dependencies": [3],
+      "risk": "high"
+    },
+    {
+      "id": 5,
+      "name": "Edge Functions & Server Logic",
+      "goals": [
+        "Move personalized compute to Edge Functions where valuable",
+        "Keep complex aggregations in Node API as needed"
+      ],
+      "tasks": [
+        "Add Edge Function for workout recommendations",
+        "Add Edge Function for social/timeline aggregation",
+        "Protect with JWT auth context"
+      ],
+      "acceptanceCriteria": [
+        "Functions callable from mobile with user context",
+        "Latency within targets (<300ms p95)"
+      ],
+      "dependencies": [4],
+      "risk": "medium"
+    },
+    {
+      "id": 6,
+      "name": "Admin Portal (Web)",
+      "goals": [
+        "Admins can manage users/content/abuse",
+        "Audit logs and feature flags"
+      ],
+      "scope": {
+        "users": ["search/list", "view profile", "reset password (via Supabase)", "deactivate/reactivate"],
+        "content": ["posts moderation", "comments/reactions moderation"],
+        "data": ["goals/habits/workouts read-only views"],
+        "ops": ["feature flags", "system metrics", "export reports"]
+      ],
+      "tech": {
+        "framework": "Next.js (App Router)",
+        "ui": "shadcn/ui + Tailwind",
+        "auth": "Supabase Auth with admin role; RBAC enforced server-side",
+        "dataAccess": "Server-only API routes (service role) or supabase-js with RLS + elevated role on server"
+      ],
+      "acceptanceCriteria": [
+        "RBAC: admin only access",
+        "No service role exposed to client",
+        "Audit trail for destructive actions"
+      ],
+      "dependencies": [3],
+      "risk": "medium"
+    },
+    {
+      "id": 7,
+      "name": "CI/CD, Testing & Release",
+      "goals": ["Automated builds/tests, OTA updates, release readiness"],
+      "tasks": [
+        "Unit/integration tests (mobile & API)",
+        "E2E smoke (Detox/Playwright)",
+        "EAS build pipelines (staging/prod)",
+        "Privacy manifests and store assets",
+        "Crash reporting & perf (Sentry)"
+      ],
+      "acceptanceCriteria": [
+        "Green CI on main",
+        "Signed builds for TestFlight",
+        "Rollbacks and OTA updates verified"
+      ],
+      "dependencies": [2,3],
+      "risk": "medium"
+    },
+    {
+      "id": 8,
+      "name": "Analytics, Monitoring, Support",
+      "goals": ["Observability and feedback loops"],
+      "tasks": [
+        "App analytics (privacy-compliant)",
+        "API metrics (APM, logs)",
+        "In-app feedback and support channel"
+      ],
+      "acceptanceCriteria": [
+        "Funnel metrics defined",
+        "Alerting on SLO breaches",
+        "Support SLA documented"
+      ],
+      "dependencies": [7],
+      "risk": "low"
+    }
+  ],
+  "rbac": {
+    "roles": ["admin", "moderator", "user"],
+    "admin": ["manage_users", "moderate_content", "view_metrics", "manage_flags"],
+    "moderator": ["moderate_content"],
+    "user": ["self_service"]
+  },
+  "nonFunctional": {
+    "performance": { "mobileStart": "<2s warm", "apiP95": "<300ms" },
+    "security": ["JWT, HTTPS, RLS, secret rotation"],
+    "privacy": ["iOS privacy manifests", "data retention policy"],
+    "reliability": { "uptime": ">=99.9%", "backup": "daily" }
+  },
+  "risks": [
+    "RLS rollout breaking existing API assumptions",
+    "Auth migration complexity",
+    "Mobile cookie/JWT handling across environments"
+  ]
+}
+
+
