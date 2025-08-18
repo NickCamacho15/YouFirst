@@ -8,7 +8,7 @@ import GoalsScreen from "./screens/GoalsScreen"
 import DisciplinesScreen from "./screens/DisciplinesScreen"
 import MindScreen from "./screens/MindScreen"
 import BodyScreen from "./screens/BodyScreen"
-import { Ionicons } from "@expo/vector-icons"
+import { Mountain, Target, Brain, Dumbbell } from "lucide-react-native"
 import Calendar from "./components/Calendar"
 import StreakStats from "./components/StreakStats"
 import WinTodaySection from "./components/WinTodaySection"
@@ -58,32 +58,45 @@ const App: React.FC = () => {
           <Text style={styles.comingSoon}>Coming Soon</Text>
         </ScrollView>
       )}
-      <View style={styles.bottomNavigation}>
-        <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("disciplines")}>
-          <Ionicons name="triangle-outline" size={24} color={currentScreen === "disciplines" ? "#4A90E2" : "#999"} />
-          <Text style={[styles.navLabel, currentScreen === "disciplines" && styles.activeNavLabel]}>Disciplines</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("goals")}>
-          <Ionicons name="radio-button-off-outline" size={24} color={currentScreen === "goals" ? "#4A90E2" : "#999"} />
-          <Text style={[styles.navLabel, currentScreen === "goals" && styles.activeNavLabel]}>Goals</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.centerNavItem} onPress={() => setCurrentScreen("home")}>
-          <View style={styles.centerButton}>
-            <Image
-              source={require("./assets/logo-circular.png")}
-              style={styles.centerButtonImage}
-              resizeMode="contain"
-            />
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("mind")}>
-          <Ionicons name="flower-outline" size={24} color={currentScreen === "mind" ? "#4A90E2" : "#999"} />
-          <Text style={[styles.navLabel, currentScreen === "mind" && styles.activeNavLabel]}>Mind</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("body")}>
-          <Ionicons name="fitness-outline" size={24} color={currentScreen === "body" ? "#4A90E2" : "#999"} />
-          <Text style={[styles.navLabel, currentScreen === "body" && styles.activeNavLabel]}>Body</Text>
-        </TouchableOpacity>
+      <View style={styles.bottomNavContainer}>
+        <View style={styles.bottomNavigation}>
+          <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("disciplines")}>
+            <View style={styles.navIconContainer}>
+              <Mountain stroke="#777" width={24} height={24} />
+            </View>
+            <Text style={styles.navLabel}>Disciplines</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("goals")}>
+            <View style={styles.navIconContainer}>
+              <Target stroke="#777" width={24} height={24} />
+            </View>
+            <Text style={styles.navLabel}>Goals</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.centerNavItem} onPress={() => setCurrentScreen("home")}>
+            <View style={styles.centerButton}>
+              <Text style={styles.centerButtonText}>.uoY</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("mind")}>
+            <View style={styles.navIconContainer}>
+              <Brain stroke="#777" width={24} height={24} />
+            </View>
+            <Text style={styles.navLabel}>Mind</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("body")}>
+            <View style={styles.navIconContainer}>
+              <Dumbbell stroke="#777" width={24} height={24} />
+            </View>
+            <Text style={styles.navLabel}>Body</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.navIndicator}>
+          {currentScreen === "home" && <View style={[styles.indicatorLine]} />}
+          {currentScreen === "disciplines" && <View style={[styles.indicatorLine, { left: 0, transform: [{ translateX: 10 }] }]} />}
+          {currentScreen === "goals" && <View style={[styles.indicatorLine, { left: "25%", transform: [{ translateX: 0 }] }]} />}
+          {currentScreen === "mind" && <View style={[styles.indicatorLine, { left: "75%", transform: [{ translateX: 0 }] }]} />}
+          {currentScreen === "body" && <View style={[styles.indicatorLine, { right: 0, transform: [{ translateX: -10 }] }]} />}
+        </View>
       </View>
     </SafeAreaView>
   )
@@ -105,15 +118,17 @@ const styles = StyleSheet.create({
     width: 80,
     height: 30,
   },
-  bottomNavigation: {
-    height: 80,
+  bottomNavContainer: {
     backgroundColor: "#fff",
+    paddingBottom: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#f0f0f0",
+  },
+  bottomNavigation: {
+    height: 60,
     flexDirection: "row",
     justifyContent: "space-around",
     alignItems: "center",
-    borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
-    paddingBottom: 20,
   },
   navItem: {
     flex: 1,
@@ -133,10 +148,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  centerButtonImage: {
-    width: 32,
-    height: 32,
-    tintColor: "#fff",
+  centerButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
   },
   comingSoon: {
     fontSize: 18,
@@ -144,13 +159,29 @@ const styles = StyleSheet.create({
     color: "#666",
     marginTop: 100,
   },
-  activeNavLabel: {
-    color: "#4A90E2",
-  },
   navLabel: {
-    fontSize: 12,
-    color: "#999",
-    marginTop: 4,
+    fontSize: 10,
+    color: "#777",
+    marginTop: 5,
+  },
+  navIndicator: {
+    position: "relative",
+    height: 3,
+    width: "100%",
+  },
+  navIconContainer: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  indicatorLine: {
+    position: "absolute",
+    height: 3,
+    width: "20%",
+    backgroundColor: "#000",
+    bottom: 0,
+    left: "40%",
   },
 })
 

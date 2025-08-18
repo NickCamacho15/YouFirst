@@ -58,32 +58,43 @@ const App: React.FC = () => {
           <Text style={styles.comingSoon}>Coming Soon</Text>
         </ScrollView>
       )}
-      <View style={styles.bottomNavigation}>
-        <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("disciplines")}>
-          <Ionicons name="triangle-outline" size={24} color={currentScreen === "disciplines" ? "#4A90E2" : "#999"} />
-          <Text style={[styles.navLabel, currentScreen === "disciplines" && styles.activeNavLabel]}>Disciplines</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("goals")}>
-          <Ionicons name="radio-button-off-outline" size={24} color={currentScreen === "goals" ? "#4A90E2" : "#999"} />
-          <Text style={[styles.navLabel, currentScreen === "goals" && styles.activeNavLabel]}>Goals</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.centerNavItem} onPress={() => setCurrentScreen("home")}>
-          <View style={styles.centerButton}>
-            <Image
-              source={require("./assets/logo-circular.png")}
-              style={styles.centerButtonImage}
-              resizeMode="contain"
-            />
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("mind")}>
-          <Ionicons name="flower-outline" size={24} color={currentScreen === "mind" ? "#4A90E2" : "#999"} />
-          <Text style={[styles.navLabel, currentScreen === "mind" && styles.activeNavLabel]}>Mind</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("body")}>
-          <Ionicons name="fitness-outline" size={24} color={currentScreen === "body" ? "#4A90E2" : "#999"} />
-          <Text style={[styles.navLabel, currentScreen === "body" && styles.activeNavLabel]}>Body</Text>
-        </TouchableOpacity>
+      <View style={styles.bottomNavContainer}>
+        <View style={styles.bottomNavigation}>
+          <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("disciplines")}>
+            <Ionicons name="triangle-outline" size={24} color="#777" />
+            <Text style={styles.navLabel}>Disciplines</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("goals")}>
+            <Ionicons name="radio-button-on-outline" size={24} color="#777" />
+            <Text style={styles.navLabel}>Goals</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.centerNavItem} onPress={() => setCurrentScreen("home")}>
+            <View style={styles.centerButton}>
+              <Text style={styles.centerButtonText}>.uoY</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("mind")}>
+            <Ionicons name="brain-outline" size={24} color="#777" />
+            <Text style={styles.navLabel}>Mind</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("body")}>
+            <Ionicons name="fitness-outline" size={24} color="#777" />
+            <Text style={styles.navLabel}>Body</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.navIndicator}>
+          <View 
+            style={[
+              styles.indicatorLine, 
+              { 
+                left: currentScreen === "disciplines" ? "10%" : 
+                      currentScreen === "goals" ? "30%" : 
+                      currentScreen === "home" ? "50%" : 
+                      currentScreen === "mind" ? "70%" : "90%"
+              }
+            ]} 
+          />
+        </View>
       </View>
     </SafeAreaView>
   )
@@ -105,20 +116,23 @@ const styles = StyleSheet.create({
     width: 80,
     height: 30,
   },
-  bottomNavigation: {
-    height: 80,
+  bottomNavContainer: {
     backgroundColor: "#fff",
-    flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "center",
+    paddingBottom: 20,
     borderTopWidth: 1,
     borderTopColor: "#f0f0f0",
-    paddingBottom: 20,
+  },
+  bottomNavigation: {
+    height: 70,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   navItem: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    paddingTop: 10,
   },
   centerNavItem: {
     flex: 1,
@@ -133,10 +147,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  centerButtonImage: {
-    width: 32,
-    height: 32,
-    tintColor: "#fff",
+  centerButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
   },
   comingSoon: {
     fontSize: 18,
@@ -144,13 +158,23 @@ const styles = StyleSheet.create({
     color: "#666",
     marginTop: 100,
   },
-  activeNavLabel: {
-    color: "#4A90E2",
-  },
   navLabel: {
     fontSize: 12,
-    color: "#999",
-    marginTop: 4,
+    color: "#777",
+    marginTop: 6,
+  },
+  navIndicator: {
+    position: "relative",
+    height: 3,
+    width: "100%",
+  },
+  indicatorLine: {
+    position: "absolute",
+    height: 3,
+    width: "20%",
+    backgroundColor: "#333",
+    bottom: 0,
+    transform: [{ translateX: -10 }],
   },
 })
 
