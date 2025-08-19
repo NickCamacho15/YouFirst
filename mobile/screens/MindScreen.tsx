@@ -1,5 +1,6 @@
 "use client"
 
+import type React from "react"
 import { useState, useEffect } from "react"
 import {
   View,
@@ -13,8 +14,12 @@ import {
   TextInput,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
+import TopHeader from "../components/TopHeader"
+import { Brain } from "lucide-react-native"
 
-const MindScreen = () => {
+interface ScreenProps { onLogout?: () => void }
+
+const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState("reading")
   const [activeSubTab, setActiveSubTab] = useState("list")
   const [isSessionActive, setIsSessionActive] = useState(false)
@@ -156,35 +161,59 @@ const MindScreen = () => {
           <Text style={[styles.subTabText, activeSubTab === "insights" && styles.activeSubTabText]}>Insights</Text>
         </TouchableOpacity>
       </View>
+      {/* Sub Tab Content */}
+      {activeSubTab === "list" ? (
+        <>
+          {/* Reading Stats */}
+          <View style={styles.readingStatsContainer}>
+            <View style={styles.readingStatCard}>
+              <Ionicons name="reader-outline" size={20} color="#4A90E2" />
+              <Text style={styles.readingStatValue}>0</Text>
+              <Text style={styles.readingStatLabel}>Reading</Text>
+            </View>
+            <View style={styles.readingStatCard}>
+              <Ionicons name="trophy-outline" size={20} color="#10B981" />
+              <Text style={styles.readingStatValue}>0</Text>
+              <Text style={styles.readingStatLabel}>Completed</Text>
+            </View>
+          </View>
 
-      {/* Reading Stats */}
-      <View style={styles.readingStatsContainer}>
-        <View style={styles.readingStatCard}>
-          <Ionicons name="radio-button-on-outline" size={24} color="#4A90E2" />
-          <Text style={styles.readingStatValue}>0</Text>
-          <Text style={styles.readingStatLabel}>Reading</Text>
-        </View>
-        <View style={styles.readingStatCard}>
-          <Ionicons name="trophy-outline" size={24} color="#10B981" />
-          <Text style={styles.readingStatValue}>0</Text>
-          <Text style={styles.readingStatLabel}>Completed</Text>
-        </View>
-      </View>
+          {/* Add Book Button */}
+          <TouchableOpacity style={styles.addBookButton}>
+            <Ionicons name="add" size={20} color="#fff" />
+            <Text style={styles.addBookButtonText}>Add Book to List</Text>
+          </TouchableOpacity>
 
-      {/* Add Book Button */}
-      <TouchableOpacity style={styles.addBookButton}>
-        <Ionicons name="add" size={20} color="#fff" />
-        <Text style={styles.addBookButtonText}>Add Book to List</Text>
-      </TouchableOpacity>
-
-      {/* Empty State */}
-      <View style={styles.emptyStateContainer}>
-        <View style={styles.bookIconContainer}>
-          <Ionicons name="book-outline" size={48} color="#10B981" />
-        </View>
-        <Text style={styles.emptyStateTitle}>No books in your list yet</Text>
-        <Text style={styles.emptyStateDescription}>Add your first book to get started!</Text>
-      </View>
+          {/* Empty State */}
+          <View style={styles.emptyStateContainer}>
+            <View style={styles.bookIconContainer}>
+              <Ionicons name="book-outline" size={48} color="#10B981" />
+            </View>
+            <Text style={styles.emptyStateTitle}>No books in your list yet</Text>
+            <Text style={styles.emptyStateDescription}>Add your first book to get started!</Text>
+          </View>
+        </>
+      ) : activeSubTab === "history" ? (
+        <>
+          <Text style={styles.sectionTitleCaps}>Completed Books</Text>
+          <View style={styles.cardContainer}>
+            <Text style={styles.cardBodyText}>No completed books yet. Check off books from your list as you finish them!</Text>
+          </View>
+        </>
+      ) : (
+        <>
+          <View style={styles.insightsHeader}>
+            <Text style={styles.sectionTitle}>Reading Insights</Text>
+            <TouchableOpacity style={styles.addInsightButton}>
+              <Ionicons name="add" size={16} color="#fff" />
+              <Text style={styles.addInsightButtonText}>Add Insight</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.cardContainer}>
+            <Text style={styles.cardBodyText}>No insights yet. Add your first insight from your reading!</Text>
+          </View>
+        </>
+      )}
     </>
   )
 
@@ -583,18 +612,13 @@ const MindScreen = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Image source={require("../assets/logo-text.png")} style={styles.headerLogo} resizeMode="contain" />
-        </View>
-      </View>
+      <TopHeader onLogout={onLogout} />
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Mind Training Section */}
         <View style={styles.mindTrainingSection}>
           <View style={styles.mindTrainingHeader}>
-            <Ionicons name="flower-outline" size={24} color="#4A90E2" />
+            <Brain stroke="#4A90E2" width={24} height={24} />
             <Text style={styles.mindTrainingTitle}>Mind Training</Text>
           </View>
           <Text style={styles.mindTrainingSubtitle}>
@@ -616,7 +640,7 @@ const MindScreen = () => {
             style={[styles.tab, activeTab === "meditation" && styles.activeTab]}
             onPress={() => setActiveTab("meditation")}
           >
-            <Ionicons name="flower-outline" size={20} color={activeTab === "meditation" ? "#333" : "#999"} />
+            <Brain stroke={activeTab === "meditation" ? "#333" : "#999"} width={20} height={20} />
             <Text style={[styles.tabText, activeTab === "meditation" && styles.activeTabText]}>Meditation</Text>
           </TouchableOpacity>
 
@@ -692,13 +716,14 @@ const styles = StyleSheet.create({
   tabContainer: {
     flexDirection: "row",
     marginBottom: 30,
+    paddingRight: 0,
+    justifyContent: "space-evenly",
   },
   tab: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 8,
-    marginRight: 20,
   },
   activeTab: {
     borderBottomWidth: 2,
@@ -895,7 +920,7 @@ const styles = StyleSheet.create({
   readingStatCard: {
     backgroundColor: "#fff",
     borderRadius: 12,
-    padding: 16,
+    padding: 12,
     width: "48%",
     alignItems: "center",
     shadowColor: "#000",
@@ -908,13 +933,13 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   readingStatValue: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: "700",
     color: "#333",
-    marginVertical: 8,
+    marginVertical: 4,
   },
   readingStatLabel: {
-    fontSize: 14,
+    fontSize: 12,
     color: "#666",
   },
   addBookButton: {
@@ -953,6 +978,54 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   emptyStateDescription: {
+    fontSize: 16,
+    color: "#666",
+  },
+  sectionTitleCaps: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#333",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#333",
+  },
+  insightsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  addInsightButton: {
+    backgroundColor: "#2563EB",
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  addInsightButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  cardContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cardBodyText: {
     fontSize: 16,
     color: "#666",
   },

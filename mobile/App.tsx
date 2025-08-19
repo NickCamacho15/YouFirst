@@ -15,6 +15,7 @@ import WinTodaySection from "./components/WinTodaySection"
 import WeeklyPerformance from "./components/WeeklyPerformance"
 import DailyRoutines from "./components/DailyRoutines"
 import PersonalMasteryDashboard from "./components/PersonalMasteryDashboard"
+import TopHeader from "./components/TopHeader"
 
 const App: React.FC = () => {
   const [currentScreen, setCurrentScreen] = useState("home")
@@ -37,22 +38,25 @@ const App: React.FC = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
       {currentScreen === "home" ? (
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-          <Calendar />
-          <StreakStats />
-          <WinTodaySection />
-          <WeeklyPerformance />
-          <DailyRoutines />
-          <PersonalMasteryDashboard />
-        </ScrollView>
+        <>
+          <TopHeader onLogout={handleLogout} />
+          <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+            <Calendar />
+            <StreakStats />
+            <WinTodaySection />
+            <WeeklyPerformance />
+            <DailyRoutines />
+            <PersonalMasteryDashboard />
+          </ScrollView>
+        </>
       ) : currentScreen === "goals" ? (
-        <GoalsScreen />
+        <GoalsScreen onLogout={handleLogout} />
       ) : currentScreen === "disciplines" ? (
-        <DisciplinesScreen />
+        <DisciplinesScreen onLogout={handleLogout} />
       ) : currentScreen === "mind" ? (
-        <MindScreen />
+        <MindScreen onLogout={handleLogout} />
       ) : currentScreen === "body" ? (
-        <BodyScreen />
+        <BodyScreen onLogout={handleLogout} />
       ) : (
         <ScrollView style={styles.scrollView}>
           <Text style={styles.comingSoon}>Coming Soon</Text>
@@ -91,11 +95,11 @@ const App: React.FC = () => {
           </TouchableOpacity>
         </View>
         <View style={styles.navIndicator}>
-          {currentScreen === "home" && <View style={[styles.indicatorLine]} />}
-          {currentScreen === "disciplines" && <View style={[styles.indicatorLine, { left: 0, transform: [{ translateX: 10 }] }]} />}
-          {currentScreen === "goals" && <View style={[styles.indicatorLine, { left: "25%", transform: [{ translateX: 0 }] }]} />}
-          {currentScreen === "mind" && <View style={[styles.indicatorLine, { left: "75%", transform: [{ translateX: 0 }] }]} />}
-          {currentScreen === "body" && <View style={[styles.indicatorLine, { right: 0, transform: [{ translateX: -10 }] }]} />}
+          {currentScreen === "disciplines" && <View style={[styles.indicatorLine, { left: "0%", width: "20%" }]} />}
+          {currentScreen === "goals" && <View style={[styles.indicatorLine, { left: "20%", width: "20%" }]} />}
+          {currentScreen === "home" && <View style={[styles.indicatorLine, { left: "40%", width: "20%" }]} />}
+          {currentScreen === "mind" && <View style={[styles.indicatorLine, { left: "60%", width: "20%" }]} />}
+          {currentScreen === "body" && <View style={[styles.indicatorLine, { left: "80%", width: "20%" }]} />}
         </View>
       </View>
     </SafeAreaView>
@@ -178,10 +182,8 @@ const styles = StyleSheet.create({
   indicatorLine: {
     position: "absolute",
     height: 3,
-    width: "20%",
     backgroundColor: "#000",
     bottom: 0,
-    left: "40%",
   },
 })
 

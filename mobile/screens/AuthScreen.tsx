@@ -22,17 +22,19 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
   const [activeTab, setActiveTab] = useState("login")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [username, setUsername] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const handleSignIn = async () => {
-    if (!email || !password) return
+    if (!(email || username) || !password) return
     setSubmitting(true)
     setError(null)
     try {
-      await login({ email, password })
+      const identifier = activeTab === "login" ? (email || username) : email
+      await login({ identifier: identifier || "", password })
       onLogin()
     } catch (e: any) {
       setError(e?.message || "Login failed")
@@ -42,11 +44,11 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
   }
 
   const handleRegister = async () => {
-    if (!email || !password || password !== confirmPassword) return
+    if (!email || !username || !password || password !== confirmPassword) return
     setSubmitting(true)
     setError(null)
     try {
-      await register({ email, displayName: email.split("@")[0], password })
+      await register({ email, username, displayName: email.split("@")[0], password })
       onLogin()
     } catch (e: any) {
       setError(e?.message || "Registration failed")
@@ -93,21 +95,59 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
 
             {/* Form Fields */}
             <View style={styles.formContainer}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Email</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Enter your email"
-                  placeholderTextColor="#999"
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  textContentType="emailAddress"
-                  autoComplete="email"
-                />
-              </View>
+              {activeTab === "register" ? (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Username</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Choose a username"
+                    placeholderTextColor="#999"
+                    value={username}
+                    onChangeText={setUsername}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+              ) : (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Email or Username</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Enter your email or username"
+                    placeholderTextColor="#999"
+                    value={email || username}
+                    onChangeText={(v) => {
+                      // heuristically set email or username field
+                      if (v.includes("@")) {
+                        setEmail(v)
+                        setUsername("")
+                      } else {
+                        setUsername(v)
+                        setEmail("")
+                      }
+                    }}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+              )}
+              {activeTab === "register" && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Email</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Enter your email"
+                    placeholderTextColor="#999"
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    textContentType="emailAddress"
+                    autoComplete="email"
+                  />
+                </View>
+              )}
 
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Password</Text>

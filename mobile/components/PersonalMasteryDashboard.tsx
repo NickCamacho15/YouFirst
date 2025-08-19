@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
+import { Target } from "lucide-react-native"
 
 const PersonalMasteryDashboard = () => {
   const metrics = [
@@ -8,15 +9,15 @@ const PersonalMasteryDashboard = () => {
       label: "Tasks Completed",
       sublabel: "lifetime",
       icon: "checkmark-circle-outline",
-      backgroundColor: "#E8F2FF",
+      backgroundColor: "#BFDBFE",
       valueColor: "#4A90E2",
     },
     {
-      value: "-Infinity",
+      value: "0",
       label: "Best Streak",
       sublabel: "days",
       icon: "flame-outline",
-      backgroundColor: "#E6F7F1",
+      backgroundColor: "#BBF7D0",
       valueColor: "#10B981",
     },
     {
@@ -24,7 +25,7 @@ const PersonalMasteryDashboard = () => {
       label: "Consistency",
       sublabel: "this month",
       icon: "star-outline",
-      backgroundColor: "#F3E8FF",
+      backgroundColor: "#E3D0FF",
       valueColor: "#8B5CF6",
     },
     {
@@ -32,7 +33,7 @@ const PersonalMasteryDashboard = () => {
       label: "Active Goals",
       sublabel: "in progress",
       icon: "radio-button-off-outline",
-      backgroundColor: "#FFF7ED",
+      backgroundColor: "#FEF3C7",
       valueColor: "#F59E0B",
     },
   ]
@@ -41,7 +42,7 @@ const PersonalMasteryDashboard = () => {
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.iconContainer}>
-          <Ionicons name="radio-button-off-outline" size={24} color="#fff" />
+          <Target color="#fff" width={22} height={22} />
         </View>
         <View style={styles.headerContent}>
           <Text style={styles.title}>Personal Mastery Dashboard</Text>
@@ -55,7 +56,11 @@ const PersonalMasteryDashboard = () => {
             <Text style={[styles.metricValue, { color: metric.valueColor }]}>{metric.value}</Text>
             <Text style={styles.metricLabel}>{metric.label}</Text>
             <View style={styles.metricFooter}>
-              <Ionicons name={metric.icon as any} size={16} color="#666" />
+              {metric.label === "Active Goals" ? (
+                <Target color="#666" width={16} height={16} />
+              ) : (
+                <Ionicons name={metric.icon as any} size={16} color="#666" />
+              )}
               <Text style={styles.metricSublabel}>{metric.sublabel}</Text>
             </View>
           </View>
@@ -115,14 +120,16 @@ const styles = StyleSheet.create({
   },
   metricCard: {
     width: "48%",
-    padding: 16,
-    borderRadius: 12,
+    padding: 18,
+    borderRadius: 20,
     marginBottom: 12,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#00000010",
   },
   metricValue: {
-    fontSize: 32,
-    fontWeight: "700",
+    fontSize: 34,
+    fontWeight: "800",
     marginBottom: 8,
   },
   metricLabel: {

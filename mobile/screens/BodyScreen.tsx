@@ -1,5 +1,6 @@
 "use client"
 
+import type React from "react"
 import { useState, useEffect } from "react"
 import {
   View,
@@ -14,9 +15,12 @@ import {
   TextInput,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
+import TopHeader from "../components/TopHeader"
 import { LineChart } from "react-native-chart-kit"
 
-const BodyScreen = () => {
+interface ScreenProps { onLogout?: () => void }
+
+const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState("profile")
 
   const screenWidth = Dimensions.get("window").width
@@ -76,7 +80,21 @@ const BodyScreen = () => {
     </View>
   )
 
-  const [selectedDay, setSelectedDay] = useState(11)
+  // Build the current week dynamically (Sun-Sat) and preselect today
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+  const today = new Date()
+  const startOfWeek = new Date(today)
+  startOfWeek.setDate(today.getDate() - today.getDay()) // Sunday
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(startOfWeek)
+    d.setDate(startOfWeek.getDate() + i)
+    return {
+      day: dayNames[d.getDay()],
+      date: d.getDate(),
+      label: i === 0 ? "Rest" : "",
+    }
+  })
+  const [selectedDayIndex, setSelectedDayIndex] = useState<number>(today.getDay())
   const [workoutTime, setWorkoutTime] = useState(0)
   const [isWorkoutActive, setIsWorkoutActive] = useState(false)
   const [completedBlocks, setCompletedBlocks] = useState<boolean[]>([false, false, false])
@@ -98,15 +116,7 @@ const BodyScreen = () => {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
   }
 
-  const weekDays = [
-    { day: "Sun", date: 10, label: "Rest" },
-    { day: "Mon", date: 11, label: "" },
-    { day: "Tue", date: 12, label: "" },
-    { day: "Wed", date: 13, label: "" },
-    { day: "Thu", date: 14, label: "" },
-    { day: "Fri", date: 15, label: "" },
-    { day: "Sat", date: 16, label: "" },
-  ]
+  // weekDays computed above
 
   const workoutBlocks = [
     { id: "A", name: "Bench Press", exercises: 1 },
@@ -124,12 +134,7 @@ const BodyScreen = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Image source={require("../assets/logo-text.png")} style={styles.headerLogo} resizeMode="contain" />
-        </View>
-      </View>
+      <TopHeader onLogout={onLogout} />
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Body Section */}
@@ -391,13 +396,13 @@ const BodyScreen = () => {
                   {weekDays.map((day, index) => (
                     <TouchableOpacity
                       key={index}
-                      style={[styles.weekDayButton, selectedDay === day.date && styles.selectedWeekDayButton]}
-                      onPress={() => setSelectedDay(day.date)}
+                      style={[styles.weekDayButton, selectedDayIndex === index && styles.selectedWeekDayButton]}
+                      onPress={() => setSelectedDayIndex(index)}
                     >
-                      <Text style={[styles.weekDayName, selectedDay === day.date && styles.selectedWeekDayName]}>
+                      <Text style={[styles.weekDayName, selectedDayIndex === index && styles.selectedWeekDayName]}>
                         {day.day}
                       </Text>
-                      <Text style={[styles.weekDayDate, selectedDay === day.date && styles.selectedWeekDayDate]}>
+                      <Text style={[styles.weekDayDate, selectedDayIndex === index && styles.selectedWeekDayDate]}>
                         {day.date}
                       </Text>
                       {day.label && <Text style={styles.weekDayLabel}>{day.label}</Text>}

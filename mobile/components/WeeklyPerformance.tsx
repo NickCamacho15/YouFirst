@@ -1,67 +1,34 @@
+import React from "react"
 import { View, Text, StyleSheet } from "react-native"
-import { Ionicons } from "@expo/vector-icons"
+import { LinearGradient } from "expo-linear-gradient"
+
+const rows = [
+  { key: "Reading", colors: ["#EAF2FF", "#F7FAFF"], color: "#4A90E2", goalText: "of 15h goal" },
+  { key: "Meditation", colors: ["#EAF7F1", "#F9FFFC"], color: "#10B981", goalText: "of 3.5h goal" },
+  { key: "Screen Time", colors: ["#FEECEC", "#FFF7F7"], color: "#EF4444", goalText: "limit exceeded" },
+  { key: "Workouts", colors: ["#FFF3E6", "#FFF9F2"], color: "#F59E0B", goalText: "of 7h goal" },
+]
 
 const WeeklyPerformance = () => {
-  const performanceItems = [
-    {
-      title: "Reading",
-      current: "0h",
-      frequency: "0h daily",
-      percentage: "0%",
-      goal: "of 15h goal",
-      backgroundColor: "#E8F2FF",
-      percentageColor: "#4A90E2",
-    },
-    {
-      title: "Meditation",
-      current: "0h",
-      frequency: "0m daily",
-      percentage: "0%",
-      goal: "of 3.5h goal",
-      backgroundColor: "#E6F7F1",
-      percentageColor: "#10B981",
-    },
-    {
-      title: "Screen Time",
-      current: "0h",
-      frequency: "0h daily",
-      percentage: "0%",
-      goal: "of limit",
-      backgroundColor: "#FEF2F2",
-      percentageColor: "#EF4444",
-    },
-    {
-      title: "Workouts",
-      current: "0h",
-      frequency: "0m daily",
-      percentage: "0%",
-      goal: "of 7h goal",
-      backgroundColor: "#FFF7ED",
-      percentageColor: "#F59E0B",
-    },
-  ]
-
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Ionicons name="checkmark-circle-outline" size={24} color="#4A90E2" />
-        <Text style={styles.title}>Weekly Performance</Text>
-      </View>
-      <View style={styles.performanceGrid}>
-        {performanceItems.map((item, index) => (
-          <View key={index} style={[styles.performanceCard, { backgroundColor: item.backgroundColor }]}>
-            <Text style={styles.cardTitle}>{item.title}</Text>
-            <View style={styles.cardContent}>
-              <Text style={styles.currentValue}>{item.current}</Text>
-              <Text style={styles.frequency}>{item.frequency}</Text>
+      {rows.map((r) => (
+        <LinearGradient key={r.key} colors={r.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.card}>
+          <View style={styles.cardRow}> 
+            <View style={styles.leftCol}>
+              <Text style={styles.label}>{r.key.toUpperCase()}</Text>
+              <View style={styles.valuesWrap}>
+                <Text style={styles.value}>0h</Text>
+                <Text style={styles.subValue}>0h daily</Text>
+              </View>
             </View>
-            <View style={styles.cardFooter}>
-              <Text style={[styles.percentage, { color: item.percentageColor }]}>{item.percentage}</Text>
-              <Text style={styles.goal}>{item.goal}</Text>
+            <View style={styles.rightCol}>
+              <Text style={[styles.percent, { color: r.color }]}>0%</Text>
+              <Text style={styles.goal}>{r.goalText}</Text>
             </View>
           </View>
-        ))}
-      </View>
+        </LinearGradient>
+      ))}
     </View>
   )
 }
@@ -72,69 +39,41 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 16,
     borderRadius: 12,
-    padding: 20,
+    padding: 12,
     shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
   },
-  header: {
+  card: {
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+  },
+  cardRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#333",
-    marginLeft: 8,
-  },
-  performanceGrid: {
-    gap: 12,
-  },
-  performanceCard: {
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 4,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#333",
-    marginBottom: 8,
-  },
-  cardContent: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    marginBottom: 8,
-  },
-  currentValue: {
-    fontSize: 32,
-    fontWeight: "700",
-    color: "#333",
-    marginRight: 8,
-  },
-  frequency: {
-    fontSize: 14,
-    color: "#666",
-  },
-  cardFooter: {
-    flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
   },
-  percentage: {
-    fontSize: 20,
+  leftCol: { flex: 1 },
+  rightCol: { alignItems: "flex-end", minWidth: 90 },
+  label: {
+    fontSize: 12,
     fontWeight: "700",
+    color: "#6b7280",
+    marginBottom: 6,
   },
-  goal: {
-    fontSize: 14,
-    color: "#666",
+  valuesWrap: { flexDirection: "row", alignItems: "baseline" },
+  value: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#111827",
+    marginRight: 6,
   },
+  subValue: { fontSize: 12, color: "#6b7280" },
+  percent: { fontSize: 20, fontWeight: "800" },
+  goal: { fontSize: 12, color: "#6b7280", marginTop: 2 },
 })
 
 export default WeeklyPerformance

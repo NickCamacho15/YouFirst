@@ -1,27 +1,27 @@
+import type React from "react"
 import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image } from "react-native"
+import TopHeader from "../components/TopHeader"
 import { Ionicons } from "@expo/vector-icons"
+import { Target, Plus, Trophy } from "lucide-react-native"
 
-const GoalsScreen = () => {
+interface ScreenProps { onLogout?: () => void }
+
+const GoalsScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Image source={require("../assets/logo-text.png")} style={styles.headerLogo} resizeMode="contain" />
-        </View>
-      </View>
+      <TopHeader onLogout={onLogout} />
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Active Goals Section */}
         <View style={styles.sectionHeader}>
           <View style={styles.sectionTitleContainer}>
-            <Ionicons name="radio-button-off-outline" size={24} color="#4A90E2" />
+            <Target width={22} height={22} color="#4A90E2" />
             <Text style={styles.sectionTitle}>Active Goals</Text>
           </View>
           <TouchableOpacity style={styles.setClearGoalButton}>
-            <Ionicons name="add" size={20} color="#fff" />
+            <Plus width={18} height={18} color="#fff" />
             <Text style={styles.setClearGoalButtonText}>Set a Clear Goal</Text>
           </TouchableOpacity>
         </View>
@@ -30,17 +30,15 @@ const GoalsScreen = () => {
         <View style={styles.emptyStateCard}>
           <View style={styles.emptyStateIcon}>
             <View style={styles.iconBackground}>
-              <Ionicons name="radio-button-off-outline" size={40} color="#4A90E2" />
+              <Target width={40} height={40} color="#4A90E2" />
             </View>
           </View>
 
           <Text style={styles.emptyStateTitle}>No Active Goals</Text>
-          <Text style={styles.emptyStateDescription}>
-            Set your first goal to start tracking your progress{"\n"}and achievements.
-          </Text>
+          <Text style={styles.emptyStateDescription}>Set your first goal to start tracking your progress and achievements.</Text>
 
           <TouchableOpacity style={styles.setFirstGoalButton}>
-            <Ionicons name="add" size={20} color="#fff" />
+            <Plus width={18} height={18} color="#fff" />
             <Text style={styles.setFirstGoalButtonText}>Set Your First Goal</Text>
           </TouchableOpacity>
         </View>
@@ -48,7 +46,7 @@ const GoalsScreen = () => {
         {/* Achievement History Section */}
         <View style={styles.achievementSection}>
           <View style={styles.achievementHeader}>
-            <Ionicons name="trophy-outline" size={24} color="#FFB800" />
+            <Trophy width={22} height={22} color="#FFB800" />
             <Text style={styles.achievementTitle}>Your Achievement History</Text>
           </View>
 
