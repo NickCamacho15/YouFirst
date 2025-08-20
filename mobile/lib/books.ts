@@ -43,6 +43,22 @@ export async function addBook(payload: { title: string; author?: string; totalPa
   return data as UserBook
 }
 
+export async function deleteBook(bookId: string): Promise<void> {
+  const { error } = await supabase.from("user_books").delete().eq("id", bookId)
+  if (error) throw new Error(error.message)
+}
+
+export async function markBookCompleted(bookId: string): Promise<UserBook> {
+  const { data, error } = await supabase
+    .from("user_books")
+    .update({ completed_on: new Date().toISOString().slice(0, 10) })
+    .eq("id", bookId)
+    .select("id,user_id,title,author,started_on,completed_on,total_pages,created_at")
+    .single()
+  if (error || !data) throw new Error(error?.message || "Failed to mark completed")
+  return data as UserBook
+}
+
 export type ReadingInsight = {
   id: string
   user_id: string

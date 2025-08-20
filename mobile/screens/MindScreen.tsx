@@ -18,7 +18,8 @@ import { Ionicons } from "@expo/vector-icons"
 import TopHeader from "../components/TopHeader"
 import { Brain } from "lucide-react-native"
 import { saveReadingSession, getReadingStats, listReadingSessions, type ReadingSessionRow } from "../lib/reading"
-import { listBooks, addBook, listInsights, addInsight, type UserBook, type ReadingInsight } from "../lib/books"
+import { listBooks, addBook, listInsights, addInsight, deleteBook, markBookCompleted, type UserBook, type ReadingInsight } from "../lib/books"
+import { saveMeditationSession, getMeditationStats } from "../lib/meditation"
 
 type StatCardProps = {
   title: string
@@ -55,6 +56,9 @@ type ReadingContentProps = {
   sessionCount: number
   averageSeconds: number
   recentSessions: ReadingSessionRow[]
+  openBookPicker: () => void
+  activeBooksCount: number
+  completedBooksCount: number
 }
 
 const ReadingContent: React.FC<ReadingContentProps> = React.memo(
@@ -74,6 +78,9 @@ const ReadingContent: React.FC<ReadingContentProps> = React.memo(
     sessionCount,
     averageSeconds,
     recentSessions,
+    openBookPicker,
+    activeBooksCount,
+    completedBooksCount,
   }) => (
     <>
       <View style={styles.statsGrid}>
@@ -96,8 +103,9 @@ const ReadingContent: React.FC<ReadingContentProps> = React.memo(
           placeholder="Book title (optional)..."
           placeholderTextColor="#999"
           value={bookTitle}
-          onChangeText={setBookTitle}
-          blurOnSubmit={false}
+          editable={false}
+          selectTextOnFocus={false}
+          onPressIn={openBookPicker}
         />
 
         <TouchableOpacity
@@ -138,65 +146,134 @@ const ReadingContent: React.FC<ReadingContentProps> = React.memo(
           <View style={styles.readingStatsContainer}>
             <View style={styles.readingStatCard}>
               <Ionicons name="reader-outline" size={20} color="#4A90E2" />
-              <Text style={styles.readingStatValue}>{sessionCount}</Text>
+              <Text style={styles.readingStatValue}>{activeBooksCount}</Text>
               <Text style={styles.readingStatLabel}>Reading</Text>
             </View>
             <View style={styles.readingStatCard}>
               <Ionicons name="trophy-outline" size={20} color="#10B981" />
-              <Text style={styles.readingStatValue}>0</Text>
+              <Text style={styles.readingStatValue}>{completedBooksCount}</Text>
               <Text style={styles.readingStatLabel}>Completed</Text>
             </View>
           </View>
 
-          <TouchableOpacity style={styles.addBookButton}>
-            <Ionicons name="add" size={20} color="#fff" />
-            <Text style={styles.addBookButtonText}>Add Book to List</Text>
-          </TouchableOpacity>
-
-          {/* Recent Sessions hidden for now */}
-          {/*
-          <View style={styles.cardContainer}>
-            {recentSessions.length === 0 ? (
-              <Text style={styles.cardBodyText}>No reading sessions yet. Start one above and save it.</Text>
-            ) : (
-              recentSessions.map((s) => (
-                <View key={s.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" }}>
-                  <Text style={{ fontWeight: "600", color: "#111827" }}>{s.book_title || "Untitled"}</Text>
-                  <Text style={{ color: "#6b7280" }}>
-                    {new Date(s.started_at).toLocaleDateString()} • {formatDuration(s.duration_seconds)}
-                    {typeof s.pages_read === "number" ? ` • ${s.pages_read} pages` : ""}
-                  </Text>
-                  {s.reflection ? <Text style={{ color: "#374151", marginTop: 2 }}>{s.reflection}</Text> : null}
-                </View>
-              ))
-            )}
-          </View>
-          */}
+          {/* removed duplicate Add Book button here; parent renders a single button */}
         </>
       ) : activeSubTab === "history" ? (
-        <>
-          <Text style={styles.sectionTitleCaps}>Completed Books</Text>
-          <View style={styles.cardContainer}>
-            <Text style={styles.cardBodyText}>No completed books yet. Check off books from your list as you finish them!</Text>
-          </View>
-        </>
+        <></>
       ) : (
-        <>
-          <View style={styles.insightsHeader}>
-            <Text style={styles.sectionTitle}>Reading Insights</Text>
-            <TouchableOpacity style={styles.addInsightButton}>
-              <Ionicons name="add" size={16} color="#fff" />
-              <Text style={styles.addInsightButtonText}>Add Insight</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.cardContainer}>
-            <Text style={styles.cardBodyText}>No insights yet. Add your first insight from your reading!</Text>
-          </View>
-        </>
+        <></>
       )}
     </>
   )
 )
+
+// Meditation tab per design
+const MeditationContent: React.FC<{
+  medTotalSeconds: number
+  medSessionCount: number
+  medDayStreak: number
+  prepSeconds: number
+  intervalMinutes: number
+  meditationMinutes: number
+  onStartSession: () => Promise<void>
+}> = ({ medTotalSeconds, medSessionCount, medDayStreak, prepSeconds, intervalMinutes, meditationMinutes, onStartSession }) => {
+  const formatHrs = (s: number) => `${Math.floor(s / 3600)}h`
+  return (
+    <>
+      {/* Total Time */}
+      <View style={styles.totalTimeCard}>
+        <View style={styles.totalTimeHeader}>
+          <Ionicons name="calendar-outline" size={24} color="#8B5CF6" />
+          <View style={styles.totalTimeContent}>
+            <Text style={styles.totalTimeValue}>{formatHrs(medTotalSeconds)}</Text>
+            <Text style={styles.totalTimeLabel}>Total Time</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Session Stats */}
+      <View style={styles.sessionStatsContainer}>
+        <View style={styles.sessionStatCard}>
+          <Ionicons name="pulse-outline" size={20} color="#4A90E2" />
+          <View style={styles.sessionStatText}>
+            <Text style={styles.sessionStatValue}>{medSessionCount}</Text>
+            <Text style={styles.sessionStatLabel}>Sessions</Text>
+          </View>
+        </View>
+        <View style={styles.sessionStatCard}>
+          <Ionicons name="flame-outline" size={20} color="#FF6B35" />
+          <View style={styles.sessionStatText}>
+            <Text style={styles.sessionStatValue}>{medDayStreak}</Text>
+            <Text style={styles.sessionStatLabel}>Day Streak</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Meditation Timer */}
+      <View style={styles.meditationTimerCard}>
+        <Text style={styles.meditationTimerTitle}>Meditation Timer</Text>
+
+        {/* Preparation Slider */}
+        <View style={styles.sliderContainer}>
+          <View style={styles.sliderHeader}>
+            <Text style={[styles.sliderLabel, { color: "#4A90E2" }]}>Preparation</Text>
+            <Text style={styles.sliderValue}>{prepSeconds}s</Text>
+          </View>
+          <View style={styles.sliderTrack}>
+            <View style={[styles.sliderProgress, { width: `${(prepSeconds / 60) * 100}%`, backgroundColor: "#4A90E2" }]} />
+            <View style={[styles.sliderThumb, { left: `${(prepSeconds / 60) * 100}%`, backgroundColor: "#4A90E2" }]} />
+          </View>
+        </View>
+
+        {/* Interval Slider */}
+        <View style={styles.sliderContainer}>
+          <View style={styles.sliderHeader}>
+            <Text style={[styles.sliderLabel, { color: "#10B981" }]}>Interval</Text>
+            <Text style={styles.sliderValue}>{intervalMinutes}m</Text>
+          </View>
+          <View style={styles.sliderTrack}>
+            <View style={[styles.sliderProgress, { width: `${(intervalMinutes / 30) * 100}%`, backgroundColor: "#10B981" }]} />
+            <View style={[styles.sliderThumb, { left: `${(intervalMinutes / 30) * 100}%`, backgroundColor: "#10B981" }]} />
+          </View>
+        </View>
+
+        {/* Meditation Time Slider */}
+        <View style={styles.sliderContainer}>
+          <View style={styles.sliderHeader}>
+            <Text style={[styles.sliderLabel, { color: "#FF6B35" }]}>Meditation Time</Text>
+            <Text style={styles.sliderValue}>{meditationMinutes}m</Text>
+          </View>
+          <View style={styles.sliderTrack}>
+            <View style={[styles.sliderProgress, { width: `${(meditationMinutes / 60) * 100}%`, backgroundColor: "#FF6B35" }]} />
+            <View style={[styles.sliderThumb, { left: `${(meditationMinutes / 60) * 100}%`, backgroundColor: "#FF6B35" }]} />
+          </View>
+        </View>
+
+        {/* Start Session */}
+        <TouchableOpacity style={styles.startMeditationButton} onPress={onStartSession}>
+          <Text style={styles.startMeditationButtonText}>Start Session</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Milestones placeholder */}
+      <View style={styles.milestonesSection}>
+        <View style={styles.milestonesHeader}>
+          <Ionicons name="trophy-outline" size={24} color="#FFB800" />
+          <Text style={styles.milestonesTitle}>Milestones</Text>
+        </View>
+        <View style={styles.milestonesGrid}>
+          {["First Session","Week Warrior","Mindful Month","Sacred 40","Quarter Master","10 Hour Club","50 Sessions","100 Sessions"].map((t,idx)=> (
+            <View key={idx} style={styles.milestoneCard}>
+              <Ionicons name="star-outline" size={32} color="#ccc" />
+              <Text style={[styles.milestoneTitle, { color: "#ccc" }]}>{t}</Text>
+              <Text style={[styles.milestoneDescription, { color: "#ccc" }]}>Coming soon</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    </>
+  )
+}
 
 interface ScreenProps { onLogout?: () => void }
 
@@ -225,6 +302,16 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   const [addInsightOpen, setAddInsightOpen] = useState(false)
   const [newInsightText, setNewInsightText] = useState("")
   const [selectedBookIdForInsight, setSelectedBookIdForInsight] = useState<string | undefined>(undefined)
+  const [bookPickerOpen, setBookPickerOpen] = useState(false)
+  const [pendingDeleteBookId, setPendingDeleteBookId] = useState<string | null>(null)
+  const [pendingCompleteBookId, setPendingCompleteBookId] = useState<string | null>(null)
+  // Meditation state
+  const [prepSeconds, setPrepSeconds] = useState(30)
+  const [intervalMinutes, setIntervalMinutes] = useState(5)
+  const [meditationMinutes, setMeditationMinutes] = useState(15)
+  const [medTotalSeconds, setMedTotalSeconds] = useState(0)
+  const [medSessionCount, setMedSessionCount] = useState(0)
+  const [medDayStreak, setMedDayStreak] = useState(0)
 
   // Timer effect
   useEffect(() => {
@@ -248,6 +335,10 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
         setRecentSessions(await listReadingSessions(10))
         setBooks(await listBooks())
         setInsights(await listInsights(20))
+        const m = await getMeditationStats()
+        setMedTotalSeconds(m.totalSeconds)
+        setMedSessionCount(m.sessionCount)
+        setMedDayStreak(m.dayStreak)
       } catch {
         // ignore for now
       }
@@ -336,9 +427,35 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
             sessionCount={sessionCount}
             averageSeconds={averageSeconds}
             recentSessions={recentSessions}
+            openBookPicker={() => setBookPickerOpen(true)}
+            activeBooksCount={books.filter((b) => !b.completed_on).length}
+            completedBooksCount={books.filter((b) => !!b.completed_on).length}
           />
         ) : activeTab === "meditation" ? (
-          <MeditationContent />
+          <MeditationContent
+            medTotalSeconds={medTotalSeconds}
+            medSessionCount={medSessionCount}
+            medDayStreak={medDayStreak}
+            prepSeconds={prepSeconds}
+            intervalMinutes={intervalMinutes}
+            meditationMinutes={meditationMinutes}
+            onStartSession={async () => {
+              const now = new Date()
+              const duration = meditationMinutes * 60
+              await saveMeditationSession({
+                startedAt: now.toISOString(),
+                endedAt: new Date(now.getTime() + duration * 1000).toISOString(),
+                durationSeconds: duration,
+                prepSeconds,
+                intervalMinutes,
+                meditationMinutes,
+              })
+              const m = await getMeditationStats()
+              setMedTotalSeconds(m.totalSeconds)
+              setMedSessionCount(m.sessionCount)
+              setMedDayStreak(m.dayStreak)
+            }}
+          />
         ) : (
           <DistractionContent />
         )}
@@ -353,13 +470,27 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                   <Text style={styles.addBookButtonText}>Add Book to List</Text>
                 </TouchableOpacity>
                 <View style={styles.cardContainer}>
-                  {books.length === 0 ? (
+                  {books.filter((b)=>!b.completed_on).length === 0 ? (
                     <Text style={styles.cardBodyText}>No books yet. Add your first book to start tracking.</Text>
                   ) : (
-                    books.map((b) => (
-                      <View key={b.id} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#eee" }}>
-                        <Text style={{ fontWeight: "700", color: "#111827" }}>{b.title}</Text>
-                        <Text style={{ color: "#6b7280" }}>{b.author || "Unknown author"}{b.total_pages ? ` • ${b.total_pages} pages` : ""}</Text>
+                    books.filter((b)=>!b.completed_on).map((b) => (
+                      <View key={b.id} style={{ paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: "#eee" }}>
+                        <Text style={{ fontWeight: "700", color: "#111827", fontSize: 16 }}>{b.title}</Text>
+                        <Text style={{ color: "#6b7280", marginTop: 2 }}>{b.author || "Unknown author"}{b.total_pages ? ` • ${b.total_pages} pages` : ""}</Text>
+                        <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 10 }}>
+                          {b.completed_on ? (
+                            <View style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: "#9CA3AF" }}>
+                              <Text style={{ color: "#fff", fontWeight: "600" }}>Completed</Text>
+                            </View>
+                          ) : (
+                            <TouchableOpacity onPress={() => setPendingCompleteBookId(b.id)} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: "#10B981" }}>
+                              <Text style={{ color: "#fff", fontWeight: "600" }}>Mark completed</Text>
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity onPress={() => setPendingDeleteBookId(b.id)} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: "#EF4444" }}>
+                            <Text style={{ color: "#fff", fontWeight: "600" }}>Delete</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     ))
                   )}
@@ -367,21 +498,37 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
               </>
             )}
             {activeSubTab === "history" && (
-              <View style={styles.cardContainer}>
-                {recentSessions.length === 0 ? (
-                  <Text style={styles.cardBodyText}>No reading sessions yet.</Text>
-                ) : (
-                  recentSessions.map((s) => (
-                    <View key={s.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" }}>
-                      <Text style={{ fontWeight: "600", color: "#111827" }}>{s.book_title || "Untitled"}</Text>
-                      <Text style={{ color: "#6b7280" }}>
-                        {new Date(s.started_at).toLocaleDateString()} • {formatDuration(s.duration_seconds)}
-                        {typeof s.pages_read === "number" ? ` • ${s.pages_read} pages` : ""}
-                      </Text>
-                    </View>
-                  ))
-                )}
-              </View>
+              <>
+                <Text style={styles.sectionTitleCaps}>Completed Books</Text>
+                <View style={styles.cardContainer}>
+                  {books.filter((b)=>!!b.completed_on).length === 0 ? (
+                    <Text style={styles.cardBodyText}>No completed books yet. Check off books from your list as you finish them!</Text>
+                  ) : (
+                    books.filter((b)=>!!b.completed_on).map((b)=> (
+                      <View key={b.id} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#eee" }}>
+                        <Text style={{ fontWeight: "700", color: "#111827" }}>{b.title}</Text>
+                        <Text style={{ color: "#6b7280" }}>{b.author || "Unknown author"}{b.total_pages ? ` • ${b.total_pages} pages` : ""}</Text>
+                      </View>
+                    ))
+                  )}
+                </View>
+                <Text style={styles.sectionTitleCaps}>Reading Sessions</Text>
+                <View style={styles.cardContainer}>
+                  {recentSessions.length === 0 ? (
+                    <Text style={styles.cardBodyText}>No reading sessions yet.</Text>
+                  ) : (
+                    recentSessions.map((s) => (
+                      <View key={s.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" }}>
+                        <Text style={{ fontWeight: "600", color: "#111827" }}>{s.book_title || "Untitled"}</Text>
+                        <Text style={{ color: "#6b7280" }}>
+                          {new Date(s.started_at).toLocaleDateString()} • {formatDuration(s.duration_seconds)}
+                          {typeof s.pages_read === "number" ? ` • ${s.pages_read} pages` : ""}
+                        </Text>
+                      </View>
+                    ))
+                  )}
+                </View>
+              </>
             )}
             {activeSubTab === "insights" && (
               <>
@@ -399,6 +546,9 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                     insights.map((i) => (
                       <View key={i.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" }}>
                         <Text style={{ color: "#111827" }}>{i.insight}</Text>
+                        {i.book_id ? (
+                          <Text style={{ color: "#6b7280", marginTop: 2 }}>From {books.find((b)=>b.id===i.book_id)?.title || "Unknown book"}</Text>
+                        ) : null}
                         <Text style={{ color: "#6b7280", marginTop: 2 }}>{new Date(i.created_at).toLocaleString()}</Text>
                       </View>
                     ))
@@ -428,6 +578,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                 if (!newBookTitle.trim()) return
                 const created = await addBook({ title: newBookTitle.trim(), author: newBookAuthor.trim() || undefined, totalPages: newBookPages.trim() ? parseInt(newBookPages, 10) : undefined })
                 setBooks([created, ...books])
+                setBookTitle(created.title)
                 setAddBookOpen(false); setNewBookTitle(""); setNewBookAuthor(""); setNewBookPages("")
               }} style={{ backgroundColor: "#111827", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 }}>
                 <Text style={{ color: "#fff", fontWeight: "700" }}>Save</Text>
@@ -546,6 +697,87 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                 style={{ backgroundColor: "#111827", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 }}
               >
                 <Text style={{ color: "#fff", fontWeight: "700" }}>{isSaving ? "Saving..." : "Save Session"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Book Picker Modal */}
+      <Modal visible={bookPickerOpen} animationType="fade" transparent>
+        <View style={{ flex: 1, backgroundColor: "#00000066", justifyContent: "center", padding: 20 }}>
+          <View style={{ backgroundColor: "#fff", borderRadius: 12, padding: 16, maxHeight: 400 }}>
+            <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 8 }}>Select Book</Text>
+            <ScrollView>
+              {books.filter((b)=>!b.completed_on).map((b) => (
+                <TouchableOpacity key={b.id} style={{ paddingVertical: 10 }} onPress={() => { setBookTitle(b.title); setBookPickerOpen(false) }}>
+                  <Text style={{ fontWeight: "600" }}>{b.title}</Text>
+                  <Text style={{ color: "#6b7280" }}>{b.author || "Unknown author"}</Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity style={{ paddingVertical: 12 }} onPress={() => { setBookPickerOpen(false); setAddBookOpen(true) }}>
+                <Text style={{ color: "#2563EB", fontWeight: "700" }}>+ Add new book</Text>
+              </TouchableOpacity>
+            </ScrollView>
+            <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 8 }}>
+              <TouchableOpacity onPress={() => setBookPickerOpen(false)} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}>
+                <Text>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Book Confirm */}
+      <Modal visible={!!pendingDeleteBookId} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: "#00000066", justifyContent: "center", padding: 20 }}>
+          <View style={{ backgroundColor: "#fff", borderRadius: 12, padding: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 8 }}>Delete book?</Text>
+            <Text style={{ color: "#6b7280", marginBottom: 12 }}>This action cannot be undone.</Text>
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <TouchableOpacity onPress={() => setPendingDeleteBookId(null)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8 }}>
+                <Text>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={async () => {
+                const id = pendingDeleteBookId
+                setPendingDeleteBookId(null)
+                if (!id) return
+                try {
+                  await deleteBook(id)
+                  setBooks((prev) => prev.filter((b) => b.id !== id))
+                  // If current title was this book, clear it
+                  setBookTitle((title) => {
+                    const deleted = books.find((b)=>b.id===id)
+                    return deleted && deleted.title === title ? "" : title
+                  })
+                } catch {}
+              }} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: "#EF4444" }}>
+                <Text style={{ color: "#fff", fontWeight: "700" }}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Mark Completed Confirm */}
+      <Modal visible={!!pendingCompleteBookId} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: "#00000066", justifyContent: "center", padding: 20 }}>
+          <View style={{ backgroundColor: "#fff", borderRadius: 12, padding: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 8 }}>Mark book as completed?</Text>
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <TouchableOpacity onPress={() => setPendingCompleteBookId(null)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8 }}>
+                <Text>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={async () => {
+                const id = pendingCompleteBookId
+                setPendingCompleteBookId(null)
+                if (!id) return
+                try {
+                  const updated = await markBookCompleted(id)
+                  setBooks((prev) => prev.map((b) => (b.id === id ? updated : b)))
+                } catch {}
+              }} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: "#10B981" }}>
+                <Text style={{ color: "#fff", fontWeight: "700" }}>Mark Completed</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -959,13 +1191,15 @@ const styles = StyleSheet.create({
   sessionStatsContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 30,
+    marginBottom: 20,
   },
   sessionStatCard: {
     backgroundColor: "#fff",
     borderRadius: 12,
-    padding: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     width: "48%",
+    flexDirection: "row",
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: {
@@ -976,14 +1210,17 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  sessionStatText: {
+    marginLeft: 10,
+  },
   sessionStatValue: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "700",
     color: "#333",
-    marginVertical: 8,
+    marginBottom: 2,
   },
   sessionStatLabel: {
-    fontSize: 14,
+    fontSize: 12,
     color: "#666",
   },
   meditationTimerCard: {
