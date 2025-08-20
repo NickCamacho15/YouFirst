@@ -1,7 +1,11 @@
 import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image } from "react-native"
+import React, { useState } from "react"
+import GoalWizardModal from "../components/GoalWizardModal"
 import { Ionicons } from "@expo/vector-icons"
 
 const GoalsScreen = () => {
+  const [wizardOpen, setWizardOpen] = useState(false)
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
@@ -20,7 +24,7 @@ const GoalsScreen = () => {
             <Ionicons name="radio-button-off-outline" size={24} color="#4A90E2" />
             <Text style={styles.sectionTitle}>Active Goals</Text>
           </View>
-          <TouchableOpacity style={styles.setClearGoalButton}>
+          <TouchableOpacity style={styles.setClearGoalButton} onPress={() => setWizardOpen(true)}>
             <Ionicons name="add" size={20} color="#fff" />
             <Text style={styles.setClearGoalButtonText}>Set a Clear Goal</Text>
           </TouchableOpacity>
@@ -39,7 +43,7 @@ const GoalsScreen = () => {
             Set your first goal to start tracking your progress{"\n"}and achievements.
           </Text>
 
-          <TouchableOpacity style={styles.setFirstGoalButton}>
+          <TouchableOpacity style={styles.setFirstGoalButton} onPress={() => setWizardOpen(true)}>
             <Ionicons name="add" size={20} color="#fff" />
             <Text style={styles.setFirstGoalButtonText}>Set Your First Goal</Text>
           </TouchableOpacity>
@@ -58,6 +62,7 @@ const GoalsScreen = () => {
           </View>
         </View>
       </ScrollView>
+      <GoalWizardModal visible={wizardOpen} onClose={() => setWizardOpen(false)} />
     </SafeAreaView>
   )
 }

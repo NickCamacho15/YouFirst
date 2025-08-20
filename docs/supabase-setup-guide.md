@@ -62,6 +62,21 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
+-- READING_SESSIONS (Mind → Reading)
+create table if not exists public.reading_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  started_at timestamptz not null,
+  ended_at timestamptz not null,
+  duration_seconds int not null check (duration_seconds >= 0),
+  book_title text,
+  reflection text,
+  pages_read int check (pages_read >= 0),
+  created_at timestamptz default now()
+);
+create index if not exists reading_sessions_user_started_idx on public.reading_sessions(user_id, started_at desc);
+alter table public.reading_sessions enable row level security;
+
 -- HABITS
 create table if not exists public.habits (
   id uuid primary key default gen_random_uuid(),
@@ -166,6 +181,15 @@ create policy habit_logs_update_own on public.habit_logs
     user_id = auth.uid() and
     exists (select 1 from public.habits h where h.id = habit_id and h.user_id = auth.uid())
   );
+
+-- READING_SESSIONS policies
+drop policy if exists reading_sessions_select_own on public.reading_sessions;
+create policy reading_sessions_select_own on public.reading_sessions
+  for select to authenticated using (user_id = auth.uid());
+
+drop policy if exists reading_sessions_cud_own on public.reading_sessions;
+create policy reading_sessions_cud_own on public.reading_sessions
+  for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- GOALS policies
 drop policy if exists goals_select_own on public.goals;
@@ -296,3 +320,76 @@ For production, consider setting up regular database backups:
 - Create database functions for complex operations
 - Implement server-side validations with database triggers
 - Consider adding full-text search capabilities
+
+## Challenges (40–100 Day) Schema
+
+The app's "Start New Challenge" feature needs persistent storage so users can resume progress across devices. The production database already contains legacy integer-based tables named `public.challenges` and `public.challenge_logs`. To avoid conflicts and align with Supabase Auth UUID users, create new tables with UUID keys:
+
+```sql
+-- USER_CHALLENGES
+create table if not exists public.user_challenges (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  title text not null,
+  description text,
+  duration_days int not null check (duration_days in (40,70,100)),
+  start_date date not null default current_date,
+  share_code text unique,
+  status text not null default 'active' check (status in ('active','completed','cancelled')),
+  rules text[] not null default '{}',
+  created_at timestamptz default now()
+);
+create index if not exists user_challenges_user_id_idx on public.user_challenges(user_id);
+alter table public.user_challenges enable row level security;
+
+-- DAILY RULE CHECKS (per-rule, per-day)
+create table if not exists public.user_challenge_rule_checks (
+  id uuid primary key default gen_random_uuid(),
+  challenge_id uuid not null references public.user_challenges(id) on delete cascade,
+  user_id uuid not null references public.users(id) on delete cascade,
+  rule_index int not null,              -- 0-based index into challenges.rules
+  log_date date not null,
+  completed boolean not null default true,
+  created_at timestamptz default now(),
+  unique (challenge_id, rule_index, log_date)
+);
+create index if not exists ucrc_user_date_idx on public.user_challenge_rule_checks(user_id, log_date);
+alter table public.user_challenge_rule_checks enable row level security;
+```
+
+RLS policies ensuring users can access only their own data:
+
+```sql
+-- USER_CHALLENGES policies
+drop policy if exists user_challenges_select_own on public.user_challenges;
+create policy user_challenges_select_own on public.user_challenges
+  for select to authenticated using (user_id = auth.uid());
+
+drop policy if exists user_challenges_cud_own on public.user_challenges;
+create policy user_challenges_cud_own on public.user_challenges
+  for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- USER_CHALLENGE_RULE_CHECKS policies
+drop policy if exists ucrc_select_own on public.user_challenge_rule_checks;
+create policy ucrc_select_own on public.user_challenge_rule_checks
+  for select to authenticated using (user_id = auth.uid());
+
+drop policy if exists ucrc_cud_own on public.user_challenge_rule_checks;
+create policy ucrc_cud_own on public.user_challenge_rule_checks
+  for all to authenticated using (
+    user_id = auth.uid() and exists (
+      select 1 from public.user_challenges c where c.id = challenge_id and c.user_id = auth.uid()
+    )
+  ) with check (
+    user_id = auth.uid() and exists (
+      select 1 from public.user_challenges c where c.id = challenge_id and c.user_id = auth.uid()
+    )
+  );
+```
+
+Notes:
+
+- `rules` is a `text[]` storing the short rule labels typed in the UI. If you later need rich rules, introduce a `user_challenge_rules` table and migrate.
+- We store per-rule daily checks in `user_challenge_rule_checks` to power the checkbox list and progress calendar.
+- `share_code` is optional and can be used for a short human-friendly identifier.
+- Legacy tables `public.challenges` and `public.challenge_logs` may remain for other features. Do not drop or rename them; the app will read/write only the `user_*` tables above.

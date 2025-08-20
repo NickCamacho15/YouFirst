@@ -1,6 +1,6 @@
 "use client"
 
-import type React from "react"
+import React from "react"
 import { useState, useEffect } from "react"
 import {
   View,
@@ -12,92 +12,77 @@ import {
   StatusBar,
   Image,
   TextInput,
+  Modal,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import TopHeader from "../components/TopHeader"
 import { Brain } from "lucide-react-native"
+import { saveReadingSession, getReadingStats, listReadingSessions, type ReadingSessionRow } from "../lib/reading"
+import { listBooks, addBook, listInsights, addInsight, type UserBook, type ReadingInsight } from "../lib/books"
 
-interface ScreenProps { onLogout?: () => void }
+type StatCardProps = {
+  title: string
+  value: string
+  subtitle: string
+  icon: string
+  iconColor: string
+}
 
-const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
-  const [activeTab, setActiveTab] = useState("reading")
-  const [activeSubTab, setActiveSubTab] = useState("list")
-  const [isSessionActive, setIsSessionActive] = useState(false)
-  const [sessionTime, setSessionTime] = useState(0)
-  const [bookTitle, setBookTitle] = useState("")
-
-  // Timer effect
-  useEffect(() => {
-    let interval: NodeJS.Timeout
-    if (isSessionActive) {
-      interval = setInterval(() => {
-        setSessionTime((prev) => prev + 1)
-      }, 1000)
-    }
-    return () => clearInterval(interval)
-  }, [isSessionActive])
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
-  }
-
-  const formatDuration = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600)
-    const mins = Math.floor((seconds % 3600) / 60)
-    if (hours > 0) {
-      return `${hours}h ${mins}m`
-    }
-    return `${mins}m`
-  }
-
-  const StatCard = ({
-    title,
-    value,
-    subtitle,
-    icon,
-    iconColor,
-  }: {
-    title: string
-    value: string
-    subtitle: string
-    icon: string
-    iconColor: string
-  }) => (
-    <View style={styles.statCard}>
-      <View style={styles.statHeader}>
-        <Text style={styles.statTitle}>{title}</Text>
-        <Ionicons name={icon as any} size={20} color={iconColor} />
-      </View>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statSubtitle}>{subtitle}</Text>
+const StatCard: React.FC<StatCardProps> = React.memo(({ title, value, subtitle, icon, iconColor }) => (
+  <View style={styles.statCard}>
+    <View style={styles.statHeader}>
+      <Text style={styles.statTitle}>{title}</Text>
+      <Ionicons name={icon as any} size={20} color={iconColor} />
     </View>
-  )
+    <Text style={styles.statValue}>{value}</Text>
+    <Text style={styles.statSubtitle}>{subtitle}</Text>
+  </View>
+))
 
-  const ReadingContent = () => (
+type ReadingContentProps = {
+  activeSubTab: string
+  setActiveSubTab: (t: string) => void
+  formatTime: (s: number) => string
+  formatDuration: (s: number) => string
+  sessionTime: number
+  isSessionActive: boolean
+  isPaused: boolean
+  bookTitle: string
+  setBookTitle: (t: string) => void
+  onStartPauseResume: () => void
+  onEndReflect: () => void
+  totalSeconds: number
+  sessionCount: number
+  averageSeconds: number
+  recentSessions: ReadingSessionRow[]
+}
+
+const ReadingContent: React.FC<ReadingContentProps> = React.memo(
+  ({
+    activeSubTab,
+    setActiveSubTab,
+    formatTime,
+    formatDuration,
+    sessionTime,
+    isSessionActive,
+    isPaused,
+    bookTitle,
+    setBookTitle,
+    onStartPauseResume,
+    onEndReflect,
+    totalSeconds,
+    sessionCount,
+    averageSeconds,
+    recentSessions,
+  }) => (
     <>
-      {/* Statistics Grid */}
       <View style={styles.statsGrid}>
-        <StatCard title="Total Time" value="0h 0m" subtitle="All sessions" icon="time-outline" iconColor="#4A90E2" />
-        <StatCard title="Sessions" value="0" subtitle="Completed" icon="book-outline" iconColor="#10B981" />
-        <StatCard
-          title="Average Time"
-          value="0m"
-          subtitle="Per session"
-          icon="trending-up-outline"
-          iconColor="#8B5CF6"
-        />
-        <StatCard
-          title="Books Completed"
-          value="0"
-          subtitle="Finished"
-          icon="checkmark-circle-outline"
-          iconColor="#F59E0B"
-        />
+        <StatCard title="Total Time" value={formatDuration(totalSeconds)} subtitle="All sessions" icon="time-outline" iconColor="#4A90E2" />
+        <StatCard title="Sessions" value={String(sessionCount)} subtitle="Completed" icon="book-outline" iconColor="#10B981" />
+        <StatCard title="Average Time" value={formatDuration(averageSeconds)} subtitle="Per session" icon="trending-up-outline" iconColor="#8B5CF6" />
+        <StatCard title="Books Completed" value="0" subtitle="Finished" icon="checkmark-circle-outline" iconColor="#F59E0B" />
       </View>
 
-      {/* Reading Session */}
       <View style={styles.sessionSection}>
         <Text style={styles.sessionTitle}>Reading Session</Text>
 
@@ -112,63 +97,48 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
           placeholderTextColor="#999"
           value={bookTitle}
           onChangeText={setBookTitle}
+          blurOnSubmit={false}
         />
 
         <TouchableOpacity
           style={[styles.sessionButton, isSessionActive ? styles.endSessionButton : styles.startSessionButton]}
-          onPress={() => {
-            if (isSessionActive) {
-              setIsSessionActive(false)
-            } else {
-              setIsSessionActive(true)
-              setSessionTime(0)
-            }
-          }}
+          onPress={onStartPauseResume}
         >
-          <Ionicons name={isSessionActive ? "stop" : "play"} size={20} color="#fff" />
-          <Text style={styles.sessionButtonText}>{isSessionActive ? "End Session" : "Start Reading"}</Text>
+          <Ionicons name={!isSessionActive ? "play" : isPaused ? "play" : "pause"} size={20} color="#fff" />
+          <Text style={styles.sessionButtonText}>
+            {!isSessionActive ? "Start Reading" : isPaused ? "Resume Session" : "Pause Session"}
+          </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.reflectButton} disabled={!isSessionActive}>
+        <TouchableOpacity style={styles.reflectButton} disabled={!isSessionActive} onPress={onEndReflect}>
           <Ionicons name="square-outline" size={20} color="#FF6B35" />
           <Text style={styles.reflectButtonText}>End & Reflect</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Sub Tab Navigation */}
       <View style={styles.subTabContainer}>
-        <TouchableOpacity
-          style={[styles.subTab, activeSubTab === "list" && styles.activeSubTab]}
-          onPress={() => setActiveSubTab("list")}
-        >
+        <TouchableOpacity style={[styles.subTab, activeSubTab === "list" && styles.activeSubTab]} onPress={() => setActiveSubTab("list")}>
           <Ionicons name="book-outline" size={20} color={activeSubTab === "list" ? "#333" : "#999"} />
           <Text style={[styles.subTabText, activeSubTab === "list" && styles.activeSubTabText]}>List</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.subTab, activeSubTab === "history" && styles.activeSubTab]}
-          onPress={() => setActiveSubTab("history")}
-        >
+        <TouchableOpacity style={[styles.subTab, activeSubTab === "history" && styles.activeSubTab]} onPress={() => setActiveSubTab("history")}>
           <Ionicons name="time-outline" size={20} color={activeSubTab === "history" ? "#333" : "#999"} />
           <Text style={[styles.subTabText, activeSubTab === "history" && styles.activeSubTabText]}>History</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.subTab, activeSubTab === "insights" && styles.activeSubTab]}
-          onPress={() => setActiveSubTab("insights")}
-        >
+        <TouchableOpacity style={[styles.subTab, activeSubTab === "insights" && styles.activeSubTab]} onPress={() => setActiveSubTab("insights")}>
           <Ionicons name="bulb-outline" size={20} color={activeSubTab === "insights" ? "#333" : "#999"} />
           <Text style={[styles.subTabText, activeSubTab === "insights" && styles.activeSubTabText]}>Insights</Text>
         </TouchableOpacity>
       </View>
-      {/* Sub Tab Content */}
+
       {activeSubTab === "list" ? (
         <>
-          {/* Reading Stats */}
           <View style={styles.readingStatsContainer}>
             <View style={styles.readingStatCard}>
               <Ionicons name="reader-outline" size={20} color="#4A90E2" />
-              <Text style={styles.readingStatValue}>0</Text>
+              <Text style={styles.readingStatValue}>{sessionCount}</Text>
               <Text style={styles.readingStatLabel}>Reading</Text>
             </View>
             <View style={styles.readingStatCard}>
@@ -178,20 +148,30 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
             </View>
           </View>
 
-          {/* Add Book Button */}
           <TouchableOpacity style={styles.addBookButton}>
             <Ionicons name="add" size={20} color="#fff" />
             <Text style={styles.addBookButtonText}>Add Book to List</Text>
           </TouchableOpacity>
 
-          {/* Empty State */}
-          <View style={styles.emptyStateContainer}>
-            <View style={styles.bookIconContainer}>
-              <Ionicons name="book-outline" size={48} color="#10B981" />
-            </View>
-            <Text style={styles.emptyStateTitle}>No books in your list yet</Text>
-            <Text style={styles.emptyStateDescription}>Add your first book to get started!</Text>
+          {/* Recent Sessions hidden for now */}
+          {/*
+          <View style={styles.cardContainer}>
+            {recentSessions.length === 0 ? (
+              <Text style={styles.cardBodyText}>No reading sessions yet. Start one above and save it.</Text>
+            ) : (
+              recentSessions.map((s) => (
+                <View key={s.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" }}>
+                  <Text style={{ fontWeight: "600", color: "#111827" }}>{s.book_title || "Untitled"}</Text>
+                  <Text style={{ color: "#6b7280" }}>
+                    {new Date(s.started_at).toLocaleDateString()} • {formatDuration(s.duration_seconds)}
+                    {typeof s.pages_read === "number" ? ` • ${s.pages_read} pages` : ""}
+                  </Text>
+                  {s.reflection ? <Text style={{ color: "#374151", marginTop: 2 }}>{s.reflection}</Text> : null}
+                </View>
+              ))
+            )}
           </View>
+          */}
         </>
       ) : activeSubTab === "history" ? (
         <>
@@ -216,405 +196,101 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
       )}
     </>
   )
+)
 
-  const MeditationContent = () => {
-    const [preparationTime, setPreparationTime] = useState(30)
-    const [intervalTime, setIntervalTime] = useState(5)
-    const [meditationTime, setMeditationTime] = useState(15)
+interface ScreenProps { onLogout?: () => void }
 
-    const formatSliderTime = (seconds: number, isMinutes = false) => {
-      if (isMinutes) {
-        return `${seconds}m`
-      }
-      return `${seconds}s`
+const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
+  const [activeTab, setActiveTab] = useState("reading")
+  const [activeSubTab, setActiveSubTab] = useState("list")
+  const [isSessionActive, setIsSessionActive] = useState(false)
+  const [isPaused, setIsPaused] = useState(false)
+  const [sessionTime, setSessionTime] = useState(0)
+  const [sessionStartedAt, setSessionStartedAt] = useState<Date | null>(null)
+  const [bookTitle, setBookTitle] = useState("")
+  const [isReflectOpen, setIsReflectOpen] = useState(false)
+  const [reflectionText, setReflectionText] = useState("")
+  const [pagesRead, setPagesRead] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+  const [totalSeconds, setTotalSeconds] = useState(0)
+  const [sessionCount, setSessionCount] = useState(0)
+  const [averageSeconds, setAverageSeconds] = useState(0)
+  const [recentSessions, setRecentSessions] = useState<ReadingSessionRow[]>([])
+  const [books, setBooks] = useState<UserBook[]>([])
+  const [insights, setInsights] = useState<ReadingInsight[]>([])
+  const [addBookOpen, setAddBookOpen] = useState(false)
+  const [newBookTitle, setNewBookTitle] = useState("")
+  const [newBookAuthor, setNewBookAuthor] = useState("")
+  const [newBookPages, setNewBookPages] = useState("")
+  const [addInsightOpen, setAddInsightOpen] = useState(false)
+  const [newInsightText, setNewInsightText] = useState("")
+  const [selectedBookIdForInsight, setSelectedBookIdForInsight] = useState<string | undefined>(undefined)
+
+  // Timer effect
+  useEffect(() => {
+    let interval: NodeJS.Timeout
+    if (isSessionActive && !isPaused) {
+      interval = setInterval(() => {
+        setSessionTime((prev) => prev + 1)
+      }, 1000)
     }
+    return () => clearInterval(interval)
+  }, [isSessionActive, isPaused])
 
-    const milestones = [
-      {
-        title: "First Session",
-        description: "Complete your first meditation",
-        icon: "star-outline",
-        achieved: false,
-      },
-      {
-        title: "Week Warrior",
-        description: "7 day streak",
-        icon: "flame-outline",
-        achieved: false,
-      },
-      {
-        title: "Mindful Month",
-        description: "30 day streak",
-        icon: "trophy-outline",
-        achieved: false,
-      },
-      {
-        title: "Sacred 40",
-        description: "40 day streak",
-        icon: "ribbon-outline",
-        achieved: false,
-      },
-      {
-        title: "Quarter Master",
-        description: "4 month streak",
-        icon: "diamond-outline",
-        achieved: false,
-      },
-      {
-        title: "10 Hour Club",
-        description: "10 hours total",
-        icon: "medal-outline",
-        achieved: false,
-      },
-      {
-        title: "50 Sessions",
-        description: "Complete 50 sessions",
-        icon: "ribbon-outline",
-        achieved: false,
-      },
-      {
-        title: "100 Sessions",
-        description: "Complete 100 sessions",
-        icon: "flash-outline",
-        achieved: false,
-      },
-    ]
+  // Load stats and recent sessions
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const stats = await getReadingStats()
+        setTotalSeconds(stats.totalSeconds)
+        setSessionCount(stats.sessionCount)
+        setAverageSeconds(stats.averageSeconds)
+        setRecentSessions(await listReadingSessions(10))
+        setBooks(await listBooks())
+        setInsights(await listInsights(20))
+      } catch {
+        // ignore for now
+      }
+    })()
+  }, [])
 
-    return (
-      <>
-        {/* Total Time Card */}
-        <View style={styles.totalTimeCard}>
-          <View style={styles.totalTimeHeader}>
-            <Ionicons name="calendar-outline" size={24} color="#8B5CF6" />
-            <View style={styles.totalTimeContent}>
-              <Text style={styles.totalTimeValue}>0h</Text>
-              <Text style={styles.totalTimeLabel}>Total Time</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Session Stats */}
-        <View style={styles.sessionStatsContainer}>
-          <View style={styles.sessionStatCard}>
-            <Ionicons name="pulse-outline" size={24} color="#4A90E2" />
-            <Text style={styles.sessionStatValue}>0</Text>
-            <Text style={styles.sessionStatLabel}>Sessions</Text>
-          </View>
-          <View style={styles.sessionStatCard}>
-            <Ionicons name="flame-outline" size={24} color="#FF6B35" />
-            <Text style={styles.sessionStatValue}>0</Text>
-            <Text style={styles.sessionStatLabel}>Day Streak</Text>
-          </View>
-        </View>
-
-        {/* Meditation Timer */}
-        <View style={styles.meditationTimerCard}>
-          <Text style={styles.meditationTimerTitle}>Meditation Timer</Text>
-
-          {/* Preparation Slider */}
-          <View style={styles.sliderContainer}>
-            <View style={styles.sliderHeader}>
-              <Text style={[styles.sliderLabel, { color: "#4A90E2" }]}>Preparation</Text>
-              <Text style={styles.sliderValue}>{formatSliderTime(preparationTime)}</Text>
-            </View>
-            <View style={styles.sliderTrack}>
-              <View
-                style={[
-                  styles.sliderProgress,
-                  { width: `${(preparationTime / 60) * 100}%`, backgroundColor: "#4A90E2" },
-                ]}
-              />
-              <View
-                style={[styles.sliderThumb, { left: `${(preparationTime / 60) * 100}%`, backgroundColor: "#4A90E2" }]}
-              />
-            </View>
-          </View>
-
-          {/* Interval Slider */}
-          <View style={styles.sliderContainer}>
-            <View style={styles.sliderHeader}>
-              <Text style={[styles.sliderLabel, { color: "#10B981" }]}>Interval</Text>
-              <Text style={styles.sliderValue}>{formatSliderTime(intervalTime, true)}</Text>
-            </View>
-            <View style={styles.sliderTrack}>
-              <View
-                style={[styles.sliderProgress, { width: `${(intervalTime / 30) * 100}%`, backgroundColor: "#10B981" }]}
-              />
-              <View
-                style={[styles.sliderThumb, { left: `${(intervalTime / 30) * 100}%`, backgroundColor: "#10B981" }]}
-              />
-            </View>
-          </View>
-
-          {/* Meditation Time Slider */}
-          <View style={styles.sliderContainer}>
-            <View style={styles.sliderHeader}>
-              <Text style={[styles.sliderLabel, { color: "#FF6B35" }]}>Meditation Time</Text>
-              <Text style={styles.sliderValue}>{formatSliderTime(meditationTime, true)}</Text>
-            </View>
-            <View style={styles.sliderTrack}>
-              <View
-                style={[
-                  styles.sliderProgress,
-                  { width: `${(meditationTime / 60) * 100}%`, backgroundColor: "#FF6B35" },
-                ]}
-              />
-              <View
-                style={[styles.sliderThumb, { left: `${(meditationTime / 60) * 100}%`, backgroundColor: "#FF6B35" }]}
-              />
-            </View>
-          </View>
-
-          {/* Start Session Button */}
-          <TouchableOpacity style={styles.startMeditationButton}>
-            <Text style={styles.startMeditationButtonText}>Start Session</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Milestones */}
-        <View style={styles.milestonesSection}>
-          <View style={styles.milestonesHeader}>
-            <Ionicons name="trophy-outline" size={24} color="#FFB800" />
-            <Text style={styles.milestonesTitle}>Milestones</Text>
-          </View>
-
-          <View style={styles.milestonesGrid}>
-            {milestones.map((milestone, index) => (
-              <View key={index} style={styles.milestoneCard}>
-                <Ionicons name={milestone.icon as any} size={32} color={milestone.achieved ? "#4A90E2" : "#ccc"} />
-                <Text style={[styles.milestoneTitle, { color: milestone.achieved ? "#333" : "#ccc" }]}>
-                  {milestone.title}
-                </Text>
-                <Text style={[styles.milestoneDescription, { color: milestone.achieved ? "#666" : "#ccc" }]}>
-                  {milestone.description}
-                </Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      </>
-    )
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
   }
 
-  const DistractionContent = () => {
-    const [selectedWeek, setSelectedWeek] = useState("Aug 10 - Aug 16")
-    const [socialMediaApps, setSocialMediaApps] = useState([
-      { name: "Instagram", icon: "logo-instagram", color: "#E4405F", hours: 0, minutes: 0 },
-      { name: "TikTok", icon: "musical-notes", color: "#000", hours: 0, minutes: 0 },
-      { name: "Snapchat", icon: "camera", color: "#FFFC00", hours: 0, minutes: 0 },
-      { name: "X", icon: "logo-twitter", color: "#1DA1F2", hours: 0, minutes: 0 },
-    ])
-
-    const weekDays = [
-      { day: "Sun", date: 10 },
-      { day: "Mon", date: 11, selected: true },
-      { day: "Tue", date: 12 },
-      { day: "Wed", date: 13 },
-      { day: "Thu", date: 14 },
-      { day: "Fri", date: 15 },
-      { day: "Sat", date: 16 },
-    ]
-
-    const monthDays = Array.from({ length: 31 }, (_, i) => i + 1)
-
-    const removeApp = (index: number) => {
-      setSocialMediaApps((apps) => apps.filter((_, i) => i !== index))
+  const formatDuration = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600)
+    const mins = Math.floor((seconds % 3600) / 60)
+    if (hours > 0) {
+      return `${hours}h ${mins}m`
     }
+    return `${mins}m`
+  }
 
-    return (
-      <>
-        {/* Stats Cards */}
-        <View style={styles.distractionStatsContainer}>
-          <View style={styles.distractionStatCard}>
-            <Ionicons name="time-outline" size={24} color="#4A90E2" />
-            <View style={styles.distractionStatContent}>
-              <Text style={styles.distractionStatLabel}>Total Time</Text>
-              <Text style={styles.distractionStatValue}>0m</Text>
-            </View>
-          </View>
-          <View style={styles.distractionStatCard}>
-            <Ionicons name="trending-up-outline" size={24} color="#10B981" />
-            <View style={styles.distractionStatContent}>
-              <Text style={styles.distractionStatLabel}>Daily Average</Text>
-              <Text style={styles.distractionStatValue}>0m</Text>
-            </View>
-          </View>
-        </View>
+  const onStartPauseResume = () => {
+    if (!isSessionActive) {
+      setIsSessionActive(true)
+      setIsPaused(false)
+      setSessionTime(0)
+      setSessionStartedAt(new Date())
+      return
+    }
+    setIsPaused((p) => !p)
+  }
 
-        {/* Track Social Media Time */}
-        <View style={styles.trackingSection}>
-          <View style={styles.trackingHeader}>
-            <View style={styles.trackingTitleContainer}>
-              <Ionicons name="phone-portrait-outline" size={20} color="#4A90E2" />
-              <Text style={styles.trackingTitle}>Track Your Social Media Time</Text>
-            </View>
-            <View style={styles.weekSelector}>
-              <TouchableOpacity>
-                <Ionicons name="chevron-back" size={20} color="#666" />
-              </TouchableOpacity>
-              <Text style={styles.weekText}>{selectedWeek}</Text>
-              <TouchableOpacity>
-                <Ionicons name="chevron-forward" size={20} color="#666" />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Week Calendar */}
-          <View style={styles.weekCalendar}>
-            {weekDays.map((day, index) => (
-              <View key={index} style={styles.weekDay}>
-                <Text style={styles.weekDayName}>{day.day}</Text>
-                <Text style={[styles.weekDayDate, day.selected && styles.selectedWeekDay]}>{day.date}</Text>
-              </View>
-            ))}
-          </View>
-
-          {/* Social Media Apps */}
-          <View style={styles.socialMediaApps}>
-            {socialMediaApps.map((app, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.socialMediaApp,
-                  { backgroundColor: app.color === "#000" ? "#f0f0f0" : `${app.color}20` },
-                ]}
-              >
-                <View style={styles.appInfo}>
-                  <View style={[styles.appIcon, { backgroundColor: app.color }]}>
-                    <Ionicons name={app.icon as any} size={24} color="#fff" />
-                  </View>
-                  <Text style={styles.appName}>{app.name}</Text>
-                </View>
-                <View style={styles.timeInputs}>
-                  <View style={styles.timeInputContainer}>
-                    <Text style={styles.timeInputLabel}>Hr</Text>
-                    <TextInput style={styles.timeInput} value={app.hours.toString()} />
-                  </View>
-                  <View style={styles.timeInputContainer}>
-                    <Text style={styles.timeInputLabel}>Min</Text>
-                    <TextInput style={styles.timeInput} value={app.minutes.toString()} />
-                  </View>
-                  <TouchableOpacity onPress={() => removeApp(index)} style={styles.removeButton}>
-                    <Ionicons name="close" size={20} color="#666" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        {/* Monthly Calendar */}
-        <View style={styles.monthlySection}>
-          <View style={styles.monthlySectionHeader}>
-            <Ionicons name="calendar-outline" size={20} color="#EF4444" />
-            <Text style={styles.monthlySectionTitle}>Social Media Time This Month</Text>
-          </View>
-
-          {/* Legend */}
-          <View style={styles.legend}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e0e0e0" }]} />
-              <Text style={styles.legendText}>No usage</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: "#D1FAE5" }]} />
-              <Text style={styles.legendText}>{"<1hr"}</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: "#FEF3C7" }]} />
-              <Text style={styles.legendText}>1-2hrs</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: "#FED7AA" }]} />
-              <Text style={styles.legendText}>2-3hrs</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: "#FECACA" }]} />
-              <Text style={styles.legendText}>3hrs+</Text>
-            </View>
-          </View>
-
-          {/* Monthly Calendar Grid */}
-          <View style={styles.monthlyCalendar}>
-            {monthDays.map((day) => (
-              <View key={day} style={[styles.monthDay, day === 11 && styles.selectedMonthDay]}>
-                <Text style={[styles.monthDayText, day === 11 && styles.selectedMonthDayText]}>{day}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        {/* True Cost Section */}
-        <View style={styles.trueCostSection}>
-          <View style={styles.trueCostHeader}>
-            <Ionicons name="warning-outline" size={20} color="#EF4444" />
-            <Text style={styles.trueCostTitle}>The True Cost of Your Digital Distraction</Text>
-          </View>
-
-          {/* Work Time Lost */}
-          <View style={styles.costCard}>
-            <View style={styles.costCardHeader}>
-              <Ionicons name="briefcase-outline" size={20} color="#EF4444" />
-              <Text style={styles.costCardTitle}>Work Time Lost</Text>
-            </View>
-            <Text style={styles.costCardValue}>Less than a work day</Text>
-          </View>
-
-          {/* Income Opportunity Lost */}
-          <View style={styles.costCard}>
-            <View style={styles.costCardHeader}>
-              <Ionicons name="cash-outline" size={20} color="#EF4444" />
-              <Text style={styles.costCardTitle}>Income Opportunity Lost</Text>
-            </View>
-            <View style={styles.incomeGrid}>
-              <View style={styles.incomeItem}>
-                <Text style={styles.incomeRate}>$20/hour</Text>
-                <Text style={styles.incomeLost}>$0</Text>
-              </View>
-              <View style={styles.incomeItem}>
-                <Text style={styles.incomeRate}>$50/hour</Text>
-                <Text style={styles.incomeLost}>$0</Text>
-              </View>
-              <View style={styles.incomeItem}>
-                <Text style={styles.incomeRate}>$100/hour</Text>
-                <Text style={styles.incomeLost}>$0</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Quality Time Lost */}
-          <View style={styles.costCard}>
-            <View style={styles.costCardHeader}>
-              <Ionicons name="people-outline" size={20} color="#EF4444" />
-              <Text style={styles.costCardTitle}>Quality Time Lost</Text>
-            </View>
-            <Text style={styles.qualityTimeDescription}>Instead of scrolling, you could have had:</Text>
-            <View style={styles.qualityTimeList}>
-              <Text style={styles.qualityTimeItem}>• 0 meaningful conversations</Text>
-              <Text style={styles.qualityTimeItem}>• 0 family dinners</Text>
-              <Text style={styles.qualityTimeItem}>• 0 workout sessions</Text>
-              <Text style={styles.qualityTimeItem}>• 0 full nights of sleep</Text>
-            </View>
-          </View>
-
-          {/* Total Time */}
-          <View style={styles.totalTimeFooter}>
-            <Text style={styles.totalTimeText}>
-              Total time on social media: <Text style={styles.totalTimeValue}>0m</Text>
-            </Text>
-          </View>
-        </View>
-      </>
-    )
+  const onEndReflect = () => {
+    setIsSessionActive(false)
+    setIsPaused(false)
+    setIsReflectOpen(true)
   }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
-
       <TopHeader onLogout={onLogout} />
-
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {/* Mind Training Section */}
         <View style={styles.mindTrainingSection}>
           <View style={styles.mindTrainingHeader}>
@@ -628,26 +304,15 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
 
         {/* Tab Navigation */}
         <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "reading" && styles.activeTab]}
-            onPress={() => setActiveTab("reading")}
-          >
+          <TouchableOpacity style={[styles.tab, activeTab === "reading" && styles.activeTab]} onPress={() => setActiveTab("reading")}>
             <Ionicons name="book-outline" size={20} color={activeTab === "reading" ? "#333" : "#999"} />
             <Text style={[styles.tabText, activeTab === "reading" && styles.activeTabText]}>Reading</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "meditation" && styles.activeTab]}
-            onPress={() => setActiveTab("meditation")}
-          >
+          <TouchableOpacity style={[styles.tab, activeTab === "meditation" && styles.activeTab]} onPress={() => setActiveTab("meditation")}>
             <Brain stroke={activeTab === "meditation" ? "#333" : "#999"} width={20} height={20} />
             <Text style={[styles.tabText, activeTab === "meditation" && styles.activeTabText]}>Meditation</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "distraction" && styles.activeTab]}
-            onPress={() => setActiveTab("distraction")}
-          >
+          <TouchableOpacity style={[styles.tab, activeTab === "distraction" && styles.activeTab]} onPress={() => setActiveTab("distraction")}>
             <Ionicons name="phone-portrait-outline" size={20} color={activeTab === "distraction" ? "#333" : "#999"} />
             <Text style={[styles.tabText, activeTab === "distraction" && styles.activeTabText]}>Distraction</Text>
           </TouchableOpacity>
@@ -655,16 +320,237 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
 
         {/* Tab Content */}
         {activeTab === "reading" ? (
-          <ReadingContent />
+          <ReadingContent
+            activeSubTab={activeSubTab}
+            setActiveSubTab={setActiveSubTab}
+            formatTime={formatTime}
+            formatDuration={formatDuration}
+            sessionTime={sessionTime}
+            isSessionActive={isSessionActive}
+            isPaused={isPaused}
+            bookTitle={bookTitle}
+            setBookTitle={setBookTitle}
+            onStartPauseResume={onStartPauseResume}
+            onEndReflect={onEndReflect}
+            totalSeconds={totalSeconds}
+            sessionCount={sessionCount}
+            averageSeconds={averageSeconds}
+            recentSessions={recentSessions}
+          />
         ) : activeTab === "meditation" ? (
           <MeditationContent />
         ) : (
           <DistractionContent />
         )}
 
-        {/* Add some bottom padding for navigation */}
+        {/* Reading bottom sections for tabs */}
+        {activeTab === "reading" && (
+          <>
+            {activeSubTab === "list" && (
+              <>
+                <TouchableOpacity style={styles.addBookButton} onPress={() => setAddBookOpen(true)}>
+                  <Ionicons name="add" size={20} color="#fff" />
+                  <Text style={styles.addBookButtonText}>Add Book to List</Text>
+                </TouchableOpacity>
+                <View style={styles.cardContainer}>
+                  {books.length === 0 ? (
+                    <Text style={styles.cardBodyText}>No books yet. Add your first book to start tracking.</Text>
+                  ) : (
+                    books.map((b) => (
+                      <View key={b.id} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#eee" }}>
+                        <Text style={{ fontWeight: "700", color: "#111827" }}>{b.title}</Text>
+                        <Text style={{ color: "#6b7280" }}>{b.author || "Unknown author"}{b.total_pages ? ` • ${b.total_pages} pages` : ""}</Text>
+                      </View>
+                    ))
+                  )}
+                </View>
+              </>
+            )}
+            {activeSubTab === "history" && (
+              <View style={styles.cardContainer}>
+                {recentSessions.length === 0 ? (
+                  <Text style={styles.cardBodyText}>No reading sessions yet.</Text>
+                ) : (
+                  recentSessions.map((s) => (
+                    <View key={s.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" }}>
+                      <Text style={{ fontWeight: "600", color: "#111827" }}>{s.book_title || "Untitled"}</Text>
+                      <Text style={{ color: "#6b7280" }}>
+                        {new Date(s.started_at).toLocaleDateString()} • {formatDuration(s.duration_seconds)}
+                        {typeof s.pages_read === "number" ? ` • ${s.pages_read} pages` : ""}
+                      </Text>
+                    </View>
+                  ))
+                )}
+              </View>
+            )}
+            {activeSubTab === "insights" && (
+              <>
+                <View style={styles.insightsHeader}>
+                  <Text style={styles.sectionTitle}>Insights</Text>
+                  <TouchableOpacity style={styles.addInsightButton} onPress={() => setAddInsightOpen(true)}>
+                    <Ionicons name="add" size={16} color="#fff" />
+                    <Text style={styles.addInsightButtonText}>Add Insight</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.cardContainer}>
+                  {insights.length === 0 ? (
+                    <Text style={styles.cardBodyText}>No insights yet. Add your first insight from your reading!</Text>
+                  ) : (
+                    insights.map((i) => (
+                      <View key={i.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" }}>
+                        <Text style={{ color: "#111827" }}>{i.insight}</Text>
+                        <Text style={{ color: "#6b7280", marginTop: 2 }}>{new Date(i.created_at).toLocaleString()}</Text>
+                      </View>
+                    ))
+                  )}
+                </View>
+              </>
+            )}
+          </>
+        )}
+
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Add Book Modal */}
+      <Modal visible={addBookOpen} animationType="slide" transparent>
+        <View style={{ flex: 1, backgroundColor: "#00000066", justifyContent: "center", padding: 20 }}>
+          <View style={{ backgroundColor: "#fff", borderRadius: 12, padding: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 8 }}>Add Book</Text>
+            <TextInput value={newBookTitle} onChangeText={setNewBookTitle} placeholder="Title" style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 10 }} />
+            <TextInput value={newBookAuthor} onChangeText={setNewBookAuthor} placeholder="Author (optional)" style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 10 }} />
+            <TextInput value={newBookPages} onChangeText={setNewBookPages} inputMode="numeric" placeholder="Total pages (optional)" style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 10 }} />
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <TouchableOpacity onPress={() => { setAddBookOpen(false); setNewBookTitle(""); setNewBookAuthor(""); setNewBookPages("") }} style={{ paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}>
+                <Text style={{ fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={async () => {
+                if (!newBookTitle.trim()) return
+                const created = await addBook({ title: newBookTitle.trim(), author: newBookAuthor.trim() || undefined, totalPages: newBookPages.trim() ? parseInt(newBookPages, 10) : undefined })
+                setBooks([created, ...books])
+                setAddBookOpen(false); setNewBookTitle(""); setNewBookAuthor(""); setNewBookPages("")
+              }} style={{ backgroundColor: "#111827", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 }}>
+                <Text style={{ color: "#fff", fontWeight: "700" }}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Add Insight Modal */}
+      <Modal visible={addInsightOpen} animationType="slide" transparent>
+        <View style={{ flex: 1, backgroundColor: "#00000066", justifyContent: "center", padding: 20 }}>
+          <View style={{ backgroundColor: "#fff", borderRadius: 12, padding: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 8 }}>Add Insight</Text>
+            <TextInput value={newInsightText} onChangeText={setNewInsightText} placeholder="What insight did you get?" multiline placeholderTextColor="#999" style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, minHeight: 100, textAlignVertical: "top", marginBottom: 10 }} />
+            {/* simple book picker */}
+            <View style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, marginBottom: 10 }}>
+              <ScrollView style={{ maxHeight: 150 }}>
+                <TouchableOpacity onPress={() => setSelectedBookIdForInsight(undefined)} style={{ padding: 10 }}>
+                  <Text style={{ color: !selectedBookIdForInsight ? "#111827" : "#6b7280" }}>No book</Text>
+                </TouchableOpacity>
+                {books.map((b) => (
+                  <TouchableOpacity key={b.id} onPress={() => setSelectedBookIdForInsight(b.id)} style={{ padding: 10 }}>
+                    <Text style={{ color: selectedBookIdForInsight === b.id ? "#111827" : "#6b7280" }}>{b.title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <TouchableOpacity onPress={() => { setAddInsightOpen(false); setNewInsightText(""); setSelectedBookIdForInsight(undefined) }} style={{ paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}>
+                <Text style={{ fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={async () => {
+                if (!newInsightText.trim()) return
+                const created = await addInsight({ insight: newInsightText.trim(), bookId: selectedBookIdForInsight })
+                setInsights([created, ...insights])
+                setAddInsightOpen(false); setNewInsightText(""); setSelectedBookIdForInsight(undefined)
+              }} style={{ backgroundColor: "#111827", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 }}>
+                <Text style={{ color: "#fff", fontWeight: "700" }}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Reflection Modal placed at root so it doesn't unmount the input */}
+      <Modal visible={isReflectOpen} animationType="slide" transparent>
+        <View style={{ flex: 1, backgroundColor: "#00000066", justifyContent: "center", padding: 20 }}>
+          <View style={{ backgroundColor: "#fff", borderRadius: 12, padding: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 8 }}>Reading Session Complete!</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+              <Ionicons name="book-outline" size={18} color="#4A90E2" />
+              <Text style={{ marginLeft: 6 }}>Reading Session</Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
+              <Ionicons name="time-outline" size={18} color="#10B981" />
+              <Text style={{ marginLeft: 6 }}>{Math.floor(sessionTime / 60)} minutes</Text>
+            </View>
+            <Text style={{ fontSize: 14, fontWeight: "600", marginBottom: 6 }}>Share your reflection (optional)</Text>
+            <TextInput
+              value={reflectionText}
+              onChangeText={setReflectionText}
+              placeholder="What insights did you gain? What did you learn? How will you apply this knowledge?"
+              placeholderTextColor="#999"
+              style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, minHeight: 100, textAlignVertical: "top", marginBottom: 10 }}
+              multiline
+            />
+            <TextInput
+              value={pagesRead}
+              onChangeText={setPagesRead}
+              placeholder="Pages read (optional)"
+              inputMode="numeric"
+              style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 12 }}
+            />
+            <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 4 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setIsReflectOpen(false)
+                  setReflectionText("")
+                  setPagesRead("")
+                  setSessionTime(0)
+                  setSessionStartedAt(null)
+                }}
+                style={{ paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}
+              >
+                <Text style={{ fontWeight: "600" }}>Skip</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                disabled={isSaving}
+                onPress={async () => {
+                  if (!sessionStartedAt) { setIsReflectOpen(false); return }
+                  try {
+                    setIsSaving(true)
+                    await saveReadingSession({
+                      startedAt: sessionStartedAt.toISOString(),
+                      endedAt: new Date().toISOString(),
+                      durationSeconds: sessionTime,
+                      bookTitle,
+                      reflection: reflectionText,
+                      pagesRead: pagesRead.trim() ? parseInt(pagesRead, 10) : undefined,
+                    })
+                    const stats = await getReadingStats()
+                    setTotalSeconds(stats.totalSeconds)
+                    setSessionCount(stats.sessionCount)
+                    setAverageSeconds(stats.averageSeconds)
+                    setRecentSessions(await listReadingSessions(10))
+                  } finally {
+                    setIsSaving(false)
+                    setIsReflectOpen(false)
+                    setReflectionText("")
+                    setPagesRead("")
+                    setSessionTime(0)
+                    setSessionStartedAt(null)
+                  }
+                }}
+                style={{ backgroundColor: "#111827", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 }}
+              >
+                <Text style={{ color: "#fff", fontWeight: "700" }}>{isSaving ? "Saving..." : "Save Session"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   )
 }
