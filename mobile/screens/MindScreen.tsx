@@ -20,24 +20,25 @@ import { Brain } from "lucide-react-native"
 import { saveReadingSession, getReadingStats, listReadingSessions, type ReadingSessionRow } from "../lib/reading"
 import { listBooks, addBook, listInsights, addInsight, deleteBook, markBookCompleted, type UserBook, type ReadingInsight } from "../lib/books"
 import { saveMeditationSession, getMeditationStats } from "../lib/meditation"
+import { listTrackedApps, addTrackedApp, deleteTrackedApp, saveUsage, getUsageForRange, getMonthlyTotals, getStats, type TrackedApp } from "../lib/distraction"
 
 type StatCardProps = {
-  title: string
-  value: string
-  subtitle: string
-  icon: string
-  iconColor: string
+    title: string
+    value: string
+    subtitle: string
+    icon: string
+    iconColor: string
 }
 
 const StatCard: React.FC<StatCardProps> = React.memo(({ title, value, subtitle, icon, iconColor }) => (
-  <View style={styles.statCard}>
-    <View style={styles.statHeader}>
-      <Text style={styles.statTitle}>{title}</Text>
-      <Ionicons name={icon as any} size={20} color={iconColor} />
+    <View style={styles.statCard}>
+      <View style={styles.statHeader}>
+        <Text style={styles.statTitle}>{title}</Text>
+        <Ionicons name={icon as any} size={20} color={iconColor} />
+      </View>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statSubtitle}>{subtitle}</Text>
     </View>
-    <Text style={styles.statValue}>{value}</Text>
-    <Text style={styles.statSubtitle}>{subtitle}</Text>
-  </View>
 ))
 
 type ReadingContentProps = {
@@ -178,102 +179,102 @@ const MeditationContent: React.FC<{
   onStartSession: () => Promise<void>
 }> = ({ medTotalSeconds, medSessionCount, medDayStreak, prepSeconds, intervalMinutes, meditationMinutes, onStartSession }) => {
   const formatHrs = (s: number) => `${Math.floor(s / 3600)}h`
-  return (
-    <>
+    return (
+      <>
       {/* Total Time */}
-      <View style={styles.totalTimeCard}>
-        <View style={styles.totalTimeHeader}>
-          <Ionicons name="calendar-outline" size={24} color="#8B5CF6" />
-          <View style={styles.totalTimeContent}>
+        <View style={styles.totalTimeCard}>
+          <View style={styles.totalTimeHeader}>
+            <Ionicons name="calendar-outline" size={24} color="#8B5CF6" />
+            <View style={styles.totalTimeContent}>
             <Text style={styles.totalTimeValue}>{formatHrs(medTotalSeconds)}</Text>
-            <Text style={styles.totalTimeLabel}>Total Time</Text>
+              <Text style={styles.totalTimeLabel}>Total Time</Text>
+            </View>
           </View>
         </View>
-      </View>
 
-      {/* Session Stats */}
-      <View style={styles.sessionStatsContainer}>
-        <View style={styles.sessionStatCard}>
+        {/* Session Stats */}
+        <View style={styles.sessionStatsContainer}>
+          <View style={styles.sessionStatCard}>
           <Ionicons name="pulse-outline" size={20} color="#4A90E2" />
           <View style={styles.sessionStatText}>
             <Text style={styles.sessionStatValue}>{medSessionCount}</Text>
             <Text style={styles.sessionStatLabel}>Sessions</Text>
           </View>
-        </View>
-        <View style={styles.sessionStatCard}>
+          </View>
+          <View style={styles.sessionStatCard}>
           <Ionicons name="flame-outline" size={20} color="#FF6B35" />
           <View style={styles.sessionStatText}>
             <Text style={styles.sessionStatValue}>{medDayStreak}</Text>
             <Text style={styles.sessionStatLabel}>Day Streak</Text>
           </View>
-        </View>
-      </View>
-
-      {/* Meditation Timer */}
-      <View style={styles.meditationTimerCard}>
-        <Text style={styles.meditationTimerTitle}>Meditation Timer</Text>
-
-        {/* Preparation Slider */}
-        <View style={styles.sliderContainer}>
-          <View style={styles.sliderHeader}>
-            <Text style={[styles.sliderLabel, { color: "#4A90E2" }]}>Preparation</Text>
-            <Text style={styles.sliderValue}>{prepSeconds}s</Text>
           </View>
-          <View style={styles.sliderTrack}>
+        </View>
+
+        {/* Meditation Timer */}
+        <View style={styles.meditationTimerCard}>
+          <Text style={styles.meditationTimerTitle}>Meditation Timer</Text>
+
+          {/* Preparation Slider */}
+          <View style={styles.sliderContainer}>
+            <View style={styles.sliderHeader}>
+              <Text style={[styles.sliderLabel, { color: "#4A90E2" }]}>Preparation</Text>
+            <Text style={styles.sliderValue}>{prepSeconds}s</Text>
+            </View>
+            <View style={styles.sliderTrack}>
             <View style={[styles.sliderProgress, { width: `${(prepSeconds / 60) * 100}%`, backgroundColor: "#4A90E2" }]} />
             <View style={[styles.sliderThumb, { left: `${(prepSeconds / 60) * 100}%`, backgroundColor: "#4A90E2" }]} />
+            </View>
           </View>
-        </View>
 
-        {/* Interval Slider */}
-        <View style={styles.sliderContainer}>
-          <View style={styles.sliderHeader}>
-            <Text style={[styles.sliderLabel, { color: "#10B981" }]}>Interval</Text>
+          {/* Interval Slider */}
+          <View style={styles.sliderContainer}>
+            <View style={styles.sliderHeader}>
+              <Text style={[styles.sliderLabel, { color: "#10B981" }]}>Interval</Text>
             <Text style={styles.sliderValue}>{intervalMinutes}m</Text>
-          </View>
-          <View style={styles.sliderTrack}>
+            </View>
+            <View style={styles.sliderTrack}>
             <View style={[styles.sliderProgress, { width: `${(intervalMinutes / 30) * 100}%`, backgroundColor: "#10B981" }]} />
             <View style={[styles.sliderThumb, { left: `${(intervalMinutes / 30) * 100}%`, backgroundColor: "#10B981" }]} />
+            </View>
           </View>
-        </View>
 
-        {/* Meditation Time Slider */}
-        <View style={styles.sliderContainer}>
-          <View style={styles.sliderHeader}>
-            <Text style={[styles.sliderLabel, { color: "#FF6B35" }]}>Meditation Time</Text>
+          {/* Meditation Time Slider */}
+          <View style={styles.sliderContainer}>
+            <View style={styles.sliderHeader}>
+              <Text style={[styles.sliderLabel, { color: "#FF6B35" }]}>Meditation Time</Text>
             <Text style={styles.sliderValue}>{meditationMinutes}m</Text>
-          </View>
-          <View style={styles.sliderTrack}>
+            </View>
+            <View style={styles.sliderTrack}>
             <View style={[styles.sliderProgress, { width: `${(meditationMinutes / 60) * 100}%`, backgroundColor: "#FF6B35" }]} />
             <View style={[styles.sliderThumb, { left: `${(meditationMinutes / 60) * 100}%`, backgroundColor: "#FF6B35" }]} />
+            </View>
           </View>
-        </View>
 
         {/* Start Session */}
         <TouchableOpacity style={styles.startMeditationButton} onPress={onStartSession}>
-          <Text style={styles.startMeditationButtonText}>Start Session</Text>
-        </TouchableOpacity>
-      </View>
+            <Text style={styles.startMeditationButtonText}>Start Session</Text>
+          </TouchableOpacity>
+        </View>
 
       {/* Milestones placeholder */}
-      <View style={styles.milestonesSection}>
-        <View style={styles.milestonesHeader}>
-          <Ionicons name="trophy-outline" size={24} color="#FFB800" />
-          <Text style={styles.milestonesTitle}>Milestones</Text>
-        </View>
-        <View style={styles.milestonesGrid}>
+        <View style={styles.milestonesSection}>
+          <View style={styles.milestonesHeader}>
+            <Ionicons name="trophy-outline" size={24} color="#FFB800" />
+            <Text style={styles.milestonesTitle}>Milestones</Text>
+          </View>
+          <View style={styles.milestonesGrid}>
           {["First Session","Week Warrior","Mindful Month","Sacred 40","Quarter Master","10 Hour Club","50 Sessions","100 Sessions"].map((t,idx)=> (
             <View key={idx} style={styles.milestoneCard}>
               <Ionicons name="star-outline" size={32} color="#ccc" />
               <Text style={[styles.milestoneTitle, { color: "#ccc" }]}>{t}</Text>
               <Text style={[styles.milestoneDescription, { color: "#ccc" }]}>Coming soon</Text>
-            </View>
-          ))}
+              </View>
+            ))}
+          </View>
         </View>
-      </View>
-    </>
-  )
-}
+      </>
+    )
+  }
 
 interface ScreenProps { onLogout?: () => void }
 
@@ -375,9 +376,9 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
     setIsSessionActive(false)
     setIsPaused(false)
     setIsReflectOpen(true)
-  }
+    }
 
-  return (
+    return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
       <TopHeader onLogout={onLogout} />
@@ -387,11 +388,11 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
           <View style={styles.mindTrainingHeader}>
             <Brain stroke="#4A90E2" width={24} height={24} />
             <Text style={styles.mindTrainingTitle}>Mind Training</Text>
-          </View>
+            </View>
           <Text style={styles.mindTrainingSubtitle}>
             Optimize your mental well-being through reading,{"\n"}meditation, and mindful technology use
           </Text>
-        </View>
+          </View>
 
         {/* Tab Navigation */}
         <View style={styles.tabContainer}>
@@ -481,20 +482,20 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                           {b.completed_on ? (
                             <View style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: "#9CA3AF" }}>
                               <Text style={{ color: "#fff", fontWeight: "600" }}>Completed</Text>
-                            </View>
+            </View>
                           ) : (
                             <TouchableOpacity onPress={() => setPendingCompleteBookId(b.id)} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: "#10B981" }}>
                               <Text style={{ color: "#fff", fontWeight: "600" }}>Mark completed</Text>
-                            </TouchableOpacity>
+              </TouchableOpacity>
                           )}
                           <TouchableOpacity onPress={() => setPendingDeleteBookId(b.id)} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: "#EF4444" }}>
                             <Text style={{ color: "#fff", fontWeight: "600" }}>Delete</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
+              </TouchableOpacity>
+            </View>
+          </View>
                     ))
                   )}
-                </View>
+              </View>
               </>
             )}
             {activeSubTab === "history" && (
@@ -508,10 +509,10 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                       <View key={b.id} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#eee" }}>
                         <Text style={{ fontWeight: "700", color: "#111827" }}>{b.title}</Text>
                         <Text style={{ color: "#6b7280" }}>{b.author || "Unknown author"}{b.total_pages ? ` • ${b.total_pages} pages` : ""}</Text>
-                      </View>
+          </View>
                     ))
                   )}
-                </View>
+                  </View>
                 <Text style={styles.sectionTitleCaps}>Reading Sessions</Text>
                 <View style={styles.cardContainer}>
                   {recentSessions.length === 0 ? (
@@ -524,10 +525,10 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                           {new Date(s.started_at).toLocaleDateString()} • {formatDuration(s.duration_seconds)}
                           {typeof s.pages_read === "number" ? ` • ${s.pages_read} pages` : ""}
                         </Text>
-                      </View>
+                </View>
                     ))
                   )}
-                </View>
+                  </View>
               </>
             )}
             {activeSubTab === "insights" && (
@@ -550,10 +551,10 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                           <Text style={{ color: "#6b7280", marginTop: 2 }}>From {books.find((b)=>b.id===i.book_id)?.title || "Unknown book"}</Text>
                         ) : null}
                         <Text style={{ color: "#6b7280", marginTop: 2 }}>{new Date(i.created_at).toLocaleString()}</Text>
-                      </View>
+              </View>
                     ))
                   )}
-                </View>
+          </View>
               </>
             )}
           </>
@@ -584,8 +585,8 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                 <Text style={{ color: "#fff", fontWeight: "700" }}>Save</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
+            </View>
+            </View>
       </Modal>
 
       {/* Add Insight Modal */}
@@ -606,7 +607,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                   </TouchableOpacity>
                 ))}
               </ScrollView>
-            </View>
+          </View>
             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
               <TouchableOpacity onPress={() => { setAddInsightOpen(false); setNewInsightText(""); setSelectedBookIdForInsight(undefined) }} style={{ paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}>
                 <Text style={{ fontWeight: "600" }}>Cancel</Text>
@@ -619,9 +620,9 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
               }} style={{ backgroundColor: "#111827", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 }}>
                 <Text style={{ color: "#fff", fontWeight: "700" }}>Save</Text>
               </TouchableOpacity>
-            </View>
-          </View>
         </View>
+          </View>
+            </View>
       </Modal>
 
       {/* Reflection Modal placed at root so it doesn't unmount the input */}
@@ -636,7 +637,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
               <Ionicons name="time-outline" size={18} color="#10B981" />
               <Text style={{ marginLeft: 6 }}>{Math.floor(sessionTime / 60)} minutes</Text>
-            </View>
+              </View>
             <Text style={{ fontSize: 14, fontWeight: "600", marginBottom: 6 }}>Share your reflection (optional)</Text>
             <TextInput
               value={reflectionText}
@@ -698,9 +699,9 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
               >
                 <Text style={{ color: "#fff", fontWeight: "700" }}>{isSaving ? "Saving..." : "Save Session"}</Text>
               </TouchableOpacity>
+              </View>
+              </View>
             </View>
-          </View>
-        </View>
       </Modal>
 
       {/* Book Picker Modal */}
@@ -724,8 +725,8 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                 <Text>Close</Text>
               </TouchableOpacity>
             </View>
+            </View>
           </View>
-        </View>
       </Modal>
 
       {/* Delete Book Confirm */}
@@ -754,9 +755,9 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
               }} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: "#EF4444" }}>
                 <Text style={{ color: "#fff", fontWeight: "700" }}>Delete</Text>
               </TouchableOpacity>
-            </View>
           </View>
         </View>
+          </View>
       </Modal>
 
       {/* Mark Completed Confirm */}
@@ -767,7 +768,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
               <TouchableOpacity onPress={() => setPendingCompleteBookId(null)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8 }}>
                 <Text>Cancel</Text>
-              </TouchableOpacity>
+          </TouchableOpacity>
               <TouchableOpacity onPress={async () => {
                 const id = pendingCompleteBookId
                 setPendingCompleteBookId(null)
@@ -778,13 +779,333 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                 } catch {}
               }} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: "#10B981" }}>
                 <Text style={{ color: "#fff", fontWeight: "700" }}>Mark Completed</Text>
-              </TouchableOpacity>
-            </View>
+          </TouchableOpacity>
+        </View>
           </View>
         </View>
       </Modal>
     </SafeAreaView>
   )
+}
+
+// Distraction tab (manual entry with Supabase persistence)
+const DistractionContent: React.FC = () => {
+  const [apps, setApps] = useState<TrackedApp[]>([])
+  const [selectedDate, setSelectedDate] = useState(new Date())
+  const [weekStart, setWeekStart] = useState(startOfWeek(new Date()))
+  const [inputs, setInputs] = useState<Record<string, { h: string; m: string }>>({})
+  const [totalMinutes, setTotalMinutes] = useState(0)
+  const [dailyAverage, setDailyAverage] = useState(0)
+  const [monthCursor, setMonthCursor] = useState(new Date())
+  const [monthlyTotals, setMonthlyTotals] = useState<Record<string, number>>({})
+
+  useEffect(() => {
+    ;(async () => {
+      let a = await listTrackedApps()
+      // Ensure default set exists (idempotent)
+      const ensure = async (name: string, icon: string, color: string) => {
+        if (!a.find((x) => x.name.toLowerCase() === name.toLowerCase())) {
+          try { const created = await addTrackedApp({ name, icon, color }); a = [created, ...a] } catch {}
+        }
+      }
+      await ensure("Instagram", "logo-instagram", "#E1306C")
+      await ensure("TikTok", "logo-tiktok", "#000000")
+      await ensure("Snapchat", "logo-snapchat", "#FFFC00")
+      await ensure("X", "logo-twitter", "#1D9BF0")
+      setApps(a)
+    })()
+  }, [])
+
+  useEffect(() => {
+    ;(async () => {
+      const startISO = weekStart.toISOString()
+      const endISO = new Date(weekStart.getTime() + 6 * 86400000).toISOString()
+      const usage = await getUsageForRange(startISO, endISO)
+      const sd = toDateKey(selectedDate)
+      const map: Record<string, { h: string; m: string }> = {}
+      for (const app of apps) {
+        const entry = usage.find((u) => u.app_id === app.id && u.usage_date === sd)
+        const minutes = entry?.minutes || 0
+        map[app.id] = { h: String(Math.floor(minutes / 60)), m: String(minutes % 60) }
+      }
+      setInputs(map)
+      const stats = await getStats(startISO, endISO)
+      setTotalMinutes(stats.totalMinutes)
+      setDailyAverage(stats.dailyAverageMinutes)
+    })()
+  }, [apps, weekStart, selectedDate])
+
+  // monthly totals for calendar + cost
+  useEffect(() => {
+    ;(async () => {
+      const y = monthCursor.getUTCFullYear()
+      const m = monthCursor.getUTCMonth()
+      const totals = await getMonthlyTotals(y, m)
+      setMonthlyTotals(totals)
+    })()
+  }, [monthCursor])
+
+  const saveCurrentDay = async () => {
+    if (apps.length === 0) return
+    const items = apps.map((a) => {
+      const h = parseInt(inputs[a.id]?.h || "0", 10) || 0
+      const m = parseInt(inputs[a.id]?.m || "0", 10) || 0
+      return { appId: a.id, minutes: Math.max(0, Math.min(1440, h * 60 + m)) }
+    })
+    await saveUsage({ date: toDateKey(selectedDate), items })
+    // refresh week stats
+    const startISO = weekStart.toISOString()
+    const endISO = new Date(weekStart.getTime() + 6 * 86400000).toISOString()
+    const stats = await getStats(startISO, endISO)
+    setTotalMinutes(stats.totalMinutes)
+    setDailyAverage(stats.dailyAverageMinutes)
+    // refresh monthly totals for calendar + true cost
+    const y = monthCursor.getUTCFullYear()
+    const mth = monthCursor.getUTCMonth()
+    const totals = await getMonthlyTotals(y, mth)
+    setMonthlyTotals(totals)
+  }
+
+  const previousWeek = () => setWeekStart(new Date(weekStart.getTime() - 7 * 86400000))
+  const nextWeek = () => setWeekStart(new Date(weekStart.getTime() + 7 * 86400000))
+
+  const weekDays = [...Array(7)].map((_, i) => new Date(weekStart.getTime() + i * 86400000))
+  const rangeLabel = `${formatMonthDay(weekDays[0])} - ${formatMonthDay(weekDays[6])}`
+
+  return (
+    <>
+      {/* Top stats */}
+      <View style={styles.distractionStatsContainer}>
+        <View style={styles.distractionStatCard}>
+          <Ionicons name="time-outline" size={20} color="#4A90E2" />
+          <View style={styles.distractionStatContent}>
+            <Text style={styles.distractionStatLabel}>Total Time</Text>
+            <Text style={styles.distractionStatValue}>{formatMinutes(totalMinutes)}</Text>
+          </View>
+        </View>
+        <View style={styles.distractionStatCard}>
+          <Ionicons name="trending-up-outline" size={20} color="#10B981" />
+          <View style={styles.distractionStatContent}>
+            <Text style={styles.distractionStatLabel}>Daily Average</Text>
+            <Text style={styles.distractionStatValue}>{formatMinutes(dailyAverage)}</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Tracking card */}
+      <View style={styles.trackingSection}>
+        <View style={styles.trackingHeader}>
+          <View style={styles.trackingTitleContainer}>
+            <Ionicons name="phone-portrait-outline" size={20} color="#4A90E2" />
+            <Text style={styles.trackingTitle}>Track Your Social Media Time</Text>
+          </View>
+          <View style={styles.weekSelector}>
+            <TouchableOpacity onPress={previousWeek}><Ionicons name="chevron-back" size={20} color="#333" /></TouchableOpacity>
+            <Text style={styles.weekText}>{rangeLabel}</Text>
+            <TouchableOpacity onPress={nextWeek}><Ionicons name="chevron-forward" size={20} color="#333" /></TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Week calendar row */}
+        <View style={styles.weekCalendar}>
+          {weekDays.map((d) => {
+            const isSelected = toDateKey(d) === toDateKey(selectedDate)
+            const dayName = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getUTCDay()]
+            return (
+              <TouchableOpacity key={d.toISOString()} style={styles.weekDay} onPress={() => setSelectedDate(d)}>
+                <Text style={[styles.weekDayName, isSelected && styles.selectedWeekDay]}>{dayName}</Text>
+                <Text style={[styles.weekDayDate, isSelected && styles.selectedWeekDay]}>{d.getUTCDate()}</Text>
+              </TouchableOpacity>
+            )
+          })}
+        </View>
+
+        {/* Apps list */}
+        <View style={styles.socialMediaApps}>
+          {apps.map((a) => (
+            <View key={a.id} style={[styles.socialMediaApp, { backgroundColor: shade(a.color || "#f8f9fa") }]}>
+              <View style={styles.appInfo}>
+                <View style={[styles.appIcon, { backgroundColor: a.color || "#e5e7eb" }]}>
+                  <Ionicons name={(a.icon || "phone-portrait-outline") as any} size={22} color={a.icon ? (a.icon === "logo-snapchat" ? "#000" : "#fff") : "#333"} />
+                </View>
+                <Text style={styles.appName}>{a.name}</Text>
+              </View>
+              <View style={styles.timeInputs}>
+                <View style={styles.timeInputContainer}>
+                  <Text style={styles.timeInputLabel}>Hr</Text>
+                  <TextInput
+                    value={inputs[a.id]?.h ?? ""}
+                    placeholder="0"
+                    onChangeText={(t)=> setInputs((prev)=> ({ ...prev, [a.id]: { h: t.replace(/[^0-9]/g, ''), m: prev[a.id]?.m ?? "" } }))}
+                    keyboardType="number-pad"
+                    style={styles.timeInput}
+                  />
+                </View>
+                <View style={styles.timeInputContainer}>
+                  <Text style={styles.timeInputLabel}>Min</Text>
+                  <TextInput
+                    value={inputs[a.id]?.m ?? ""}
+                    placeholder="0"
+                    onChangeText={(t)=> setInputs((prev)=> ({ ...prev, [a.id]: { h: prev[a.id]?.h ?? "", m: t.replace(/[^0-9]/g, '') } }))}
+                    keyboardType="number-pad"
+                    style={styles.timeInput}
+                  />
+                </View>
+              </View>
+              <TouchableOpacity onPress={async ()=> { await deleteTrackedApp(a.id); setApps((p)=> p.filter(x=>x.id!==a.id)) }} style={styles.removeButton}>
+                <Ionicons name="close" size={18} color="#333" />
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+
+        <View style={{ marginTop: 12, alignItems: "flex-end" }}>
+          <TouchableOpacity onPress={saveCurrentDay} style={{ backgroundColor: "#111827", paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 }}>
+            <Text style={{ color: "#fff", fontWeight: "700" }}>Save Day</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Monthly calendar */}
+      <View style={styles.monthlySection}>
+        <View style={styles.monthlySectionHeader}>
+          <Ionicons name="calendar-outline" size={20} color="#EF4444" />
+          <Text style={styles.monthlySectionTitle}>Social Media Time This Month</Text>
+        </View>
+        <View style={styles.legend}>
+          {[
+            { label: "No usage", color: "#E5E7EB" },
+            { label: "<1hr", color: "#DCFCE7" },
+            { label: "1-2hrs", color: "#FEF9C3" },
+            { label: "2-3hrs", color: "#FFEDD5" },
+            { label: "3hrs+", color: "#FEE2E2" },
+          ].map((l) => (
+            <View key={l.label} style={styles.legendItem}>
+              <View style={[styles.legendColor, { backgroundColor: l.color }]} />
+              <Text style={styles.legendText}>{l.label}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.monthlyCalendar}>
+          {monthGrid(monthCursor).map((d, idx) => {
+            if (!d) {
+              return <View key={`empty-${idx}`} style={[styles.monthDay, { backgroundColor: "#fff", borderWidth: 1, borderColor: "#E5E7EB" }]} />
+            }
+            const key = toDateKey(d)
+            const min = monthlyTotals[key] || 0
+            const bg = calendarCellColor(min)
+            const isSelected = toDateKey(d) === toDateKey(selectedDate)
+            return (
+              <View key={key} style={[styles.monthDay, { backgroundColor: bg, borderWidth: 1, borderColor: isSelected ? "#3B82F6" : "#E5E7EB" }] }>
+                <Text style={[styles.monthDayText, isSelected && styles.selectedMonthDayText]}>{d.getUTCDate()}</Text>
+              </View>
+            )
+          })}
+        </View>
+      </View>
+
+      {/* True Cost Section */}
+      <View style={styles.trueCostSection}>
+        <View style={styles.trueCostHeader}>
+          <Ionicons name="alert-circle-outline" size={20} color="#EF4444" />
+          <Text style={styles.trueCostTitle}>The True Cost of Your Digital Distraction</Text>
+        </View>
+
+        {/* Work Time Lost */}
+        <View style={styles.costCard}>
+          <View style={styles.costCardHeader}>
+            <Ionicons name="briefcase-outline" size={18} color="#EF4444" />
+            <Text style={styles.costCardTitle}>Work Time Lost</Text>
+          </View>
+          <Text style={styles.costCardValue}>{workTimeLabel(totalMonthMinutes(monthlyTotals))}</Text>
+        </View>
+
+        {/* Income Opportunity Lost */}
+        <View style={styles.costCard}>
+          <View style={styles.costCardHeader}>
+            <Ionicons name="cash-outline" size={18} color="#EF4444" />
+            <Text style={styles.costCardTitle}>Income Opportunity Lost</Text>
+          </View>
+          <View style={styles.incomeGrid}>
+            {[20,50,100].map((rate) => (
+              <View key={rate} style={styles.incomeItem}>
+                <Text style={styles.incomeRate}>${rate}/hour</Text>
+                <Text style={styles.incomeLost}>${incomeLost(totalMonthMinutes(monthlyTotals), rate)}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* Quality Time Lost */}
+        <View style={styles.costCard}>
+          <View style={styles.costCardHeader}>
+            <Ionicons name="people-outline" size={18} color="#EF4444" />
+            <Text style={styles.costCardTitle}>Quality Time Lost</Text>
+          </View>
+          <Text style={styles.qualityTimeDescription}>Instead of scrolling, you could have had:</Text>
+          <View style={styles.qualityTimeList}>
+            {qualityItems(totalMonthMinutes(monthlyTotals)).map((t) => (
+              <Text key={t.label} style={styles.qualityTimeItem}>• <Text style={{ fontWeight: "700" }}>{t.value}</Text> {t.label}</Text>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.totalTimeFooter}>
+          <Text style={styles.totalTimeText}>Total time on social media: <Text style={styles.totalTimeValue}>{formatMinutes(totalMonthMinutes(monthlyTotals))}</Text></Text>
+        </View>
+      </View>
+    </>
+  )
+}
+
+// helpers for Distraction tab
+function startOfWeek(date: Date): Date {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+  const dow = d.getUTCDay() // 0=Sun
+  return new Date(d.getTime() - dow * 86400000)
+}
+function toDateKey(date: Date): string {
+  return date.toISOString().slice(0, 10)
+}
+function formatMonthDay(d: Date): string {
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+  return `${months[d.getUTCMonth()]} ${d.getUTCDate()}`
+}
+function formatMinutes(min: number): string { const h = Math.floor(min/60); const m = min%60; return h>0? `${h}h ${m}m` : `${m}m` }
+function shade(hex: string): string { return "#" + (hex.replace('#','') + "888888").slice(0,6) }
+
+function daysInMonth(date: Date): Date[] {
+  const y = date.getUTCFullYear(); const m = date.getUTCMonth();
+  const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate()
+  return Array.from({ length: last }, (_, i) => new Date(Date.UTC(y, m, i + 1)))
+}
+function monthGrid(date: Date): Array<Date | null> {
+  const days = daysInMonth(date)
+  const firstDow = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).getUTCDay() // 0-6
+  const leading = Array.from({ length: firstDow }, () => null)
+  const total = leading.length + days.length
+  const trailing = (total % 7 === 0) ? 0 : 7 - (total % 7)
+  const tail = Array.from({ length: trailing }, () => null)
+  return [...leading, ...days, ...tail]
+}
+function calendarCellColor(minutes: number): string {
+  if (!minutes) return "#F3F4F6" // gray-100
+  if (minutes < 60) return "#DCFCE7" // green-100
+  if (minutes < 120) return "#FEF9C3" // yellow-100
+  if (minutes < 180) return "#FFEDD5" // orange-100
+  return "#FEE2E2" // red-100
+}
+function totalMonthMinutes(map: Record<string, number>): number { return Object.values(map).reduce((a,b)=>a+(b||0),0) }
+function workTimeLabel(totalMin: number): string { return totalMin >= 8*60 ? "At least a work day" : "Less than a work day" }
+function incomeLost(totalMin: number, rate: number): string { const hrs = totalMin/60; const val = Math.floor(hrs * rate); return val.toLocaleString() }
+function qualityItems(totalMin: number): { label: string; value: number }[] {
+  const items = [
+    { label: "meaningful conversations", min: 60 },
+    { label: "family dinners", min: 90 },
+    { label: "workout sessions", min: 60 },
+    { label: "full nights of sleep", min: 480 },
+  ]
+  return items.map((i) => ({ label: i.label, value: Math.floor(totalMin / i.min) }))
 }
 
 const styles = StyleSheet.create({
@@ -1539,7 +1860,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   monthDay: {
-    width: "13.5%",
+    width: "13.0%",
     aspectRatio: 1,
     justifyContent: "center",
     alignItems: "center",
