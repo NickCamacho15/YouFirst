@@ -18,7 +18,7 @@ import { Ionicons } from "@expo/vector-icons"
 import TopHeader from "../components/TopHeader"
 import { LineChart } from "react-native-chart-kit"
 import { getPersonalRecords, upsertPersonalRecords } from "../lib/prs"
-import { createPlanInDb, listPlans, listPlanTree, createWeek as dbCreateWeek, createDay as dbCreateDay, createBlock as dbCreateBlock, createExercise as dbCreateExercise } from "../lib/plans"
+import { createPlanInDb, listPlans, listPlanTree, createWeek as dbCreateWeek, createDay as dbCreateDay, createBlock as dbCreateBlock, createExercise as dbCreateExercise, updateExercise as dbUpdateExercise, deleteExercises as dbDeleteExercises } from "../lib/plans"
 
 interface ScreenProps { onLogout?: () => void }
 
@@ -192,7 +192,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   }
 
   // -------- Plan Builder State --------
-  type Exercise = { id: string; name: string; type: "Lifting" | "Cardio" | "Mobility"; sets?: string; reps?: string; weight?: string; rest?: string }
+  type Exercise = { id: string; name: string; type: "Lifting" | "Cardio" | "METCON"; sets?: string; reps?: string; weight?: string; rest?: string; time?: string; distance?: string; pace?: string; time_cap?: string; score_type?: string; target?: string }
   type Block = { id: string; name: string; letter: string; exercises: Exercise[] }
   type Day = { id: string; name: string; blocks: Block[] }
   type Week = { id: string; name: string; days: Day[] }
@@ -211,7 +211,11 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   const [weekName, setWeekName] = useState("")
   const [dayNames, setDayNames] = useState<string[]>([""])
   const [blockNames, setBlockNames] = useState<string[]>([""])
-  const [exerciseNames, setExerciseNames] = useState<string[]>([""])
+  type ExerciseForm = { name: string; type: "Lifting" | "Cardio" | "METCON"; sets?: string; reps?: string; weight?: string; rest?: string; time?: string; distance?: string; pace?: string; time_cap?: string; score_type?: string; target?: string }
+  const [exerciseForms, setExerciseForms] = useState<ExerciseForm[]>([{ name: "", type: "Lifting", sets: "", reps: "", weight: "", rest: "" }])
+  const [openTypePicker, setOpenTypePicker] = useState<number | null>(null)
+  const [exerciseFormError, setExerciseFormError] = useState<string>("")
+  const [editingExercise, setEditingExercise] = useState<{ id: string; wi: number; di: number; bi: number } | null>(null)
 
   const createPlan = () => {
     ;(async () => {
@@ -298,22 +302,45 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
     if (!plan || exerciseModalOpen.weekIndex === undefined || exerciseModalOpen.dayIndex === undefined || exerciseModalOpen.blockIndex === undefined) return
     const weeksCopy = [...plan.weeks]
     const block = weeksCopy[exerciseModalOpen.weekIndex].days[exerciseModalOpen.dayIndex].blocks[exerciseModalOpen.blockIndex]
-    const names = exerciseNames.filter((n) => n.trim().length > 0)
-    const toCreate = names.length > 0 ? names : [""]
-    for (let i = 0; i < toCreate.length; i += 1) {
-      const n = toCreate[i]
-      const position = block.exercises.length + 1
+    const forms: ExerciseForm[] = exerciseForms.length > 0 ? exerciseForms : [{ name: "", type: "Lifting", sets: "", reps: "", weight: "", rest: "" }]
+
+    // Basic validation for required fields by type
+    const formsToValidate = editingExercise ? [forms[0]] : forms
+    for (const f of formsToValidate) {
+      if (!f.name?.trim()) { setExerciseFormError("Exercise name is required"); return }
+      if (f.type === "Lifting" && (!f.sets || !f.reps || !f.weight)) { setExerciseFormError("Lifting requires sets, reps and weight"); return }
+      if (f.type === "Cardio" && (!f.time || !f.distance || !f.pace)) { setExerciseFormError("Cardio requires time, distance and pace"); return }
+    }
+    setExerciseFormError("")
+    if (editingExercise) {
+      const f = forms[0]
       try {
-        const row = await dbCreateExercise(plan.id, block.id, { name: n || `Exercise ${position}`, type: "Lifting", position })
-        block.exercises.push({ id: row.id, name: row.name, type: "Lifting" })
+        await dbUpdateExercise(editingExercise.id, { name: f.name, type: f.type, sets: f.sets ?? null, reps: f.reps ?? null, weight: f.weight ?? null, rest: f.rest ?? null, time: f.time ?? null, distance: f.distance ?? null, pace: f.pace ?? null, time_cap: f.time_cap ?? null, score_type: f.score_type ?? null, target: f.target ?? null })
+        const exs = weeksCopy[editingExercise.wi].days[editingExercise.di].blocks[editingExercise.bi].exercises
+        const idx = exs.findIndex((x) => x.id === editingExercise.id)
+        if (idx !== -1) {
+          exs[idx] = { ...exs[idx], name: f.name, type: f.type, sets: f.sets, reps: f.reps, weight: f.weight, rest: f.rest, time: f.time, distance: f.distance, pace: f.pace, time_cap: f.time_cap, score_type: f.score_type, target: f.target }
+        }
       } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn("Failed to save exercise", (e as any)?.message)
+        console.warn("Failed to update exercise", (e as any)?.message)
+      }
+    } else {
+      for (let i = 0; i < forms.length; i += 1) {
+        const f = forms[i]
+        const position = block.exercises.length + 1
+        try {
+          const row = await dbCreateExercise(plan.id, block.id, { name: f.name || `Exercise ${position}`, type: f.type, sets: f.sets, reps: f.reps, weight: f.weight, rest: f.rest, time: f.time, distance: f.distance, pace: f.pace, time_cap: f.time_cap, score_type: f.score_type, target: f.target, position })
+          block.exercises.push({ id: row.id, name: row.name, type: f.type, sets: f.sets, reps: f.reps, weight: f.weight, rest: f.rest, time: f.time, distance: f.distance, pace: f.pace, time_cap: f.time_cap, score_type: f.score_type, target: f.target })
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn("Failed to save exercise", (e as any)?.message)
+        }
       }
     }
     setPlan({ ...plan, weeks: weeksCopy })
     setExerciseModalOpen({ open: false })
-    setExerciseNames([""])
+    setExerciseForms([{ name: "", type: "Lifting", sets: "", reps: "", weight: "", rest: "" }])
+    setEditingExercise(null)
   }
 
   return (
@@ -698,7 +725,34 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                       {myPlans.map((p) => (
                         <TouchableOpacity key={p.id} style={styles.planListItem} onPress={async () => {
                           const weeks = await listPlanTree(p.id)
-                          const mapped = weeks.map((w) => ({ id: w.id, name: w.name, days: (w as any).days.map((d: any) => ({ id: d.id, name: d.name, blocks: d.blocks.map((b: any) => ({ id: b.id, name: b.name, letter: b.letter || "A", exercises: (b.exercises || []).map((e: any) => ({ id: e.id, name: e.name, type: e.type })) })) })) }))
+                          const mapped = weeks.map((w) => ({
+                            id: w.id,
+                            name: w.name,
+                            days: (w as any).days.map((d: any) => ({
+                              id: d.id,
+                              name: d.name,
+                              blocks: d.blocks.map((b: any) => ({
+                                id: b.id,
+                                name: b.name,
+                                letter: b.letter || "A",
+                                exercises: (b.exercises || []).map((e: any) => ({
+                                  id: e.id,
+                                  name: e.name,
+                                  type: e.type,
+                                  sets: e.sets,
+                                  reps: e.reps,
+                                  weight: e.weight,
+                                  rest: e.rest,
+                                  time: e.time,
+                                  distance: e.distance,
+                                  pace: e.pace,
+                                  time_cap: e.time_cap,
+                                  score_type: e.score_type,
+                                  target: e.target,
+                                })),
+                              })),
+                            })),
+                          }))
                           setPlan({ id: p.id, name: p.name, description: p.description || undefined, weeks: mapped })
                         }}>
                           <View style={{ flex: 1 }}>
@@ -773,17 +827,61 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                             <View style={styles.workoutBlockHeader}>
                               <View style={styles.blockLabel}><Text style={styles.blockId}>{b.letter}</Text></View>
                               <View style={styles.blockInfo}><Text style={styles.blockName}>{b.name}</Text></View>
-                              <TouchableOpacity style={styles.blockDropdown} onPress={() => setExerciseModalOpen({ open: true, weekIndex: wi, dayIndex: di, blockIndex: bi })}>
+                              <TouchableOpacity
+                                style={styles.blockDropdown}
+                                onPress={() => {
+                                  setOpenTypePicker(null)
+                                  setExerciseFormError("")
+                                  setExerciseForms([
+                                    { name: "", type: "Lifting", sets: "", reps: "", weight: "", rest: "", time: "", distance: "", pace: "", time_cap: "", score_type: "", target: "" },
+                                  ])
+                                  setExerciseModalOpen({ open: true, weekIndex: wi, dayIndex: di, blockIndex: bi })
+                                }}
+                              >
                                 <Ionicons name="add" size={20} color="#666" />
                               </TouchableOpacity>
                             </View>
                             {b.exercises.map((e) => (
-                              <View key={e.id} style={styles.exerciseRow}>
-                                <Text style={styles.exerciseName}>{e.name}</Text>
-                                <Text style={styles.exerciseMeta}>{e.type}</Text>
-                                <Text style={styles.exerciseMeta}>{e.sets}×{e.reps}</Text>
-                                {!!e.weight && <Text style={styles.exerciseMeta}>{e.weight}</Text>}
-                                {!!e.rest && <Text style={styles.exerciseMeta}>{e.rest} rest</Text>}
+                              <View key={e.id} style={[styles.exerciseRow, { justifyContent: "space-between", paddingVertical: 12 }]}> 
+                                <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                                  <Text style={styles.exerciseName}>{e.name}</Text>
+                                  {e.type === "Lifting" && (<>
+                                    {!!(e.sets || e.reps) && <Text style={styles.exerciseMeta}>{e.sets}×{e.reps}</Text>}
+                                    {!!e.weight && <Text style={styles.exerciseMeta}>{e.weight}</Text>}
+                                  </>)}
+                                  {e.type === "Cardio" && (<>
+                                    {!!e.time && <Text style={styles.exerciseMeta}>{e.time}</Text>}
+                                    {!!e.distance && <Text style={styles.exerciseMeta}>{e.distance}</Text>}
+                                    {!!e.pace && <Text style={styles.exerciseMeta}>{e.pace}</Text>}
+                                  </>)}
+                                  {e.type === "METCON" && (<>
+                                    {!!e.time_cap && <Text style={styles.exerciseMeta}>{e.time_cap}</Text>}
+                                    {!!(e.sets || e.reps) && <Text style={styles.exerciseMeta}>{e.sets}×{e.reps}</Text>}
+                                  </>)}
+                                  {!!e.rest && <Text style={styles.exerciseMeta}>{e.rest} rest</Text>}
+                                </View>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingLeft: 8 }}>
+                                  <TouchableOpacity onPress={async () => {
+                                    setEditingExercise({ id: e.id, wi, di, bi })
+                                    setExerciseForms([{ name: e.name, type: e.type as any, sets: e.sets || "", reps: e.reps || "", weight: e.weight || "", rest: e.rest || "", time: e.time || "", distance: e.distance || "", pace: e.pace || "", time_cap: e.time_cap || "", score_type: e.score_type || "", target: e.target || "" }])
+                                    setExerciseModalOpen({ open: true, weekIndex: wi, dayIndex: di, blockIndex: bi })
+                                  }}>
+                                    <Ionicons name="create-outline" size={20} color="#666" />
+                                  </TouchableOpacity>
+                                  <TouchableOpacity onPress={async () => {
+                                    try {
+                                      await dbDeleteExercises([e.id])
+                                      const weeksCopy = [...plan!.weeks]
+                                      weeksCopy[wi].days[di].blocks[bi].exercises = weeksCopy[wi].days[di].blocks[bi].exercises.filter((x) => x.id !== e.id)
+                                      setPlan({ ...plan!, weeks: weeksCopy })
+                                    } catch (err) {
+                                      // eslint-disable-next-line no-console
+                                      console.warn("Delete exercise failed", (err as any)?.message)
+                                    }
+                                  }}>
+                                    <Ionicons name="trash-outline" size={20} color="#EF4444" />
+                                  </TouchableOpacity>
+                                </View>
                               </View>
                             ))}
                           </View>
@@ -978,25 +1076,101 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Exercise</Text>
-              <TouchableOpacity onPress={() => setExerciseModalOpen({ open: false })}>
+              <Text style={styles.modalTitle}>{editingExercise ? "Edit Exercise" : "Add Exercise"}</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setExerciseModalOpen({ open: false })
+                  setOpenTypePicker(null)
+                  setExerciseFormError("")
+                  setExerciseForms([
+                    { name: "", type: "Lifting", sets: "", reps: "", weight: "", rest: "", time: "", distance: "", pace: "", time_cap: "", score_type: "", target: "" },
+                  ])
+                  setEditingExercise(null)
+                }}
+              >
                 <Ionicons name="close" size={22} color="#666" />
               </TouchableOpacity>
             </View>
-            {exerciseNames.map((name, idx) => (
-              <View key={idx} style={styles.modalFieldRow}>
-                <Text style={styles.modalLabel}>Exercise name</Text>
-                <TextInput style={styles.modalInput} placeholder={`Exercise ${idx + 1}`} placeholderTextColor="#999" value={name} onChangeText={(t) => {
-                  const copy = [...exerciseNames]; copy[idx] = t; setExerciseNames(copy)
-                }} />
+            <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingBottom: 8 }}>
+              {!!exerciseFormError && (
+                <Text style={{ color: "#EF4444", marginBottom: 8, fontWeight: "600" }}>{exerciseFormError}</Text>
+              )}
+              {exerciseForms.map((f, idx) => (
+                <View key={idx} style={[{ marginBottom: 12, position: "relative" }, openTypePicker === idx ? { zIndex: 1000 } : null]}>
+                  <View style={[styles.modalFieldRow, { flexDirection: "row", gap: 8, alignItems: "center" }]}>
+                    <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder={`Exercise ${idx + 1}`} placeholderTextColor="#999" value={f.name} onChangeText={(t) => {
+                      const copy = [...exerciseForms]; copy[idx].name = t; setExerciseForms(copy)
+                    }} />
+                    <TouchableOpacity style={styles.typeDropdown} onPress={() => setOpenTypePicker(openTypePicker === idx ? null : idx)}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={styles.typeDropdownText}>{f.type}</Text>
+                        <Ionicons name={openTypePicker === idx ? "chevron-up" : "chevron-down"} size={16} color="#333" />
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                  {openTypePicker === idx && (
+                    <View style={styles.typeMenu}>
+                      {(["Lifting", "Cardio", "METCON"] as ExerciseForm["type"][]).map((opt) => (
+                        <TouchableOpacity key={opt} style={styles.typeMenuItem} onPress={() => {
+                          const copy = [...exerciseForms]; copy[idx].type = opt; setExerciseForms(copy); setOpenTypePicker(null)
+                        }}>
+                          <Text style={[styles.typeMenuText, { fontWeight: f.type === opt ? "700" : "500" }]}>{opt}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                {f.type === "Lifting" && (
+                  <>
+                    <View style={[styles.modalFieldRow, { flexDirection: "row", gap: 8 }]}>
+                      <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Sets" placeholderTextColor="#999" keyboardType="number-pad" value={f.sets} onChangeText={(t) => { const copy = [...exerciseForms]; copy[idx].sets = t; setExerciseForms(copy) }} />
+                      <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Reps" placeholderTextColor="#999" keyboardType="number-pad" value={f.reps} onChangeText={(t) => { const copy = [...exerciseForms]; copy[idx].reps = t; setExerciseForms(copy) }} />
+                    </View>
+                    <View style={[styles.modalFieldRow, { flexDirection: "row", gap: 8 }]}>
+                      <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Weight/%" placeholderTextColor="#999" value={f.weight} onChangeText={(t) => { const copy = [...exerciseForms]; copy[idx].weight = t; setExerciseForms(copy) }} />
+                      <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Rest (Seconds)" placeholderTextColor="#999" keyboardType="number-pad" value={f.rest} onChangeText={(t) => { const copy = [...exerciseForms]; copy[idx].rest = t; setExerciseForms(copy) }} />
+                    </View>
+                  </>
+                )}
+                {f.type === "Cardio" && (
+                  <>
+                    <View style={[styles.modalFieldRow, { flexDirection: "row", gap: 8 }]}>
+                      <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Time" placeholderTextColor="#999" value={f.time} onChangeText={(t) => { const copy = [...exerciseForms]; copy[idx].time = t; setExerciseForms(copy) }} />
+                      <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Distance" placeholderTextColor="#999" value={f.distance} onChangeText={(t) => { const copy = [...exerciseForms]; copy[idx].distance = t; setExerciseForms(copy) }} />
+                    </View>
+                    <View style={[styles.modalFieldRow, { flexDirection: "row", gap: 8 }]}>
+                      <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Pace" placeholderTextColor="#999" value={f.pace} onChangeText={(t) => { const copy = [...exerciseForms]; copy[idx].pace = t; setExerciseForms(copy) }} />
+                      <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Rest (Seconds)" placeholderTextColor="#999" keyboardType="number-pad" value={f.rest} onChangeText={(t) => { const copy = [...exerciseForms]; copy[idx].rest = t; setExerciseForms(copy) }} />
+                    </View>
+                  </>
+                )}
+                {f.type === "METCON" && (
+                  <>
+                    <View style={[styles.modalFieldRow, { flexDirection: "row", gap: 8 }]}>
+                      <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Time Cap" placeholderTextColor="#999" value={f.time_cap} onChangeText={(t) => { const copy = [...exerciseForms]; copy[idx].time_cap = t; setExerciseForms(copy) }} />
+                      <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Sets" placeholderTextColor="#999" value={f.sets} onChangeText={(t) => { const copy = [...exerciseForms]; copy[idx].sets = t; setExerciseForms(copy) }} />
+                    </View>
+                    <View style={[styles.modalFieldRow, { flexDirection: "row", gap: 8 }]}>
+                      <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Reps" placeholderTextColor="#999" value={f.reps} onChangeText={(t) => { const copy = [...exerciseForms]; copy[idx].reps = t; setExerciseForms(copy) }} />
+                      <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Score Type" placeholderTextColor="#999" value={f.score_type} onChangeText={(t) => { const copy = [...exerciseForms]; copy[idx].score_type = t; setExerciseForms(copy) }} />
+                    </View>
+                    <View style={[styles.modalFieldRow, { flexDirection: "row", gap: 8 }]}>
+                      <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Target" placeholderTextColor="#999" value={f.target} onChangeText={(t) => { const copy = [...exerciseForms]; copy[idx].target = t; setExerciseForms(copy) }} />
+                      <Text style={{ flex: 1 }} />
+                    </View>
+                  </>
+                )}
+                <View style={styles.exerciseDivider} />
               </View>
-            ))}
-            <TouchableOpacity style={styles.inlineAddButton} onPress={() => setExerciseNames([...exerciseNames, ""]) }>
-              <Ionicons name="add" size={16} color="#4A90E2" />
-              <Text style={styles.inlineAddText}>Add another exercise</Text>
-            </TouchableOpacity>
+              ))}
+              {!editingExercise && (
+                <TouchableOpacity style={styles.inlineAddButton} onPress={() => setExerciseForms([...exerciseForms, { name: "", type: "Lifting", sets: "", reps: "", weight: "", rest: "", time: "", distance: "", pace: "", time_cap: "", score_type: "", target: "" }]) }>
+                  <Ionicons name="add" size={16} color="#4A90E2" />
+                  <Text style={styles.inlineAddText}>Add another exercise</Text>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
             <TouchableOpacity style={styles.modalSaveButton} onPress={addExercise}>
-              <Text style={styles.modalSaveButtonText}>Add Exercise</Text>
+              <Text style={styles.modalSaveButtonText}>{editingExercise ? "Update Exercise" : "Add Exercise"}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1386,6 +1560,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8f9fa",
     borderRadius: 10,
     padding: 12,
+    paddingRight: 16,
     marginBottom: 8,
   },
   exerciseRow: {
@@ -1395,6 +1570,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderTopWidth: 1,
     borderTopColor: "#eee",
+  },
+  exerciseRowLarger: {
+    paddingVertical: 12,
   },
   exerciseName: {
     fontSize: 14,
@@ -1614,6 +1792,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+  modalScroll: {
+    maxHeight: 420,
+    marginBottom: 8,
+  },
   inlineAddButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1625,6 +1807,48 @@ const styles = StyleSheet.create({
     color: "#4A90E2",
     fontSize: 14,
     fontWeight: "600",
+  },
+  typeDropdown: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    backgroundColor: "#f8f9fa",
+  },
+  typeDropdownText: {
+    color: "#333",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  typeMenu: {
+    position: "absolute",
+    right: 0,
+    top: 38,
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    zIndex: 2000,
+  },
+  typeMenuItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minWidth: 120,
+  },
+  typeMenuText: {
+    color: "#333",
+    fontSize: 14,
+  },
+  exerciseDivider: {
+    height: 1,
+    backgroundColor: "#eee",
+    marginTop: 8,
   },
 })
 

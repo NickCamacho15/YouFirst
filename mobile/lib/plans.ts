@@ -33,7 +33,7 @@ export type WeekRow = { id: string; plan_id: string; user_id: string; name: stri
 export type DayRow = { id: string; week_id: string; plan_id: string; user_id: string; name: string; position: number; created_at: string }
 export type BlockRow = { id: string; day_id: string; plan_id: string; user_id: string; name: string; letter: string | null; position: number; created_at: string }
 export type ExerciseRow = {
-  id: string; block_id: string; plan_id: string; user_id: string; name: string; type: string; sets: string | null; reps: string | null; weight: string | null; rest: string | null; position: number; created_at: string
+  id: string; block_id: string; plan_id: string; user_id: string; name: string; type: string; sets: string | null; reps: string | null; weight: string | null; rest: string | null; time: string | null; distance: string | null; pace: string | null; time_cap: string | null; score_type: string | null; target: string | null; position: number; created_at: string
 }
 
 export async function listPlanTree(planId: string) {
@@ -96,16 +96,33 @@ export async function createBlock(planId: string, dayId: string, name: string, l
   return data
 }
 
-export async function createExercise(planId: string, blockId: string, payload: { name: string; type: string; sets?: string; reps?: string; weight?: string; rest?: string; position: number }): Promise<ExerciseRow> {
+export async function createExercise(planId: string, blockId: string, payload: { name: string; type: string; sets?: string; reps?: string; weight?: string; rest?: string; time?: string; distance?: string; pace?: string; time_cap?: string; score_type?: string; target?: string; position: number }): Promise<ExerciseRow> {
   const { data: auth } = await supabase.auth.getUser()
   if (!auth.user) throw new Error("Not authenticated")
   const { data, error } = await supabase
     .from<ExerciseRow>("plan_exercises")
-    .insert([{ plan_id: planId, block_id: blockId, user_id: auth.user.id, name: payload.name, type: payload.type, sets: payload.sets ?? null, reps: payload.reps ?? null, weight: payload.weight ?? null, rest: payload.rest ?? null, position: payload.position }])
+    .insert([{ plan_id: planId, block_id: blockId, user_id: auth.user.id, name: payload.name, type: payload.type, sets: payload.sets ?? null, reps: payload.reps ?? null, weight: payload.weight ?? null, rest: payload.rest ?? null, time: payload.time ?? null, distance: payload.distance ?? null, pace: payload.pace ?? null, time_cap: payload.time_cap ?? null, score_type: payload.score_type ?? null, target: payload.target ?? null, position: payload.position }])
     .select("*")
     .single()
   if (error || !data) throw new Error(error?.message || "Failed to create exercise")
   return data
+}
+
+export async function updateExercise(id: string, payload: Partial<Omit<ExerciseRow, "id" | "block_id" | "plan_id" | "user_id" | "created_at" | "position">>): Promise<void> {
+  const { error } = await supabase
+    .from<ExerciseRow>("plan_exercises")
+    .update(payload)
+    .eq("id", id)
+  if (error) throw new Error(error.message)
+}
+
+export async function deleteExercises(ids: string[]): Promise<void> {
+  if (!ids.length) return
+  const { error } = await supabase
+    .from<ExerciseRow>("plan_exercises")
+    .delete()
+    .in("id", ids)
+  if (error) throw new Error(error.message)
 }
 
 
