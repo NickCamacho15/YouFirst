@@ -694,7 +694,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                   <View style={styles.planBuilderHeader}>
                     <View style={styles.planBuilderInfo}>
                       <View style={styles.planBuilderTitleContainer}>
-                        <Ionicons name="radio-button-off-outline" size={24} color="#4A90E2" />
+                        <Ionicons name="list-outline" size={24} color="#4A90E2" />
                         <Text style={styles.planBuilderTitle}>Training Plan Builder</Text>
                       </View>
                       <Text style={styles.planBuilderDescription}>Create custom workout programs from scratch</Text>
