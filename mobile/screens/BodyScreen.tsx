@@ -17,11 +17,21 @@ import {
 import { Ionicons } from "@expo/vector-icons"
 import TopHeader from "../components/TopHeader"
 import { LineChart } from "react-native-chart-kit"
+import { getPersonalRecords, upsertPersonalRecords } from "../lib/prs"
+import { createPlanInDb, listPlans, listPlanTree, createWeek as dbCreateWeek, createDay as dbCreateDay, createBlock as dbCreateBlock, createExercise as dbCreateExercise } from "../lib/plans"
 
 interface ScreenProps { onLogout?: () => void }
 
 const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState("profile")
+  const [prs, setPrs] = useState({ bench: 0, squat: 0, deadlift: 0, ohp: 0 })
+  const [editOpen, setEditOpen] = useState(false)
+  const [formBench, setFormBench] = useState<string>("")
+  const [formSquat, setFormSquat] = useState<string>("")
+  const [formDeadlift, setFormDeadlift] = useState<string>("")
+  const [formOhp, setFormOhp] = useState<string>("")
+  const [saving, setSaving] = useState(false)
+  const [myPlans, setMyPlans] = useState<{ id: string; name: string; description?: string | null }[]>([])
 
   const screenWidth = Dimensions.get("window").width
 
@@ -54,6 +64,57 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
     },
   }
 
+  useEffect(() => {
+    ;(async () => {
+      const data = await getPersonalRecords()
+      if (data) {
+        setPrs({
+          bench: data.bench_press_1rm || 0,
+          squat: data.squat_1rm || 0,
+          deadlift: data.deadlift_1rm || 0,
+          ohp: data.overhead_press_1rm || 0,
+        })
+      }
+      // Load existing plans
+      try {
+        const plans = await listPlans()
+        setMyPlans(plans.map(p => ({ id: p.id, name: p.name, description: p.description })))
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("Failed to load plans", (e as any)?.message)
+      }
+    })()
+  }, [])
+
+  const openEdit = () => {
+    setFormBench(prs.bench ? String(prs.bench) : "")
+    setFormSquat(prs.squat ? String(prs.squat) : "")
+    setFormDeadlift(prs.deadlift ? String(prs.deadlift) : "")
+    setFormOhp(prs.ohp ? String(prs.ohp) : "")
+    setEditOpen(true)
+  }
+
+  const savePrs = async () => {
+    try {
+      setSaving(true)
+      await upsertPersonalRecords({
+        bench_press_1rm: formBench ? Number(formBench) : null,
+        squat_1rm: formSquat ? Number(formSquat) : null,
+        deadlift_1rm: formDeadlift ? Number(formDeadlift) : null,
+        overhead_press_1rm: formOhp ? Number(formOhp) : null,
+      })
+      setPrs({
+        bench: formBench ? Number(formBench) : 0,
+        squat: formSquat ? Number(formSquat) : 0,
+        deadlift: formDeadlift ? Number(formDeadlift) : 0,
+        ohp: formOhp ? Number(formOhp) : 0,
+      })
+      setEditOpen(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const PersonalRecordCard = ({ exercise, weight }: { exercise: string; weight: string }) => (
     <View style={styles.recordCard}>
       <Text style={styles.recordExercise}>{exercise}</Text>
@@ -81,7 +142,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   )
 
   // Build the current week dynamically (Sun-Sat) and preselect today
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+  const weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
   const today = new Date()
   const startOfWeek = new Date(today)
   startOfWeek.setDate(today.getDate() - today.getDay()) // Sunday
@@ -89,7 +150,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
     const d = new Date(startOfWeek)
     d.setDate(startOfWeek.getDate() + i)
     return {
-      day: dayNames[d.getDay()],
+      day: weekdayNames[d.getDay()],
       date: d.getDate(),
       label: i === 0 ? "Rest" : "",
     }
@@ -128,6 +189,131 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
     const newCompletedBlocks = [...completedBlocks]
     newCompletedBlocks[index] = !newCompletedBlocks[index]
     setCompletedBlocks(newCompletedBlocks)
+  }
+
+  // -------- Plan Builder State --------
+  type Exercise = { id: string; name: string; type: "Lifting" | "Cardio" | "Mobility"; sets?: string; reps?: string; weight?: string; rest?: string }
+  type Block = { id: string; name: string; letter: string; exercises: Exercise[] }
+  type Day = { id: string; name: string; blocks: Block[] }
+  type Week = { id: string; name: string; days: Day[] }
+  type TrainingPlan = { id: string; name: string; description?: string; weeks: Week[] }
+
+  const [plan, setPlan] = useState<TrainingPlan | null>(null)
+  const [planModalOpen, setPlanModalOpen] = useState(false)
+  const [weekModalOpen, setWeekModalOpen] = useState<{ open: boolean; weekIndex?: number }>({ open: false })
+  const [dayModalOpen, setDayModalOpen] = useState<{ open: boolean; weekIndex?: number }>({ open: false })
+  const [blockModalOpen, setBlockModalOpen] = useState<{ open: boolean; weekIndex?: number; dayIndex?: number }>({ open: false })
+  const [exerciseModalOpen, setExerciseModalOpen] = useState<{ open: boolean; weekIndex?: number; dayIndex?: number; blockIndex?: number }>({ open: false })
+
+  // Temp form fields
+  const [planName, setPlanName] = useState("")
+  const [planDescription, setPlanDescription] = useState("")
+  const [weekName, setWeekName] = useState("")
+  const [dayNames, setDayNames] = useState<string[]>([""])
+  const [blockNames, setBlockNames] = useState<string[]>([""])
+  const [exerciseNames, setExerciseNames] = useState<string[]>([""])
+
+  const createPlan = () => {
+    ;(async () => {
+      try {
+        const name = planName || "Untitled Plan"
+        const desc = planDescription || undefined
+        const dbPlan = await createPlanInDb(name, desc)
+        setPlan({ id: dbPlan.id, name: dbPlan.name, description: dbPlan.description || undefined, weeks: [] })
+        setMyPlans((prev) => [{ id: dbPlan.id, name: dbPlan.name, description: dbPlan.description }, ...prev])
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("Failed to create plan", (e as any)?.message)
+      } finally {
+        setPlanModalOpen(false)
+        setPlanName("")
+        setPlanDescription("")
+      }
+    })()
+  }
+
+  const addWeek = async () => {
+    if (!plan) return
+    const position = plan.weeks.length + 1
+    const name = weekName || `Week ${position}`
+    try {
+      const row = await dbCreateWeek(plan.id, name, position)
+      const newWeek: Week = { id: row.id, name: row.name, days: [] }
+      setPlan({ ...plan, weeks: [...plan.weeks, newWeek] })
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn("Failed to save week", (e as any)?.message)
+    } finally {
+      setWeekModalOpen({ open: false })
+      setWeekName("")
+    }
+  }
+
+  const addDay = async () => {
+    if (!plan || dayModalOpen.weekIndex === undefined) return
+    const weeksCopy = [...plan.weeks]
+    const week = weeksCopy[dayModalOpen.weekIndex]
+    const names = dayNames.filter((n) => n.trim().length > 0)
+    const toCreate = names.length > 0 ? names : [""]
+    for (let i = 0; i < Math.min(7, toCreate.length); i += 1) {
+      const n = toCreate[i]
+      const position = week.days.length + 1
+      try {
+        const row = await dbCreateDay(plan.id, week.id, n || `Day ${position}`, position)
+        week.days.push({ id: row.id, name: row.name, blocks: [] })
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("Failed to save day", (e as any)?.message)
+      }
+    }
+    setPlan({ ...plan, weeks: weeksCopy })
+    setDayModalOpen({ open: false })
+    setDayNames([""])
+  }
+
+  const addBlock = async () => {
+    if (!plan || blockModalOpen.weekIndex === undefined || blockModalOpen.dayIndex === undefined) return
+    const weeksCopy = [...plan.weeks]
+    const day = weeksCopy[blockModalOpen.weekIndex].days[blockModalOpen.dayIndex]
+    const names = blockNames.filter((n) => n.trim().length > 0)
+    const toCreate = names.length > 0 ? names : [""]
+    for (let i = 0; i < toCreate.length; i += 1) {
+      const n = toCreate[i]
+      const letter = String.fromCharCode(65 + day.blocks.length)
+      const position = day.blocks.length + 1
+      try {
+        const row = await dbCreateBlock(plan.id, day.id, n || `Block ${letter}`, letter, position)
+        day.blocks.push({ id: row.id, name: row.name, letter: row.letter || letter, exercises: [] })
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("Failed to save block", (e as any)?.message)
+      }
+    }
+    setPlan({ ...plan, weeks: weeksCopy })
+    setBlockModalOpen({ open: false })
+    setBlockNames([""])
+  }
+
+  const addExercise = async () => {
+    if (!plan || exerciseModalOpen.weekIndex === undefined || exerciseModalOpen.dayIndex === undefined || exerciseModalOpen.blockIndex === undefined) return
+    const weeksCopy = [...plan.weeks]
+    const block = weeksCopy[exerciseModalOpen.weekIndex].days[exerciseModalOpen.dayIndex].blocks[exerciseModalOpen.blockIndex]
+    const names = exerciseNames.filter((n) => n.trim().length > 0)
+    const toCreate = names.length > 0 ? names : [""]
+    for (let i = 0; i < toCreate.length; i += 1) {
+      const n = toCreate[i]
+      const position = block.exercises.length + 1
+      try {
+        const row = await dbCreateExercise(plan.id, block.id, { name: n || `Exercise ${position}`, type: "Lifting", position })
+        block.exercises.push({ id: row.id, name: row.name, type: "Lifting" })
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("Failed to save exercise", (e as any)?.message)
+      }
+    }
+    setPlan({ ...plan, weeks: weeksCopy })
+    setExerciseModalOpen({ open: false })
+    setExerciseNames([""])
   }
 
   return (
@@ -183,17 +369,17 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                   <Ionicons name="trophy-outline" size={20} color="#4A90E2" />
                   <Text style={styles.sectionTitle}>Personal Records (1RM)</Text>
                 </View>
-                <TouchableOpacity style={styles.editButton}>
+                <TouchableOpacity style={styles.editButton} onPress={openEdit}>
                   <Ionicons name="pencil-outline" size={16} color="#666" />
                   <Text style={styles.editButtonText}>Edit</Text>
                 </TouchableOpacity>
               </View>
 
               <View style={styles.recordsGrid}>
-                <PersonalRecordCard exercise="Bench Press" weight="0 lbs" />
-                <PersonalRecordCard exercise="Squat" weight="0 lbs" />
-                <PersonalRecordCard exercise="Deadlift" weight="0 lbs" />
-                <PersonalRecordCard exercise="Overhead Press" weight="0 lbs" />
+                <PersonalRecordCard exercise="Bench Press" weight={`${prs.bench} lbs`} />
+                <PersonalRecordCard exercise="Squat" weight={`${prs.squat} lbs`} />
+                <PersonalRecordCard exercise="Deadlift" weight={`${prs.deadlift} lbs`} />
+                <PersonalRecordCard exercise="Overhead Press" weight={`${prs.ohp} lbs`} />
               </View>
             </View>
 
@@ -474,55 +660,347 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
         ) : (
           // Plan tab content
           <>
-            {/* Training Plan Builder */}
-            <View style={styles.sectionCard}>
-              <View style={styles.planBuilderHeader}>
-                <View style={styles.planBuilderInfo}>
-                  <View style={styles.planBuilderTitleContainer}>
-                    <Ionicons name="radio-button-off-outline" size={24} color="#4A90E2" />
-                    <Text style={styles.planBuilderTitle}>Training Plan Builder</Text>
+            {plan === null ? (
+              <>
+                {/* Training Plan Builder */}
+                <View style={styles.sectionCard}>
+                  <View style={styles.planBuilderHeader}>
+                    <View style={styles.planBuilderInfo}>
+                      <View style={styles.planBuilderTitleContainer}>
+                        <Ionicons name="radio-button-off-outline" size={24} color="#4A90E2" />
+                        <Text style={styles.planBuilderTitle}>Training Plan Builder</Text>
+                      </View>
+                      <Text style={styles.planBuilderDescription}>Create custom workout programs from scratch</Text>
+                    </View>
+                    <TouchableOpacity style={styles.buildPlanButton} onPress={() => setPlanModalOpen(true)}>
+                      <Ionicons name="add" size={20} color="#fff" />
+                      <Text style={styles.buildPlanButtonText}>Build Plan</Text>
+                    </TouchableOpacity>
                   </View>
-                  <Text style={styles.planBuilderDescription}>Create custom workout programs from scratch</Text>
                 </View>
-                <TouchableOpacity style={styles.buildPlanButton}>
-                  <Ionicons name="add" size={20} color="#fff" />
-                  <Text style={styles.buildPlanButtonText}>Build Plan</Text>
+
+                {/* My Plans */}
+                <View style={styles.sectionCard}>
+                  <Text style={styles.myPlansTitle}>My Plans</Text>
+
+                  {myPlans.length === 0 ? (
+                    <View style={styles.emptyPlansContainer}>
+                      <View style={styles.emptyPlansIcon}>
+                        <Ionicons name="radio-button-off-outline" size={60} color="#ccc" />
+                      </View>
+                      <Text style={styles.emptyPlansTitle}>No plans created yet</Text>
+                      <Text style={styles.emptyPlansDescription}>
+                        Click "Build Plan" to create your first workout program
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={{ gap: 12 }}>
+                      {myPlans.map((p) => (
+                        <TouchableOpacity key={p.id} style={styles.planListItem} onPress={async () => {
+                          const weeks = await listPlanTree(p.id)
+                          const mapped = weeks.map((w) => ({ id: w.id, name: w.name, days: (w as any).days.map((d: any) => ({ id: d.id, name: d.name, blocks: d.blocks.map((b: any) => ({ id: b.id, name: b.name, letter: b.letter || "A", exercises: (b.exercises || []).map((e: any) => ({ id: e.id, name: e.name, type: e.type })) })) })) }))
+                          setPlan({ id: p.id, name: p.name, description: p.description || undefined, weeks: mapped })
+                        }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.planListName}>{p.name}</Text>
+                            {!!p.description && <Text style={styles.planListDesc}>{p.description}</Text>}
+                          </View>
+                          <Ionicons name="chevron-forward" size={18} color="#666" />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {/* 1RM Percentage Calculator */}
+                <View style={styles.sectionCard}>
+                  <View style={styles.calculatorHeader}>
+                    <Ionicons name="calculator-outline" size={20} color="#4A90E2" />
+                    <Text style={styles.calculatorTitle}>1RM Percentage Calculator</Text>
+                  </View>
+
+                  <View style={styles.calculatorInputContainer}>
+                    <TextInput style={styles.calculatorInput} placeholder="Max Weight" placeholderTextColor="#999" />
+                  </View>
+                </View>
+              </>
+            ) : (
+              <>
+                {/* Plan Detail View */}
+                <View style={styles.planDetailHeader}>
+                  <TouchableOpacity style={styles.backButton} onPress={() => setPlan(null)}>
+                    <Ionicons name="chevron-back" size={22} color="#666" />
+                  </TouchableOpacity>
+                  <View style={{ alignItems: "center", flex: 1 }}>
+                    <Text style={styles.planDetailTitle}>{plan.name}</Text>
+                    {!!plan.description && <Text style={styles.planDetailDescription}>{plan.description}</Text>}
+                  </View>
+                  <View style={{ width: 22 }} />
+                </View>
+
+                <TouchableOpacity style={[styles.timePeriodButton, { alignSelf: "flex-start", marginBottom: 12 }]} onPress={() => setWeekModalOpen({ open: true })}>
+                  <Text style={styles.timePeriodButtonText}>+ Add Week</Text>
                 </TouchableOpacity>
-              </View>
-            </View>
 
-            {/* My Plans */}
-            <View style={styles.sectionCard}>
-              <Text style={styles.myPlansTitle}>My Plans</Text>
+                {plan.weeks.map((w, wi) => (
+                  <View key={w.id} style={[styles.sectionCard, { marginTop: 12 }]}> 
+                    <View style={styles.sectionHeader}>
+                      <View style={styles.sectionTitleContainer}>
+                        <Ionicons name="calendar-outline" size={20} color="#4A90E2" />
+                        <Text style={styles.sectionTitle}>{w.name}</Text>
+                      </View>
+                      <TouchableOpacity style={styles.editButton} onPress={() => setDayModalOpen({ open: true, weekIndex: wi })}>
+                        <Ionicons name="add" size={16} color="#666" />
+                        <Text style={styles.editButtonText}>Add Day</Text>
+                      </TouchableOpacity>
+                    </View>
 
-              <View style={styles.emptyPlansContainer}>
-                <View style={styles.emptyPlansIcon}>
-                  <Ionicons name="radio-button-off-outline" size={60} color="#ccc" />
-                </View>
-                <Text style={styles.emptyPlansTitle}>No plans created yet</Text>
-                <Text style={styles.emptyPlansDescription}>
-                  Click "Build Plan" to create your first workout program
-                </Text>
-              </View>
-            </View>
+                    {w.days.map((d, di) => (
+                      <View key={d.id} style={{ marginBottom: 12 }}>
+                        <View style={[styles.sectionHeader, { marginBottom: 8 }]}>
+                          <View style={styles.sectionTitleContainer}>
+                            <Ionicons name="today-outline" size={18} color="#10B981" />
+                            <Text style={[styles.sectionTitle, { fontSize: 16 }]}>{d.name}</Text>
+                          </View>
+                          <TouchableOpacity style={styles.editButton} onPress={() => setBlockModalOpen({ open: true, weekIndex: wi, dayIndex: di })}>
+                            <Ionicons name="add" size={16} color="#666" />
+                            <Text style={styles.editButtonText}>Add Block</Text>
+                          </TouchableOpacity>
+                        </View>
 
-            {/* 1RM Percentage Calculator */}
-            <View style={styles.sectionCard}>
-              <View style={styles.calculatorHeader}>
-                <Ionicons name="calculator-outline" size={20} color="#4A90E2" />
-                <Text style={styles.calculatorTitle}>1RM Percentage Calculator</Text>
-              </View>
-
-              <View style={styles.calculatorInputContainer}>
-                <TextInput style={styles.calculatorInput} placeholder="Max Weight" placeholderTextColor="#999" />
-              </View>
-            </View>
+                        {d.blocks.map((b, bi) => (
+                          <View key={b.id} style={styles.blockContainer}>
+                            <View style={styles.workoutBlockHeader}>
+                              <View style={styles.blockLabel}><Text style={styles.blockId}>{b.letter}</Text></View>
+                              <View style={styles.blockInfo}><Text style={styles.blockName}>{b.name}</Text></View>
+                              <TouchableOpacity style={styles.blockDropdown} onPress={() => setExerciseModalOpen({ open: true, weekIndex: wi, dayIndex: di, blockIndex: bi })}>
+                                <Ionicons name="add" size={20} color="#666" />
+                              </TouchableOpacity>
+                            </View>
+                            {b.exercises.map((e) => (
+                              <View key={e.id} style={styles.exerciseRow}>
+                                <Text style={styles.exerciseName}>{e.name}</Text>
+                                <Text style={styles.exerciseMeta}>{e.type}</Text>
+                                <Text style={styles.exerciseMeta}>{e.sets}×{e.reps}</Text>
+                                {!!e.weight && <Text style={styles.exerciseMeta}>{e.weight}</Text>}
+                                {!!e.rest && <Text style={styles.exerciseMeta}>{e.rest} rest</Text>}
+                              </View>
+                            ))}
+                          </View>
+                        ))}
+                      </View>
+                    ))}
+                  </View>
+                ))}
+              </>
+            )}
           </>
         )}
 
         {/* Add some bottom padding for navigation */}
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Edit PRs Modal */}
+      {editOpen && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Personal Records</Text>
+              <TouchableOpacity onPress={() => setEditOpen(false)}>
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalFieldRow}>
+              <Text style={styles.modalLabel}>Bench Press (lbs)</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="0"
+                placeholderTextColor="#999"
+                keyboardType="numeric"
+                value={formBench}
+                onChangeText={setFormBench}
+              />
+            </View>
+
+            <View style={styles.modalFieldRow}>
+              <Text style={styles.modalLabel}>Squat (lbs)</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="0"
+                placeholderTextColor="#999"
+                keyboardType="numeric"
+                value={formSquat}
+                onChangeText={setFormSquat}
+              />
+            </View>
+
+            <View style={styles.modalFieldRow}>
+              <Text style={styles.modalLabel}>Deadlift (lbs)</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="0"
+                placeholderTextColor="#999"
+                keyboardType="numeric"
+                value={formDeadlift}
+                onChangeText={setFormDeadlift}
+              />
+            </View>
+
+            <View style={styles.modalFieldRow}>
+              <Text style={styles.modalLabel}>Overhead Press (lbs)</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="0"
+                placeholderTextColor="#999"
+                keyboardType="numeric"
+                value={formOhp}
+                onChangeText={setFormOhp}
+              />
+            </View>
+
+            <TouchableOpacity style={styles.modalSaveButton} onPress={savePrs} disabled={saving}>
+              <Text style={styles.modalSaveButtonText}>{saving ? "Saving..." : "Save"}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Build Plan Modal */}
+      {planModalOpen && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Create Plan</Text>
+              <TouchableOpacity onPress={() => setPlanModalOpen(false)}>
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalFieldRow}>
+              <Text style={styles.modalLabel}>Plan name</Text>
+              <TextInput style={styles.modalInput} placeholder="Plan name" placeholderTextColor="#999" value={planName} onChangeText={setPlanName} />
+            </View>
+            <View style={styles.modalFieldRow}>
+              <Text style={styles.modalLabel}>Description</Text>
+              <TextInput style={styles.modalInput} placeholder="Description" placeholderTextColor="#999" value={planDescription} onChangeText={setPlanDescription} />
+            </View>
+            <TouchableOpacity style={styles.modalSaveButton} onPress={createPlan}>
+              <Text style={styles.modalSaveButtonText}>Create</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Add Week Modal */}
+      {weekModalOpen.open && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add Week</Text>
+              <TouchableOpacity onPress={() => setWeekModalOpen({ open: false })}>
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalFieldRow}>
+              <Text style={styles.modalLabel}>Week name</Text>
+              <TextInput style={styles.modalInput} placeholder="Week 1" placeholderTextColor="#999" value={weekName} onChangeText={setWeekName} />
+            </View>
+            <TouchableOpacity style={styles.modalSaveButton} onPress={addWeek}>
+              <Text style={styles.modalSaveButtonText}>Add Week</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Add Day Modal */}
+      {dayModalOpen.open && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add Day</Text>
+              <TouchableOpacity onPress={() => setDayModalOpen({ open: false })}>
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+            {dayNames.map((name, idx) => (
+              <View key={idx} style={styles.modalFieldRow}>
+                <Text style={styles.modalLabel}>Day name</Text>
+                <TextInput style={styles.modalInput} placeholder={`Day ${idx + 1}`} placeholderTextColor="#999" value={name} onChangeText={(t) => {
+                  const copy = [...dayNames]; copy[idx] = t; setDayNames(copy)
+                }} />
+              </View>
+            ))}
+            {dayNames.length < 7 && (
+              <TouchableOpacity style={styles.inlineAddButton} onPress={() => setDayNames([...dayNames, ""]) }>
+                <Ionicons name="add" size={16} color="#4A90E2" />
+                <Text style={styles.inlineAddText}>Add another day</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.modalSaveButton} onPress={addDay}>
+              <Text style={styles.modalSaveButtonText}>Add Day</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Add Block Modal */}
+      {blockModalOpen.open && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add Block</Text>
+              <TouchableOpacity onPress={() => setBlockModalOpen({ open: false })}>
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+            {blockNames.map((name, idx) => (
+              <View key={idx} style={styles.modalFieldRow}>
+                <Text style={styles.modalLabel}>Block name</Text>
+                <TextInput style={styles.modalInput} placeholder={`Block ${String.fromCharCode(65 + idx)}`} placeholderTextColor="#999" value={name} onChangeText={(t) => {
+                  const copy = [...blockNames]; copy[idx] = t; setBlockNames(copy)
+                }} />
+              </View>
+            ))}
+            <TouchableOpacity style={styles.inlineAddButton} onPress={() => setBlockNames([...blockNames, ""]) }>
+              <Ionicons name="add" size={16} color="#4A90E2" />
+              <Text style={styles.inlineAddText}>Add another block</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.modalSaveButton} onPress={addBlock}>
+              <Text style={styles.modalSaveButtonText}>Add Block</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Add Exercise Modal */}
+      {exerciseModalOpen.open && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add Exercise</Text>
+              <TouchableOpacity onPress={() => setExerciseModalOpen({ open: false })}>
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+            {exerciseNames.map((name, idx) => (
+              <View key={idx} style={styles.modalFieldRow}>
+                <Text style={styles.modalLabel}>Exercise name</Text>
+                <TextInput style={styles.modalInput} placeholder={`Exercise ${idx + 1}`} placeholderTextColor="#999" value={name} onChangeText={(t) => {
+                  const copy = [...exerciseNames]; copy[idx] = t; setExerciseNames(copy)
+                }} />
+              </View>
+            ))}
+            <TouchableOpacity style={styles.inlineAddButton} onPress={() => setExerciseNames([...exerciseNames, ""]) }>
+              <Ionicons name="add" size={16} color="#4A90E2" />
+              <Text style={styles.inlineAddText}>Add another exercise</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.modalSaveButton} onPress={addExercise}>
+              <Text style={styles.modalSaveButtonText}>Add Exercise</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   )
 }
@@ -904,6 +1382,30 @@ const styles = StyleSheet.create({
   blockDropdown: {
     padding: 8,
   },
+  blockContainer: {
+    backgroundColor: "#f8f9fa",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+  },
+  exerciseRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+  },
+  exerciseName: {
+    fontSize: 14,
+    color: "#333",
+    flex: 1,
+  },
+  exerciseMeta: {
+    fontSize: 12,
+    color: "#666",
+    marginLeft: 8,
+  },
   comingSoonContainer: {
     alignItems: "center",
     justifyContent: "center",
@@ -938,6 +1440,35 @@ const styles = StyleSheet.create({
     color: "#666",
     lineHeight: 20,
   },
+  planDetailHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  backButton: {
+    padding: 8,
+  },
+  planDetailTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#333",
+  },
+  planDetailDescription: {
+    fontSize: 14,
+    color: "#666",
+    marginTop: 4,
+    textAlign: "center",
+  },
+  planName: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#333",
+  },
+  planDescription: {
+    fontSize: 14,
+    color: "#666",
+    marginTop: 4,
+  },
   buildPlanButton: {
     backgroundColor: "#333",
     flexDirection: "row",
@@ -957,6 +1488,24 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#333",
     marginBottom: 32,
+  },
+  planListItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#f8f9fa",
+  },
+  planListName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+  },
+  planListDesc: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 4,
   },
   emptyPlansContainer: {
     alignItems: "center",
@@ -1000,6 +1549,82 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#333",
     backgroundColor: "#f8f9fa",
+  },
+  modalOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  modalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    width: "100%",
+    maxWidth: 500,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#333",
+  },
+  modalFieldRow: {
+    marginBottom: 12,
+  },
+  modalLabel: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 6,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: "#333",
+    backgroundColor: "#f8f9fa",
+  },
+  modalSaveButton: {
+    backgroundColor: "#4A90E2",
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  modalSaveButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  inlineAddButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    paddingVertical: 6,
+  },
+  inlineAddText: {
+    color: "#4A90E2",
+    fontSize: 14,
+    fontWeight: "600",
   },
 })
 

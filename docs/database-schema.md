@@ -145,6 +145,67 @@ All tables have Row-Level Security enabled to ensure users can only access their
 | goal_prog_select_own | Users can only select progress entries where user_id = auth.uid() |
 | goal_prog_cud_own | Users can create/update/delete progress where user_id = auth.uid() AND the goal belongs to them |
 
+### 6. personal_records
+
+Stores a user's 1RM personal records for key lifts.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| user_id | uuid | Primary key, references users(id) |
+| bench_press_1rm | numeric | 1RM Bench Press in lbs (nullable) |
+| squat_1rm | numeric | 1RM Squat in lbs (nullable) |
+| deadlift_1rm | numeric | 1RM Deadlift in lbs (nullable) |
+| overhead_press_1rm | numeric | 1RM Overhead Press in lbs (nullable) |
+| updated_at | timestamptz | Last update timestamp (default now()) |
+
+**Indexes/Constraints**:
+- Primary key on `(user_id)` ensures one row per user
+
+**RLS Policies**:
+| Policy | Description |
+|--------|-------------|
+| prs_select_own | Users can select where user_id = auth.uid() |
+| prs_upsert_own | Users can insert/update their own row (user_id = auth.uid()) |
+
+Example SQL:
+
+```sql
+create table if not exists public.personal_records (
+  user_id uuid primary key references public.users(id) on delete cascade,
+  bench_press_1rm numeric,
+  squat_1rm numeric,
+  deadlift_1rm numeric,
+  overhead_press_1rm numeric,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.personal_records enable row level security;
+
+create policy prs_select_own on public.personal_records
+  for select using (auth.uid() = user_id);
+
+create policy prs_upsert_own on public.personal_records
+  for insert with check (auth.uid() = user_id);
+
+create policy prs_update_own on public.personal_records
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Optional: convenience trigger to auto-set user_id on insert
+create or replace function public.set_prs_user_id()
+returns trigger language plpgsql as $$
+begin
+  if (new.user_id is null) then
+    new.user_id := auth.uid();
+  end if;
+  new.updated_at := now();
+  return new;
+end $$;
+
+drop trigger if exists trg_set_prs_user_id on public.personal_records;
+create trigger trg_set_prs_user_id before insert or update on public.personal_records
+for each row execute function public.set_prs_user_id();
+```
+
 ## Authentication & User Creation
 
 1. Users register through Supabase Auth (email/password)
