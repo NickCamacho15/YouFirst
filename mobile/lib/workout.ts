@@ -210,3 +210,90 @@ export function buildSnapshotFromPlanDay(day: { blocks: Array<{ exercises: Array
 }
 
 
+export type WorkoutStats = {
+  totalWorkouts: number
+  avgDurationMins: number
+  currentStreakDays: number
+  totalVolumeThisWeek: number
+}
+
+function toISODate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+export async function getWorkoutStats(): Promise<WorkoutStats> {
+  const { data: auth } = await supabase.auth.getUser()
+  if (!auth.user) throw new Error("Not authenticated")
+
+  // Pull all sessions for aggregates and streak
+  const { data: sessionsAll, error: e1 } = await supabase
+    .from<WorkoutSessionRow>("workout_sessions")
+    .select("id, started_at, total_seconds, status")
+    .eq("user_id", auth.user.id)
+  if (e1) throw new Error(e1.message)
+
+  const completed = (sessionsAll || []).filter((s) => s.status === "completed")
+  const totalWorkouts = completed.length
+  const avgDurationMins = completed.length > 0
+    ? Math.round(((completed.reduce((acc, s) => acc + (s.total_seconds || 0), 0) / completed.length) || 0) / 60)
+    : 0
+
+  // Current streak (consecutive days with at least one completed session, counting back from today)
+  const daysWithWorkout = new Set<string>()
+  completed.forEach((s) => {
+    if (s.started_at) daysWithWorkout.add(toISODate(new Date(s.started_at)))
+  })
+  let streak = 0
+  const today = new Date()
+  for (let i = 0; i < 365; i += 1) {
+    const d = new Date(today)
+    d.setDate(today.getDate() - i)
+    const iso = toISODate(d)
+    if (daysWithWorkout.has(iso)) streak += 1
+    else break
+  }
+
+  // Weekly volume (Sun-Sat based on device locale). Estimate from sets: reps*weight.
+  const weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay())
+  const weekStartISO = weekStart.toISOString()
+  const weekSessionIds = (sessionsAll || [])
+    .filter((s) => s.started_at && new Date(s.started_at) >= weekStart && s.status === "completed")
+    .map((s) => s.id)
+
+  let totalVolume = 0
+  if (weekSessionIds.length > 0) {
+    const { data: exRows, error: e2 } = await supabase
+      .from<SessionExerciseRow>("session_exercises")
+      .select("id, target_reps, target_weight")
+      .in("session_id", weekSessionIds)
+    if (e2) throw new Error(e2.message)
+    const mapTargets: Record<string, { reps: number; weight: number }> = {}
+    ;(exRows || []).forEach((r) => { mapTargets[r.id] = { reps: toInt(r.target_reps) || 0, weight: toFloat(r.target_weight) || 0 } })
+    const exIds = Object.keys(mapTargets)
+    if (exIds.length > 0) {
+      const { data: sets, error: e3 } = await supabase
+        .from<SetLogRow>("set_logs")
+        .select("session_exercise_id, actual_reps, actual_weight")
+        .in("session_exercise_id", exIds)
+      if (e3) throw new Error(e3.message)
+      (sets || []).forEach((s) => {
+        const t = mapTargets[s.session_exercise_id]
+        const reps = toInt(s.actual_reps) ?? t?.reps ?? 0
+        const weight = toFloat(s.actual_weight) ?? t?.weight ?? 0
+        totalVolume += (reps || 0) * (weight || 0)
+      })
+    }
+  }
+
+  return {
+    totalWorkouts,
+    avgDurationMins,
+    currentStreakDays: streak,
+    totalVolumeThisWeek: Math.round(totalVolume),
+  }
+}
+
+

@@ -13,13 +13,16 @@ import {
   Image,
   Dimensions,
   TextInput,
+  Animated,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
+import { Loader2, Check } from "lucide-react-native"
+import Svg, { Circle } from "react-native-svg"
 import TopHeader from "../components/TopHeader"
 import { LineChart } from "react-native-chart-kit"
 import { getPersonalRecords, upsertPersonalRecords } from "../lib/prs"
 import { createPlanInDb, listPlans, listPlanTree, createWeek as dbCreateWeek, createDay as dbCreateDay, createBlock as dbCreateBlock, createExercise as dbCreateExercise, updateExercise as dbUpdateExercise, deleteExercises as dbDeleteExercises } from "../lib/plans"
-import { buildSnapshotFromPlanDay, createSessionFromSnapshot, getActiveSessionForToday, endSession, completeSet, markExercisesCompleted, type SessionExerciseRow } from "../lib/workout"
+import { buildSnapshotFromPlanDay, createSessionFromSnapshot, getActiveSessionForToday, endSession, completeSet, markExercisesCompleted, getWorkoutStats, type SessionExerciseRow } from "../lib/workout"
 
 interface ScreenProps { onLogout?: () => void }
 
@@ -27,12 +30,18 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState("profile")
   const [prs, setPrs] = useState({ bench: 0, squat: 0, deadlift: 0, ohp: 0 })
   const [editOpen, setEditOpen] = useState(false)
+  const [prUpdateOpen, setPrUpdateOpen] = useState(false)
+  const [prLift, setPrLift] = useState<'Bench Press' | 'Squat' | 'Deadlift' | 'Overhead Press'>('Bench Press')
+  const [prValue, setPrValue] = useState<string>("")
+  const [prSaving, setPrSaving] = useState(false)
+  const [prSuccessOpen, setPrSuccessOpen] = useState(false)
   const [formBench, setFormBench] = useState<string>("")
   const [formSquat, setFormSquat] = useState<string>("")
   const [formDeadlift, setFormDeadlift] = useState<string>("")
   const [formOhp, setFormOhp] = useState<string>("")
   const [saving, setSaving] = useState(false)
   const [myPlans, setMyPlans] = useState<{ id: string; name: string; description?: string | null }[]>([])
+  const [trainingStats, setTrainingStats] = useState<{ total: number; avg: number; streak: number; volume: number }>({ total: 0, avg: 0, streak: 0, volume: 0 })
 
   const screenWidth = Dimensions.get("window").width
 
@@ -120,6 +129,14 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn("Failed to load plans", (e as any)?.message)
+      }
+      // Load training stats
+      try {
+        const stats = await getWorkoutStats()
+        setTrainingStats({ total: stats.totalWorkouts, avg: stats.avgDurationMins, streak: stats.currentStreakDays, volume: stats.totalVolumeThisWeek })
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('Failed to load workout stats', (e as any)?.message)
       }
     })()
   }, [])
@@ -209,6 +226,9 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   const [currentExerciseIdx, setCurrentExerciseIdx] = useState<number>(0)
   const [completedExercises, setCompletedExercises] = useState<Record<string, boolean>>({})
   const [planToSessionMap, setPlanToSessionMap] = useState<Record<string, string>>({})
+  // Animated card highlights per exercise id
+  const cardAnimValues = React.useRef<Record<string, Animated.Value>>({})
+  const prevDoneCountsRef = React.useRef<Record<string, number>>({})
 
   // Timer effect for workout
   useEffect(() => {
@@ -504,9 +524,9 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                   <Ionicons name="trophy-outline" size={20} color="#4A90E2" />
                   <Text style={styles.sectionTitle}>Personal Records (1RM)</Text>
                 </View>
-                <TouchableOpacity style={styles.editButton} onPress={openEdit}>
-                  <Ionicons name="pencil-outline" size={16} color="#666" />
-                  <Text style={styles.editButtonText}>Edit</Text>
+                <TouchableOpacity style={[styles.buildPlanButton, { backgroundColor: '#4A90E2' }]} onPress={() => setPrUpdateOpen(true)}>
+                  <Ionicons name="trophy-outline" size={16} color="#fff" />
+                  <Text style={styles.buildPlanButtonText}>Update a PR</Text>
                 </TouchableOpacity>
               </View>
 
@@ -528,10 +548,9 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
               </View>
 
               <View style={styles.statsContainer}>
-                <StatRow label="Total Workouts" value="0" />
-                <StatRow label="Avg. Workout Duration" value="0 mins" />
-                <StatRow label="Current Streak" value="0 days" valueColor="#10B981" />
-                <StatRow label="Total Volume This Week" value="0 lbs" />
+                <StatRow label="Total Workouts" value={`${trainingStats.total}`} />
+                <StatRow label="Avg. Workout Duration" value={`${trainingStats.avg} mins`} />
+                <StatRow label="Current Streak" value={`${trainingStats.streak} days`} valueColor="#10B981" />
               </View>
             </View>
 
@@ -737,146 +756,144 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
               </View>
             </View>
 
-            {/* Workout Timer */}
-            <View style={styles.sectionCard}>
-              <Text style={styles.workoutTimerTitle}>Workout Timer</Text>
-              <Text style={styles.workoutTimerDisplay}>{formatWorkoutTime(workoutTime)}</Text>
-              {plan ? (
-                <>
-                  {showPlanName && <Text style={styles.planNameUnderTimer}>{plan.name}</Text>}
-                  <Text style={styles.workoutType}>{todayPlanLabel ? todayPlanLabel : 'No plan scheduled today'}</Text>
-                </>
-              ) : (
-                <Text style={styles.workoutType}>No plan scheduled today</Text>
-              )}
+            {/* Workout Timer / Summary (conditional) */}
+            {showSummary ? (
+              <View style={styles.sectionCard}>
+                <Text style={{ fontSize: 18, fontWeight: "700", color: "#333", textAlign: "center", marginBottom: 8 }}>Workout Complete</Text>
+                <Text style={{ fontSize: 32, fontWeight: "800", color: "#111827", textAlign: "center", fontFamily: "monospace", marginBottom: 12 }}>{formatWorkoutTime(summarySeconds)}</Text>
+                <TouchableOpacity style={styles.startWorkoutButton} onPress={() => setShowSummary(false)}>
+                  <Text style={styles.startWorkoutButtonText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.sectionCard}>
+                <Text style={styles.workoutTimerTitle}>Workout Timer</Text>
+                <Text style={styles.workoutTimerDisplay}>{formatWorkoutTime(workoutTime)}</Text>
+                {plan ? (
+                  <>
+                    {showPlanName && <Text style={styles.planNameUnderTimer}>{plan.name}</Text>}
+                    <Text style={styles.workoutType}>{todayPlanLabel ? todayPlanLabel : 'No plan scheduled today'}</Text>
+                  </>
+                ) : (
+                  <Text style={styles.workoutType}>No plan scheduled today</Text>
+                )}
 
-              <TouchableOpacity
-                style={styles.startWorkoutButton}
-                onPress={async () => {
-                  // Toggle pause/resume if active
-                  if (isWorkoutActive) {
-                    setIsWorkoutPaused((p)=> !p)
-                    return
-                  }
-                  // start new workout without resetting if already counting
-                  setIsWorkoutActive(true)
-                  setIsWorkoutPaused(false)
-                  if (!workoutStartedAt) setWorkoutStartedAt(new Date())
-                  // Attempt resume
-                  try {
-                    const resumed = await getActiveSessionForToday()
-                    if (resumed) {
-                      setActiveSessionId(resumed.session.id)
-                      setSessionExercises(resumed.exercises)
-                      const counts: Record<string, number> = {}
-                      for (const s of (resumed.sets || [])) {
-                        counts[s.session_exercise_id] = Math.max(counts[s.session_exercise_id] || 0, s.set_index)
-                      }
-                      setSetCounts(counts)
+                <TouchableOpacity
+                  style={styles.startWorkoutButton}
+                  onPress={async () => {
+                    // Toggle pause/resume if active
+                    if (isWorkoutActive) {
+                      setIsWorkoutPaused((p)=> !p)
                       return
                     }
-                  } catch {}
-                  // Start from selected plan day if available
-                  if (plan && plan.weeks.length) {
-                    // map from selected calendar day
-                    const target = new Date(weekStart); target.setDate(weekStart.getDate() + selectedDayIndex)
-                    const info = computePlanForDate(plan, activePlanStart, target)
-                    const day = info && info.weekIndex >= 0 ? plan.weeks[info.weekIndex]?.days[info.dayIndex] : undefined
-                    if (day) {
-                      const snapshot = buildSnapshotFromPlanDay(day as any)
-                      try {
-                        const created = await createSessionFromSnapshot({ planId: plan.id, planDayId: day.id, exercises: snapshot })
-                        setActiveSessionId(created.session.id)
-                        setSessionExercises(created.exercises)
-                        setSetCounts({})
+                    // start new workout without resetting if already counting
+                    setIsWorkoutActive(true)
+                    setIsWorkoutPaused(false)
+                    if (!workoutStartedAt) setWorkoutStartedAt(new Date())
+                    // Attempt resume
+                    try {
+                      const resumed = await getActiveSessionForToday()
+                      if (resumed) {
+                        setActiveSessionId(resumed.session.id)
+                        setSessionExercises(resumed.exercises)
+                        const counts: Record<string, number> = {}
+                        for (const s of (resumed.sets || [])) {
+                          counts[s.session_exercise_id] = Math.max(counts[s.session_exercise_id] || 0, s.set_index)
+                        }
+                        setSetCounts(counts)
                         // Build order and mapping for guided completion
-                        const order = snapshot.map((s) => s.plan_exercise_id as string).filter(Boolean)
+                        const order = (resumed.exercises || [])
+                          .map((sx: any) => sx.plan_exercise_id as string | null)
+                          .filter((id: any): id is string => !!id)
                         setExerciseOrder(order)
-                        setCurrentExerciseIdx(0)
                         const map: Record<string, string> = {}
-                        created.exercises.forEach((sx) => {
-                          if ((sx as any).plan_exercise_id) map[(sx as any).plan_exercise_id as string] = sx.id
+                        ;(resumed.exercises || []).forEach((sx: any) => {
+                          if (sx.plan_exercise_id) map[sx.plan_exercise_id as string] = sx.id
                         })
                         setPlanToSessionMap(map)
-                        setCompletedExercises({})
-                      } catch {}
-                      return
+                        // Mark already completed exercises
+                        const completed: Record<string, boolean> = {}
+                        ;(resumed.exercises || []).forEach((sx: any) => {
+                          const target = sx.target_sets || 0
+                          const doneBySets = target > 0 && (counts[sx.id] || 0) >= target
+                          const done = !!sx.completed_at || doneBySets
+                          if (sx.plan_exercise_id && done) completed[sx.plan_exercise_id as string] = true
+                        })
+                        setCompletedExercises(completed)
+                        // Pointer to first incomplete
+                        let ptr = 0
+                        for (let i = 0; i < order.length; i += 1) {
+                          if (!completed[order[i]]) { ptr = i; break }
+                          if (i === order.length - 1) ptr = i
+                        }
+                        setCurrentExerciseIdx(ptr)
+                        return
+                      }
+                    } catch {}
+                    // Start from selected plan day if available
+                    if (plan && plan.weeks.length) {
+                      // map from selected calendar day
+                      const target = new Date(weekStart); target.setDate(weekStart.getDate() + selectedDayIndex)
+                      const info = computePlanForDate(plan, activePlanStart, target)
+                      const day = info && info.weekIndex >= 0 ? plan.weeks[info.weekIndex]?.days[info.dayIndex] : undefined
+                      if (day) {
+                        // Optimistically set guided order so first checkbox is active immediately
+                        try {
+                          const orderFromPlan: string[] = ([] as string[]).concat(
+                            ...((day.blocks || []).map((b: any) => (b.exercises || []).map((e: any) => e.id)))
+                          )
+                          if (orderFromPlan.length) {
+                            setExerciseOrder(orderFromPlan)
+                            setCurrentExerciseIdx(0)
+                            setCompletedExercises({})
+                          }
+                        } catch {}
+                        const snapshot = buildSnapshotFromPlanDay(day as any)
+                        try {
+                          const created = await createSessionFromSnapshot({ planId: plan.id, planDayId: day.id, exercises: snapshot })
+                          setActiveSessionId(created.session.id)
+                          setSessionExercises(created.exercises)
+                          setSetCounts({})
+                          // Build order and mapping for guided completion
+                          const order = snapshot.map((s) => s.plan_exercise_id as string).filter(Boolean)
+                          setExerciseOrder(order)
+                          setCurrentExerciseIdx(0)
+                          const map: Record<string, string> = {}
+                          created.exercises.forEach((sx) => {
+                            if ((sx as any).plan_exercise_id) map[(sx as any).plan_exercise_id as string] = sx.id
+                          })
+                          setPlanToSessionMap(map)
+                          setCompletedExercises({})
+                        } catch {}
+                        return
+                      }
                     }
-                  }
-                  // Fallback: free session
-                  try {
-                    const created = await createSessionFromSnapshot({ exercises: [] })
-                    setActiveSessionId(created.session.id)
-                    setSessionExercises(created.exercises)
-                    setSetCounts({})
-                    setExerciseOrder([])
-                    setCurrentExerciseIdx(0)
-                    setCompletedExercises({})
-                  } catch {}
-                }}
-              >
-                <Ionicons name={isWorkoutActive && !isWorkoutPaused ? "pause" : "play"} size={20} color="#fff" />
-                <Text style={styles.startWorkoutButtonText}>{isWorkoutActive ? (isWorkoutPaused ? "Resume Workout" : "Pause Workout") : "Start Workout"}</Text>
-              </TouchableOpacity>
+                    // Fallback: free session
+                    try {
+                      const created = await createSessionFromSnapshot({ exercises: [] })
+                      setActiveSessionId(created.session.id)
+                      setSessionExercises(created.exercises)
+                      setSetCounts({})
+                      setExerciseOrder([])
+                      setCurrentExerciseIdx(0)
+                      setCompletedExercises({})
+                    } catch {}
+                  }}
+                >
+                  <Ionicons name={isWorkoutActive && !isWorkoutPaused ? "pause" : "play"} size={20} color="#fff" />
+                  <Text style={styles.startWorkoutButtonText}>{isWorkoutActive ? (isWorkoutPaused ? "Resume Workout" : "Pause Workout") : "Start Workout"}</Text>
+                </TouchableOpacity>
 
-              {isWorkoutActive && (
-              <TouchableOpacity style={styles.endSessionButton} onPress={() => setEndConfirmOpen(true)}>
-                <Ionicons name="square-outline" size={20} color="#EF4444" />
-                <Text style={styles.endSessionButtonText}>End Session</Text>
-              </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Active Session Exercises */}
-            {isWorkoutActive && sessionExercises.length > 0 && (
-              <View style={styles.sectionCard}>
-                {sessionExercises.map((ex) => {
-                  const tgtSets = ex.target_sets || 0
-                  const done = setCounts[ex.id] || 0
-                  const restLeft = restRemaining[ex.id] || 0
-                  return (
-                    <View key={ex.id} style={{ borderTopWidth: 1, borderTopColor: "#eee", paddingTop: 12, marginTop: 12 }}>
-                      <Text style={{ fontSize: 16, fontWeight: "600", color: "#333" }}>{ex.name}</Text>
-                      <Text style={{ color: "#666", marginTop: 4 }}>Sets: {tgtSets || "-"}  {ex.target_reps ? `• ${ex.target_reps} reps` : ""} {ex.target_weight ? `• ${ex.target_weight}` : ""}</Text>
-                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
-                        <Text style={{ color: "#10B981", fontWeight: "700" }}>{done}/{tgtSets} completed</Text>
-                        <View style={{ flexDirection: "row", gap: 8 }}>
-                          <TouchableOpacity
-                            onPress={async () => {
-                              const next = (setCounts[ex.id] || 0) + 1
-                              try {
-                                await completeSet({ sessionExerciseId: ex.id, setIndex: next })
-                                setSetCounts({ ...setCounts, [ex.id]: next })
-                              } catch {}
-                            }}
-                            style={{ backgroundColor: "#4A90E2", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 }}>
-                            <Text style={{ color: "#fff", fontWeight: "700" }}>Complete Set</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            onPress={() => {
-                              const duration = ex.target_rest_seconds || 60
-                              if (restTimers[ex.id]) { clearInterval(restTimers[ex.id]!); restTimers[ex.id] = null }
-                              setRestRemaining((prev)=> ({ ...prev, [ex.id]: duration }))
-                              restTimers[ex.id] = setInterval(() => {
-                                setRestRemaining((prev) => {
-                                  const v = Math.max(0, (prev[ex.id] || 0) - 1)
-                                  if (v === 0 && restTimers[ex.id]) { clearInterval(restTimers[ex.id]!); restTimers[ex.id] = null }
-                                  return { ...prev, [ex.id]: v }
-                                })
-                              }, 1000)
-                            }}
-                            style={{ borderWidth: 1, borderColor: "#e5e7eb", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 }}>
-                            <Text style={{ fontWeight: "700", color: "#333" }}>{restLeft > 0 ? `Rest ${restLeft}s` : "Start Rest"}</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    </View>
-                  )
-                })}
+                {isWorkoutActive && (
+                <TouchableOpacity style={styles.endSessionButton} onPress={() => setEndConfirmOpen(true)}>
+                  <Ionicons name="square-outline" size={20} color="#EF4444" />
+                  <Text style={styles.endSessionButtonText}>End Session</Text>
+                </TouchableOpacity>
+                )}
               </View>
             )}
 
-            {/* Preview / Guided list for selected day */}
+            {/* Block-grouped workout view with progress ring (shown before start; actions hidden until started) */}
             {plan && activePlanStart && (
               (() => {
                 const target = new Date(weekStart); target.setDate(weekStart.getDate() + selectedDayIndex)
@@ -884,38 +901,106 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                 if (!info || info.weekIndex < 0) return null
                 const day = plan.weeks[info.weekIndex]?.days[info.dayIndex]
                 if (!day) return null
-                const activeOrderId = exerciseOrder[currentExerciseIdx]
                 return (
                   <View style={styles.sectionCard}>
                     {day.blocks.map((b) => {
-                      const allDone = (b.exercises || []).every((e) => completedExercises[e.id])
+                      const hasSession = isWorkoutActive && sessionExercises.length > 0
+                      const sxRows = (b.exercises || []).map((e) => {
+                        if (hasSession) {
+                          const sid = planToSessionMap[e.id]
+                          return sessionExercises.find((x) => x.id === sid) as any
+                        }
+                        // Fallback pre-start pseudo row using plan exercise targets
+                        const ts = e.sets ? parseInt(String(e.sets), 10) : 0
+                        const tr = e.reps ? parseInt(String(e.reps), 10) : null
+                        const tw: any = e.weight ?? null
+                        const rest = e.rest ? parseInt(String(e.rest), 10) : null
+                        return { id: e.id, name: e.name, target_sets: ts || 0, target_reps: tr, target_weight: tw, target_rest_seconds: rest }
+                      }).filter(Boolean) as any[]
+                      const total = sxRows.length || 1
+                      const completedCount = sxRows.filter((sx) => {
+                        const tgt = sx.target_sets || 0
+                        const done = Math.min(tgt, setCounts[sx.id] || 0)
+                        return tgt > 0 ? done >= tgt : (setCounts[sx.id] || 0) > 0
+                      }).length
+                      const pct = Math.min(1, Math.max(0, completedCount / total))
+                      const radius = 9
+                      const circumference = 2 * Math.PI * radius
+                      const offset = circumference * (1 - pct)
                       return (
-                        <View key={b.id} style={{ marginBottom: 8 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                            <Ionicons name={allDone ? 'checkbox' : 'square-outline'} size={20} color={allDone ? '#10B981' : '#999'} />
+                        <View key={b.id} style={{ marginBottom: 16 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                            {completedCount === total ? (
+                              <Check size={20} color="#10B981" />
+                            ) : (
+                              <Svg width={22} height={22}>
+                                <Circle cx={11} cy={11} r={radius} stroke={'#eee'} strokeWidth={2} fill="none" />
+                                <Circle cx={11} cy={11} r={radius} stroke={'#4A90E2'} strokeWidth={2} strokeDasharray={`${circumference}`} strokeDashoffset={offset} strokeLinecap="round" fill="none" transform="rotate(-90 11 11)" />
+                              </Svg>
+                            )}
                             <Text style={{ marginLeft: 8, fontWeight: '700', color: '#333' }}>{b.name}</Text>
                           </View>
-                          {(b.exercises || []).map((e) => {
-                            const checked = !!completedExercises[e.id]
-                            const isActive = isWorkoutActive && e.id === activeOrderId
-                            const disabled = !isWorkoutActive || !isActive
+                          {sxRows.map((ex) => {
+                            const tgtSets = ex.target_sets || 0
+                            const done = Math.min(tgtSets, setCounts[ex.id] || 0)
+                            const restLeft = restRemaining[ex.id] || 0
+                            const atMax = tgtSets > 0 && done >= tgtSets
+                            if (!cardAnimValues.current[ex.id]) cardAnimValues.current[ex.id] = new Animated.Value(0)
+                            const anim = cardAnimValues.current[ex.id]
+                            const prevDone = prevDoneCountsRef.current[ex.id] || 0
+                            if (atMax && prevDone < tgtSets) {
+                              Animated.sequence([
+                                Animated.timing(anim, { toValue: 1, duration: 160, useNativeDriver: false }),
+                                Animated.timing(anim, { toValue: 0, duration: 160, useNativeDriver: false }),
+                              ]).start()
+                            }
+                            prevDoneCountsRef.current[ex.id] = done
+                            const isActiveCard = isWorkoutActive && sessionExercises.length > 0 && ex.id === sessionExercises[currentExerciseIdx]?.id
+                            const baseBg = atMax ? '#DCFCE7' : (isActiveCard ? '#E0ECFF' : '#FFFFFF')
+                            const bgColor = anim.interpolate({ inputRange: [0,1], outputRange: [baseBg, '#BBF7D0'] })
                             return (
-                              <TouchableOpacity key={e.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, opacity: disabled && !checked ? 0.6 : 1 }} disabled={disabled}
-                                onPress={async () => {
-                                  // mark complete and advance
-                                  setCompletedExercises((prev)=> ({ ...prev, [e.id]: true }))
-                                  // persist one set for the matching session exercise if we have it
-                                  const sid = planToSessionMap[e.id]
-                                  if (sid) { try { await completeSet({ sessionExerciseId: sid, setIndex: 1 }) } catch {} }
-                                  // advance pointer
-                                  setCurrentExerciseIdx((idx)=> {
-                                    const next = idx + 1
-                                    return next < exerciseOrder.length ? next : idx
-                                  })
-                                }}>
-                                <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={20} color={checked ? '#10B981' : isActive ? '#4A90E2' : '#999'} />
-                                <Text style={{ marginLeft: 8, color: '#333' }}>{e.name}</Text>
-                              </TouchableOpacity>
+                              <Animated.View key={ex.id} style={{ borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 12, marginTop: 8, backgroundColor: bgColor, borderRadius: 8, padding: 8 }}>
+                                <Text style={{ fontSize: 16, fontWeight: '600', color: '#333' }}>{ex.name}</Text>
+                                <Text style={{ color: '#666', marginTop: 4 }}>Sets: {tgtSets || '-'}  {ex.target_reps ? `• ${ex.target_reps} reps` : ''} {ex.target_weight ? `• ${ex.target_weight}` : ''}</Text>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+                                  <Text style={{ color: '#10B981', fontWeight: '700' }}>{done}/{tgtSets} completed</Text>
+                                  {isWorkoutActive && (
+                                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                                      <TouchableOpacity
+                                        onPress={async () => {
+                                          if (atMax) return
+                                          const next = Math.min(tgtSets || 9999, (setCounts[ex.id] || 0) + 1)
+                                          try {
+                                            await completeSet({ sessionExerciseId: ex.id, setIndex: next })
+                                            setSetCounts({ ...setCounts, [ex.id]: next })
+                                          } catch {}
+                                        }}
+                                        disabled={atMax}
+                                        style={{ backgroundColor: atMax ? '#9CA3AF' : '#4A90E2', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 }}
+                                      >
+                                        <Text style={{ color: '#fff', fontWeight: '700' }}>{atMax ? 'All Sets Done' : 'Complete Set'}</Text>
+                                      </TouchableOpacity>
+                                      <TouchableOpacity
+                                        onPress={() => {
+                                          const duration = ex.target_rest_seconds || 60
+                                          if (restTimers[ex.id]) { clearInterval(restTimers[ex.id]!); restTimers[ex.id] = null }
+                                          setRestRemaining((prev)=> ({ ...prev, [ex.id]: duration }))
+                                          restTimers[ex.id] = setInterval(() => {
+                                            setRestRemaining((prev) => {
+                                              const v = Math.max(0, (prev[ex.id] || 0) - 1)
+                                              if (v === 0 && restTimers[ex.id]) { clearInterval(restTimers[ex.id]!); restTimers[ex.id] = null }
+                                              return { ...prev, [ex.id]: v }
+                                            })
+                                          }, 1000)
+                                        }}
+                                        style={{ borderWidth: 1, borderColor: '#e5e7eb', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 }}
+                                      >
+                                        <Text style={{ fontWeight: '700', color: '#333' }}>{restLeft > 0 ? `Rest ${restLeft}s` : 'Start Rest'}</Text>
+                                      </TouchableOpacity>
+                                    </View>
+                                  )}
+                                </View>
+                              </Animated.View>
                             )
                           })}
                         </View>
@@ -926,15 +1011,9 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
               })()
             )}
 
-            {showSummary && (
-              <View style={styles.sectionCard}>
-                <Text style={{ fontSize: 18, fontWeight: "700", color: "#333", textAlign: "center", marginBottom: 8 }}>Workout Complete</Text>
-                <Text style={{ fontSize: 32, fontWeight: "800", color: "#111827", textAlign: "center", fontFamily: "monospace", marginBottom: 12 }}>{formatWorkoutTime(summarySeconds)}</Text>
-                <TouchableOpacity style={styles.startWorkoutButton} onPress={() => setShowSummary(false)}>
-                  <Text style={styles.startWorkoutButtonText}>Done</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+            {/* Guided checkbox preview removed */}
+
+            {/* Summary now shown inline above when showSummary === true */}
           </>
         ) : (
           // Plan tab content
@@ -1217,6 +1296,77 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
         </View>
       )}
 
+      {/* New Update PR Modal */}
+      {prUpdateOpen && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Update a Personal Record</Text>
+              <TouchableOpacity onPress={() => setPrUpdateOpen(false)}>
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalFieldRow}>
+              <Text style={styles.modalLabel}>Select lift</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {(['Bench Press','Squat','Deadlift','Overhead Press'] as const).map((opt)=> (
+                  <TouchableOpacity key={opt} onPress={()=> setPrLift(opt)} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: prLift===opt? '#4A90E2':'#e0e0e0', backgroundColor: prLift===opt? '#E6F0FF':'#f8f9fa' }}>
+                    <Text style={{ color: prLift===opt? '#1E40AF':'#333', fontWeight: '600' }}>{opt}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            <View style={styles.modalFieldRow}>
+              <Text style={styles.modalLabel}>New PR (lbs)</Text>
+              <TextInput style={styles.modalInput} placeholder="0" placeholderTextColor="#999" keyboardType="numeric" value={prValue} onChangeText={setPrValue} />
+            </View>
+            <TouchableOpacity style={styles.modalSaveButton} disabled={prSaving} onPress={async ()=>{
+              try {
+                setPrSaving(true)
+                const val = prValue ? Number(prValue) : null
+                await upsertPersonalRecords({
+                  bench_press_1rm: prLift==='Bench Press'? val : prs.bench || null,
+                  squat_1rm: prLift==='Squat'? val : prs.squat || null,
+                  deadlift_1rm: prLift==='Deadlift'? val : prs.deadlift || null,
+                  overhead_press_1rm: prLift==='Overhead Press'? val : prs.ohp || null,
+                })
+                setPrs({
+                  bench: prLift==='Bench Press'? (val||0) : prs.bench,
+                  squat: prLift==='Squat'? (val||0) : prs.squat,
+                  deadlift: prLift==='Deadlift'? (val||0) : prs.deadlift,
+                  ohp: prLift==='Overhead Press'? (val||0) : prs.ohp,
+                })
+                setPrUpdateOpen(false)
+                setPrValue("")
+                setPrSuccessOpen(true)
+              } finally { setPrSaving(false) }
+            }}>
+              <Text style={styles.modalSaveButtonText}>{prSaving? 'Saving...':'Save PR'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* PR Success Modal */}
+      {prSuccessOpen && (
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { alignItems: 'center' }]}>
+            <Ionicons name="trophy-outline" size={40} color="#F59E0B" />
+            <Text style={[styles.modalTitle, { marginTop: 8 }]}>Congratulations!</Text>
+            <Text style={{ color: '#555', textAlign: 'center', marginTop: 6 }}>
+              {[
+                'New heights unlocked. Keep pushing the limits!',
+                'Strength is built one rep at a time. Amazing work!',
+                'You showed up and showed out. On to the next PR!',
+                'Momentum is yours. This is how greatness compounds.',
+              ][Math.floor(Math.random()*4)]}
+            </Text>
+            <TouchableOpacity style={[styles.modalSaveButton, { marginTop: 12 }]} onPress={()=> setPrSuccessOpen(false)}>
+              <Text style={styles.modalSaveButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
       {/* Build Plan Modal */}
       {planModalOpen && (
         <View style={styles.modalOverlay}>
@@ -1429,6 +1579,72 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
             <TouchableOpacity style={styles.modalSaveButton} onPress={addExercise}>
               <Text style={styles.modalSaveButtonText}>{editingExercise ? "Update Exercise" : "Add Exercise"}</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* End Session Confirm Modal */}
+      {endConfirmOpen && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>End Workout?</Text>
+              <TouchableOpacity onPress={() => setEndConfirmOpen(false)}>
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <Text style={{ color: "#555", marginBottom: 16 }}>
+              This will stop the timer and save your session data.
+            </Text>
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <TouchableOpacity
+                style={[styles.editButton, { flex: 1, alignItems: "center", justifyContent: "center" }]}
+                onPress={() => setEndConfirmOpen(false)}
+              >
+                <Text style={styles.editButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSaveButton, { flex: 1, backgroundColor: "#EF4444" }]}
+                onPress={async () => {
+                  try {
+                    // Mark completed exercises (based on sets done or guided completion)
+                    const toCompleteIds = sessionExercises
+                      .filter((ex) => (setCounts[ex.id] || 0) > 0 || (ex.plan_exercise_id && completedExercises[ex.plan_exercise_id]))
+                      .map((ex) => ex.id)
+                    if (toCompleteIds.length) {
+                      try { await markExercisesCompleted(toCompleteIds) } catch {}
+                    }
+                    if (activeSessionId) {
+                      try { await endSession(activeSessionId, workoutTime) } catch {}
+                    }
+                  } finally {
+                    // Stop timers and reset UI state
+                    setShowSummary(true)
+                    setSummarySeconds(workoutTime)
+                    setIsWorkoutActive(false)
+                    setIsWorkoutPaused(false)
+                    setWorkoutTime(0)
+                    setActiveSessionId(null)
+                    setSessionExercises([])
+                    setSetCounts({})
+                    setCompletedExercises({})
+                    setExerciseOrder([])
+                    setCurrentExerciseIdx(0)
+                    setEndConfirmOpen(false)
+                    // Clear any rest timers
+                    try {
+                      Object.keys(restTimers).forEach((k) => {
+                        const t = (restTimers as any)[k]
+                        if (t) clearInterval(t)
+                        ;(restTimers as any)[k] = null
+                      })
+                    } catch {}
+                  }
+                }}
+              >
+                <Text style={styles.modalSaveButtonText}>End Workout</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       )}
