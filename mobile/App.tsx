@@ -11,7 +11,7 @@ import BodyScreen from "./screens/BodyScreen"
 import { Mountain, Target, Brain, Dumbbell } from "lucide-react-native"
 import Calendar from "./components/Calendar"
 import StreakStats from "./components/StreakStats"
-import WinTodaySection from "./components/WinTodaySection"
+import WonTodayButton from "./components/WonTodayButton"
 import WeeklyPerformance from "./components/WeeklyPerformance"
 import DailyRoutines from "./components/DailyRoutines"
 import PersonalMasteryDashboard from "./components/PersonalMasteryDashboard"
@@ -43,7 +43,7 @@ const App: React.FC = () => {
           <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
             <Calendar />
             <StreakStats />
-            <WinTodaySection />
+            <WonTodayButton />
             <WeeklyPerformance />
             <DailyRoutines />
             <PersonalMasteryDashboard />

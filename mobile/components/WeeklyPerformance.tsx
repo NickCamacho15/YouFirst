@@ -1,6 +1,7 @@
-import React from "react"
+import React, { useEffect, useState } from "react"
 import { View, Text, StyleSheet } from "react-native"
 import { LinearGradient } from "expo-linear-gradient"
+import { getTodaySummary, getActivityGoals, updateActivityGoals, type TodaySummary } from "../lib/dashboard"
 
 const rows = [
   { key: "Reading", colors: ["#EAF2FF", "#F7FAFF"], color: "#4A90E2", goalText: "of 15h goal" },
@@ -10,6 +11,37 @@ const rows = [
 ]
 
 const WeeklyPerformance = () => {
+  const [summary, setSummary] = useState<TodaySummary | null>(null)
+  const [goals, setGoals] = useState<Record<string, number>>({})
+  const [loading, setLoading] = useState(false)
+  const refresh = async () => {
+    try {
+      setLoading(true)
+      const [s, g] = await Promise.all([getTodaySummary(), getActivityGoals()])
+      setSummary(s); setGoals(g)
+    } finally { setLoading(false) }
+  }
+  useEffect(() => { refresh() }, [])
+
+  const toHM = (sec: number) => {
+    const h = Math.floor(sec/3600); const m = Math.floor((sec%3600)/60)
+    return h > 0 ? `${h}h` : `${m}m`
+  }
+
+  const getVals = (key: string) => {
+    if (!summary) return { value: '0h', daily: '0h daily', percent: 0, goalText: '' }
+    const map: any = {
+      'Reading': summary.reading,
+      'Meditation': summary.meditation,
+      'Screen Time': summary.screen_time,
+      'Workouts': summary.workouts,
+    }
+    const d = map[key]
+    const goalMins = d.targetMinutes || 0
+    const goalText = key === 'Screen Time' ? 'limit exceeded' : `of ${(goalMins/60).toFixed(1)}h goal`
+    return { value: toHM(d.seconds), daily: `${Math.floor(d.seconds/3600)}h daily`, percent: d.percent, goalText }
+  }
+
   return (
     <View style={styles.container}>
       {rows.map((r) => (
@@ -18,13 +50,17 @@ const WeeklyPerformance = () => {
             <View style={styles.leftCol}>
               <Text style={styles.label}>{r.key.toUpperCase()}</Text>
               <View style={styles.valuesWrap}>
-                <Text style={styles.value}>0h</Text>
-                <Text style={styles.subValue}>0h daily</Text>
+                <Text style={styles.value}>{loading ? '…' : getVals(r.key).value}</Text>
+                <Text style={styles.subValue}>{loading ? '' : getVals(r.key).daily}</Text>
               </View>
             </View>
             <View style={styles.rightCol}>
-              <Text style={[styles.percent, { color: r.color }]}>0%</Text>
-              <Text style={styles.goal}>{r.goalText}</Text>
+              <Text style={[styles.percent, { color: r.color }]}>{loading ? '…' : `${getVals(r.key).percent}%`}</Text>
+              <Text style={styles.goal}>{loading ? '' : getVals(r.key).goalText}</Text>
+              {/* Edit Pill */}
+              <View style={{ marginTop: 6 }}>
+                <Text style={{ fontSize: 12, color: '#4A90E2', fontWeight: '700' }}>Edit</Text>
+              </View>
             </View>
           </View>
         </LinearGradient>
