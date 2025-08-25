@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   Image,
   TextInput,
   Modal,
+  Vibration,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import TopHeader from "../components/TopHeader"
@@ -20,6 +21,7 @@ import { Brain } from "lucide-react-native"
 import { saveReadingSession, getReadingStats, listReadingSessions, type ReadingSessionRow } from "../lib/reading"
 import { listBooks, addBook, listInsights, addInsight, deleteBook, markBookCompleted, type UserBook, type ReadingInsight } from "../lib/books"
 import { saveMeditationSession, getMeditationStats } from "../lib/meditation"
+import { preloadSounds, playIntervalChime, playFinalBell } from "../lib/sounds"
 import { listTrackedApps, addTrackedApp, deleteTrackedApp, saveUsage, getUsageForRange, getMonthlyTotals, getStats, type TrackedApp } from "../lib/distraction"
 
 type StatCardProps = {
@@ -176,9 +178,31 @@ const MeditationContent: React.FC<{
   prepSeconds: number
   intervalMinutes: number
   meditationMinutes: number
-  onStartSession: () => Promise<void>
-}> = ({ medTotalSeconds, medSessionCount, medDayStreak, prepSeconds, intervalMinutes, meditationMinutes, onStartSession }) => {
+  onDecreasePrep: () => void
+  onIncreasePrep: () => void
+  onDecreaseInterval: () => void
+  onIncreaseInterval: () => void
+  onDecreaseMeditation: () => void
+  onIncreaseMeditation: () => void
+  onSetPrep: (v: number) => void
+  onSetInterval: (v: number) => void
+  onSetMeditation: (v: number) => void
+  medActive: boolean
+  medPhase: "idle" | "prep" | "meditating" | "complete"
+  medPaused: boolean
+  medElapsed: number
+  nextChimeIn: number
+  prepRemaining: number
+  medRemaining: number
+  onStartOrEnd: () => void
+  onPauseResume: () => void
+  onDoneComplete?: () => void
+}> = ({ medTotalSeconds, medSessionCount, medDayStreak, prepSeconds, intervalMinutes, meditationMinutes, onDecreasePrep, onIncreasePrep, onDecreaseInterval, onIncreaseInterval, onDecreaseMeditation, onIncreaseMeditation, onSetPrep, onSetInterval, onSetMeditation, medActive, medPhase, medPaused, medElapsed, nextChimeIn, prepRemaining, medRemaining, onStartOrEnd, onPauseResume, onDoneComplete }) => {
   const formatHrs = (s: number) => `${Math.floor(s / 3600)}h`
+  const [prepWidth, setPrepWidth] = useState(1)
+  const [intWidth, setIntWidth] = useState(1)
+  const [medWidth, setMedWidth] = useState(1)
+  const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n))
     return (
       <>
       {/* Total Time */}
@@ -214,16 +238,72 @@ const MeditationContent: React.FC<{
         <View style={styles.meditationTimerCard}>
           <Text style={styles.meditationTimerTitle}>Meditation Timer</Text>
 
+          {medPhase === "prep" || medPhase === "meditating" || medPhase === "complete" ? (
+            <View style={{ alignItems: "center", paddingVertical: 8 }}>
+              {medPhase === "prep" ? (
+                <>
+                  <Text style={styles.overlayTitle}>Get Ready</Text>
+                  <Text style={styles.overlayTimer}>{prepRemaining}s</Text>
+                  <View style={styles.overlayControls}>
+                    <TouchableOpacity onPress={onStartOrEnd} style={styles.overlayEndBtn}><Text style={styles.overlayEndText}>End Session</Text></TouchableOpacity>
+                  </View>
+                </>
+              ) : medPhase === "meditating" ? (
+                <>
+                  <Text style={styles.overlayTitle}>Meditating</Text>
+                  <Text style={styles.overlayTimer}>{Math.floor(medElapsed/60).toString().padStart(2,'0')+":"+(medElapsed%60).toString().padStart(2,'0')}</Text>
+                  <Text style={styles.overlaySubText}>Next chime in: {Math.max(0, Math.floor(nextChimeIn/60))}m{nextChimeIn%60===0?"":` ${nextChimeIn%60}s`}</Text>
+                  <View style={styles.overlayControls}>
+                    <TouchableOpacity onPress={onPauseResume} style={styles.overlayPauseBtn}><Text style={styles.overlayPauseText}>{medPaused?"Resume":"Pause"}</Text></TouchableOpacity>
+                    <TouchableOpacity onPress={onStartOrEnd} style={styles.overlayEndBtn}><Text style={styles.overlayEndText}>End Session</Text></TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.overlayTitle}>Session Complete</Text>
+                  <Text style={styles.overlayTimer}>{Math.floor(medElapsed/60).toString().padStart(2,'0')+":"+(medElapsed%60).toString().padStart(2,'0')}</Text>
+                  <View style={styles.overlayControls}>
+                    <TouchableOpacity onPress={onDoneComplete} style={styles.overlayPauseBtn}><Text style={styles.overlayPauseText}>Done</Text></TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+          ) : (
+          <>
           {/* Preparation Slider */}
           <View style={styles.sliderContainer}>
             <View style={styles.sliderHeader}>
               <Text style={[styles.sliderLabel, { color: "#4A90E2" }]}>Preparation</Text>
-            <Text style={styles.sliderValue}>{prepSeconds}s</Text>
+              <Text style={styles.sliderValue}>{medActive ? `${prepRemaining}s` : `${prepSeconds}s`}</Text>
             </View>
-            <View style={styles.sliderTrack}>
-            <View style={[styles.sliderProgress, { width: `${(prepSeconds / 60) * 100}%`, backgroundColor: "#4A90E2" }]} />
-            <View style={[styles.sliderThumb, { left: `${(prepSeconds / 60) * 100}%`, backgroundColor: "#4A90E2" }]} />
+            <View
+              style={styles.sliderTrack}
+              onLayout={(e)=> setPrepWidth(e.nativeEvent.layout.width || 1)}
+              onStartShouldSetResponder={() => !medActive}
+              onMoveShouldSetResponder={() => !medActive}
+              onResponderTerminationRequest={() => false}
+              onResponderMove={(e)=>{
+                if (medActive) return
+                const x = clamp(e.nativeEvent.locationX, 0, prepWidth)
+                const val = Math.round((x / prepWidth) * 60)
+                onSetPrep(val)
+              }}
+              onResponderGrant={(e)=>{
+                if (medActive) return
+                const x = clamp(e.nativeEvent.locationX, 0, prepWidth)
+                const val = Math.round((x / prepWidth) * 60)
+                onSetPrep(val)
+              }}
+            >
+            <View style={[styles.sliderProgress, { width: `${Math.min(100, Math.max(0, (prepSeconds / 60) * 100))}%`, backgroundColor: "#4A90E2" }]} />
+            <View style={[styles.sliderThumb, { left: `${Math.min(100, Math.max(0, (prepSeconds / 60) * 100))}%`, backgroundColor: "#4A90E2" }]} />
             </View>
+            {!medActive && (
+              <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 8, gap: 8 }}>
+                <TouchableOpacity onPress={onDecreasePrep} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}><Text>-</Text></TouchableOpacity>
+                <TouchableOpacity onPress={onIncreasePrep} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}><Text>+</Text></TouchableOpacity>
+              </View>
+            )}
           </View>
 
           {/* Interval Slider */}
@@ -232,28 +312,78 @@ const MeditationContent: React.FC<{
               <Text style={[styles.sliderLabel, { color: "#10B981" }]}>Interval</Text>
             <Text style={styles.sliderValue}>{intervalMinutes}m</Text>
             </View>
-            <View style={styles.sliderTrack}>
-            <View style={[styles.sliderProgress, { width: `${(intervalMinutes / 30) * 100}%`, backgroundColor: "#10B981" }]} />
-            <View style={[styles.sliderThumb, { left: `${(intervalMinutes / 30) * 100}%`, backgroundColor: "#10B981" }]} />
+            <View
+              style={styles.sliderTrack}
+              onLayout={(e)=> setIntWidth(e.nativeEvent.layout.width || 1)}
+              onStartShouldSetResponder={() => !medActive}
+              onMoveShouldSetResponder={() => !medActive}
+              onResponderTerminationRequest={() => false}
+              onResponderMove={(e)=>{
+                if (medActive) return
+                const x = clamp(e.nativeEvent.locationX, 0, intWidth)
+                const val = Math.max(1, Math.round((x / intWidth) * 60))
+                onSetInterval(val)
+              }}
+              onResponderGrant={(e)=>{
+                if (medActive) return
+                const x = clamp(e.nativeEvent.locationX, 0, intWidth)
+                const val = Math.max(1, Math.round((x / intWidth) * 60))
+                onSetInterval(val)
+              }}
+            >
+            <View style={[styles.sliderProgress, { width: `${Math.min(100, Math.max(0, (intervalMinutes / 60) * 100))}%`, backgroundColor: "#10B981" }]} />
+            <View style={[styles.sliderThumb, { left: `${Math.min(100, Math.max(0, (intervalMinutes / 60) * 100))}%`, backgroundColor: "#10B981" }]} />
             </View>
+            {!medActive && (
+              <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 8, gap: 8 }}>
+                <TouchableOpacity onPress={onDecreaseInterval} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}><Text>-</Text></TouchableOpacity>
+                <TouchableOpacity onPress={onIncreaseInterval} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}><Text>+</Text></TouchableOpacity>
+              </View>
+            )}
           </View>
 
           {/* Meditation Time Slider */}
           <View style={styles.sliderContainer}>
             <View style={styles.sliderHeader}>
               <Text style={[styles.sliderLabel, { color: "#FF6B35" }]}>Meditation Time</Text>
-            <Text style={styles.sliderValue}>{meditationMinutes}m</Text>
+              <Text style={styles.sliderValue}>{medActive ? `${Math.ceil(medRemaining/60)}m` : `${meditationMinutes}m`}</Text>
             </View>
-            <View style={styles.sliderTrack}>
-            <View style={[styles.sliderProgress, { width: `${(meditationMinutes / 60) * 100}%`, backgroundColor: "#FF6B35" }]} />
-            <View style={[styles.sliderThumb, { left: `${(meditationMinutes / 60) * 100}%`, backgroundColor: "#FF6B35" }]} />
+            <View
+              style={styles.sliderTrack}
+              onLayout={(e)=> setMedWidth(e.nativeEvent.layout.width || 1)}
+              onStartShouldSetResponder={() => !medActive}
+              onMoveShouldSetResponder={() => !medActive}
+              onResponderTerminationRequest={() => false}
+              onResponderMove={(e)=>{
+                if (medActive) return
+                const x = clamp(e.nativeEvent.locationX, 0, medWidth)
+                const val = Math.max(1, Math.round((x / medWidth) * 60))
+                onSetMeditation(val)
+              }}
+              onResponderGrant={(e)=>{
+                if (medActive) return
+                const x = clamp(e.nativeEvent.locationX, 0, medWidth)
+                const val = Math.max(1, Math.round((x / medWidth) * 60))
+                onSetMeditation(val)
+              }}
+            >
+            <View style={[styles.sliderProgress, { width: `${Math.min(100, Math.max(0, (meditationMinutes / 60) * 100))}%`, backgroundColor: "#FF6B35" }]} />
+            <View style={[styles.sliderThumb, { left: `${Math.min(100, Math.max(0, (meditationMinutes / 60) * 100))}%`, backgroundColor: "#FF6B35" }]} />
             </View>
+            {!medActive && (
+              <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 8, gap: 8 }}>
+                <TouchableOpacity onPress={onDecreaseMeditation} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}><Text>-</Text></TouchableOpacity>
+                <TouchableOpacity onPress={onIncreaseMeditation} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}><Text>+</Text></TouchableOpacity>
+              </View>
+            )}
           </View>
 
         {/* Start Session */}
-        <TouchableOpacity style={styles.startMeditationButton} onPress={onStartSession}>
+        <TouchableOpacity style={styles.startMeditationButton} onPress={onStartOrEnd}>
             <Text style={styles.startMeditationButtonText}>Start Session</Text>
           </TouchableOpacity>
+          </>
+          )}
         </View>
 
       {/* Milestones placeholder */}
@@ -310,9 +440,19 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   const [prepSeconds, setPrepSeconds] = useState(30)
   const [intervalMinutes, setIntervalMinutes] = useState(5)
   const [meditationMinutes, setMeditationMinutes] = useState(15)
+  const [medActive, setMedActive] = useState(false)
+  const [prepRemaining, setPrepRemaining] = useState(0)
+  const [medRemaining, setMedRemaining] = useState(0)
   const [medTotalSeconds, setMedTotalSeconds] = useState(0)
   const [medSessionCount, setMedSessionCount] = useState(0)
   const [medDayStreak, setMedDayStreak] = useState(0)
+  // Meditation session UI state
+  const [medPhase, setMedPhase] = useState<"idle" | "prep" | "meditating" | "complete">("idle")
+  const [medPaused, setMedPaused] = useState(false)
+  const [medElapsed, setMedElapsed] = useState(0) // seconds
+  const [nextChimeIn, setNextChimeIn] = useState(0) // seconds
+  const [medStartAt, setMedStartAt] = useState<Date | null>(null)
+  const medLoopRef = useRef<NodeJS.Timeout | null>(null)
 
   // Timer effect
   useEffect(() => {
@@ -337,6 +477,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
         setBooks(await listBooks())
         setInsights(await listInsights(20))
         const m = await getMeditationStats()
+        await preloadSounds()
         setMedTotalSeconds(m.totalSeconds)
         setMedSessionCount(m.sessionCount)
         setMedDayStreak(m.dayStreak)
@@ -377,6 +518,68 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
     setIsPaused(false)
     setIsReflectOpen(true)
     }
+
+  // Meditation phase loop
+  useEffect(() => {
+    if (activeTab !== "meditation") return
+    if (medPhase === "idle" || medPhase === "complete") { if (medLoopRef.current) { clearInterval(medLoopRef.current); medLoopRef.current = null } return }
+    if (medPaused) { if (medLoopRef.current) { clearInterval(medLoopRef.current); medLoopRef.current = null } return }
+
+    // ensure a single ticking interval
+    if (medLoopRef.current) clearInterval(medLoopRef.current)
+    medLoopRef.current = setInterval(() => {
+      if (medPhase === "prep") {
+        setPrepRemaining((prev) => {
+          const next = Math.max(0, prev - 1)
+          if (next === 0) {
+            Vibration.vibrate(100)
+            setMedPhase("meditating")
+            setMedElapsed(0)
+            setNextChimeIn(Math.max(1, intervalMinutes * 60))
+          }
+          return next
+        })
+      } else if (medPhase === "meditating") {
+        setMedElapsed((e) => e + 1)
+        setMedRemaining((t) => Math.max(0, t - 1))
+        setNextChimeIn((c) => {
+          const next = Math.max(0, c - 1)
+          if (next === 0) {
+            Vibration.vibrate(200)
+            playIntervalChime()
+            return Math.max(1, intervalMinutes * 60)
+          }
+          return next
+        })
+        if (medRemaining <= 1) {
+          Vibration.vibrate([0, 300, 150, 300])
+          playFinalBell()
+          setMedPhase("complete")
+          setMedActive(false)
+          // save
+          const start = medStartAt || new Date()
+          const total = meditationMinutes * 60
+          ;(async () => {
+            try {
+              await saveMeditationSession({
+                startedAt: start.toISOString(),
+                endedAt: new Date().toISOString(),
+                durationSeconds: total,
+                prepSeconds,
+                intervalMinutes,
+                meditationMinutes,
+              })
+              const m = await getMeditationStats()
+              setMedTotalSeconds(m.totalSeconds)
+              setMedSessionCount(m.sessionCount)
+              setMedDayStreak(m.dayStreak)
+            } catch {}
+          })()
+        }
+      }
+    }, 1000)
+    return () => { if (medLoopRef.current) { clearInterval(medLoopRef.current); medLoopRef.current = null } }
+  }, [medPhase, medPaused, activeTab, intervalMinutes, meditationMinutes, medRemaining])
 
     return (
     <SafeAreaView style={styles.container}>
@@ -433,6 +636,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
             completedBooksCount={books.filter((b) => !!b.completed_on).length}
           />
         ) : activeTab === "meditation" ? (
+          <>
           <MeditationContent
             medTotalSeconds={medTotalSeconds}
             medSessionCount={medSessionCount}
@@ -440,23 +644,45 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
             prepSeconds={prepSeconds}
             intervalMinutes={intervalMinutes}
             meditationMinutes={meditationMinutes}
-            onStartSession={async () => {
-              const now = new Date()
-              const duration = meditationMinutes * 60
-              await saveMeditationSession({
-                startedAt: now.toISOString(),
-                endedAt: new Date(now.getTime() + duration * 1000).toISOString(),
-                durationSeconds: duration,
-                prepSeconds,
-                intervalMinutes,
-                meditationMinutes,
-              })
-              const m = await getMeditationStats()
-              setMedTotalSeconds(m.totalSeconds)
-              setMedSessionCount(m.sessionCount)
-              setMedDayStreak(m.dayStreak)
+            onDecreasePrep={() => setPrepSeconds((v) => Math.max(0, v - 5))}
+            onIncreasePrep={() => setPrepSeconds((v) => Math.min(60, v + 5))}
+            onDecreaseInterval={() => setIntervalMinutes((v) => Math.max(1, v - 1))}
+            onIncreaseInterval={() => setIntervalMinutes((v) => Math.min(60, v + 1))}
+            onDecreaseMeditation={() => setMeditationMinutes((v) => Math.max(1, v - 1))}
+            onIncreaseMeditation={() => setMeditationMinutes((v) => Math.min(60, v + 1))}
+            onSetPrep={(v)=> setPrepSeconds(Math.max(0, Math.min(60, v)))}
+            onSetInterval={(v)=> setIntervalMinutes(Math.max(1, Math.min(60, v)))}
+            onSetMeditation={(v)=> setMeditationMinutes(Math.max(1, Math.min(60, v)))}
+            medActive={medPhase === "prep" || medPhase === "meditating"}
+            medPhase={medPhase}
+            medPaused={medPaused}
+            medElapsed={medElapsed}
+            nextChimeIn={nextChimeIn}
+            prepRemaining={prepRemaining}
+            medRemaining={medRemaining}
+            onStartOrEnd={() => {
+              if (medPhase === "idle" || medPhase === "complete") {
+                // Start a new session
+                setMedStartAt(new Date())
+                setMedPaused(false)
+                setMedElapsed(0)
+                setNextChimeIn(Math.max(1, intervalMinutes * 60))
+                setPrepRemaining(Math.max(0, prepSeconds))
+                setMedRemaining(meditationMinutes * 60)
+                setMedActive(true)
+                setMedPhase(prepSeconds > 0 ? "prep" : "meditating")
+                if (prepSeconds === 0) { Vibration.vibrate(100) }
+              } else {
+                // End early
+                setMedPhase("complete")
+                setMedActive(false)
+                setMedPaused(true)
+              }
             }}
+            onPauseResume={() => setMedPaused((p)=>!p)}
+            onDoneComplete={() => setMedPhase("idle")}
           />
+          </>
         ) : (
           <DistractionContent />
         )}
@@ -1051,7 +1277,7 @@ const DistractionContent: React.FC = () => {
         </View>
 
         <View style={styles.totalTimeFooter}>
-          <Text style={styles.totalTimeText}>Total time on social media: <Text style={styles.totalTimeValue}>{formatMinutes(totalMonthMinutes(monthlyTotals))}</Text></Text>
+          <Text style={styles.totalTimeText}>Total time on social media: <Text style={styles.totalTimeValueFooter}>{formatMinutes(totalMonthMinutes(monthlyTotals))}</Text></Text>
         </View>
       </View>
     </>
@@ -1558,6 +1784,73 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
+  sessionOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#fff",
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 40,
+    borderRadius: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 360,
+    zIndex: 5,
+  },
+  overlayContent: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  overlayTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#333",
+    marginBottom: 12,
+  },
+  overlayTimer: {
+    fontSize: 56,
+    fontWeight: "800",
+    color: "#111827",
+    fontFamily: "monospace",
+    marginBottom: 8,
+  },
+  overlaySubText: {
+    fontSize: 14,
+    color: "#6b7280",
+    marginTop: 4,
+  },
+  overlayControls: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 20,
+  },
+  overlayPauseBtn: {
+    backgroundColor: "#4A90E2",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+  },
+  overlayPauseText: {
+    color: "#fff",
+    fontWeight: "700",
+  },
+  overlayEndBtn: {
+    backgroundColor: "#EF4444",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+  },
+  overlayEndText: {
+    color: "#fff",
+    fontWeight: "700",
+  },
   meditationTimerTitle: {
     fontSize: 20,
     fontWeight: "600",
@@ -1954,7 +2247,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#666",
   },
-  totalTimeValue: {
+  totalTimeValueFooter: {
     fontWeight: "700",
     color: "#EF4444",
   },

@@ -5,16 +5,18 @@ export type TrainingPlanRow = {
   user_id: string
   name: string
   description: string | null
+  start_date: string
+  is_active: boolean
   created_at: string
 }
 
-export async function createPlanInDb(name: string, description?: string): Promise<TrainingPlanRow> {
+export async function createPlanInDb(name: string, description?: string, startDate?: string, isActive: boolean = true): Promise<TrainingPlanRow> {
   const { data: auth } = await supabase.auth.getUser()
   if (!auth.user) throw new Error("Not authenticated")
   const { data, error } = await supabase
     .from<TrainingPlanRow>("training_plans")
-    .insert([{ user_id: auth.user.id, name, description: description ?? null }])
-    .select("id, user_id, name, description, created_at")
+    .insert([{ user_id: auth.user.id, name, description: description ?? null, start_date: startDate || new Date().toISOString().slice(0,10), is_active: !!isActive }])
+    .select("id, user_id, name, description, start_date, is_active, created_at")
     .single()
   if (error || !data) throw new Error(error?.message || "Failed to create plan")
   return data
@@ -23,10 +25,21 @@ export async function createPlanInDb(name: string, description?: string): Promis
 export async function listPlans(): Promise<TrainingPlanRow[]> {
   const { data, error } = await supabase
     .from<TrainingPlanRow>("training_plans")
-    .select("id, user_id, name, description, created_at")
+    .select("id, user_id, name, description, start_date, is_active, created_at")
     .order("created_at", { ascending: false })
   if (error) throw new Error(error.message)
   return data || []
+}
+
+export async function setActivePlan(planId: string): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser()
+  if (!auth.user) throw new Error("Not authenticated")
+  // Clear others, set selected
+  const uid = auth.user.id
+  const { error: e1 } = await supabase.from<TrainingPlanRow>("training_plans").update({ is_active: false }).eq("user_id", uid)
+  if (e1) throw new Error(e1.message)
+  const { error: e2 } = await supabase.from<TrainingPlanRow>("training_plans").update({ is_active: true }).eq("id", planId)
+  if (e2) throw new Error(e2.message)
 }
 
 export type WeekRow = { id: string; plan_id: string; user_id: string; name: string; position: number; created_at: string }

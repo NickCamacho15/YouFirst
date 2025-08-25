@@ -1,6 +1,6 @@
 "use client"
 
-import type React from "react"
+import React from "react"
 import { useState, useEffect } from "react"
 import {
   View,
@@ -19,6 +19,7 @@ import TopHeader from "../components/TopHeader"
 import { LineChart } from "react-native-chart-kit"
 import { getPersonalRecords, upsertPersonalRecords } from "../lib/prs"
 import { createPlanInDb, listPlans, listPlanTree, createWeek as dbCreateWeek, createDay as dbCreateDay, createBlock as dbCreateBlock, createExercise as dbCreateExercise, updateExercise as dbUpdateExercise, deleteExercises as dbDeleteExercises } from "../lib/plans"
+import { buildSnapshotFromPlanDay, createSessionFromSnapshot, getActiveSessionForToday, endSession, completeSet, markExercisesCompleted, type SessionExerciseRow } from "../lib/workout"
 
 interface ScreenProps { onLogout?: () => void }
 
@@ -79,6 +80,43 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
       try {
         const plans = await listPlans()
         setMyPlans(plans.map(p => ({ id: p.id, name: p.name, description: p.description })))
+        const active = plans.find(p => (p as any).is_active)
+        if (active) {
+          const weeks = await listPlanTree(active.id)
+          const mapped = weeks.map((w) => ({
+            id: w.id,
+            name: w.name,
+            days: (w as any).days.map((d: any) => ({
+              id: d.id,
+              name: d.name,
+              blocks: d.blocks.map((b: any) => ({
+                id: b.id,
+                name: b.name,
+                letter: b.letter || "A",
+                exercises: (b.exercises || []).map((e: any) => ({
+                  id: e.id,
+                  name: e.name,
+                  type: e.type,
+                  sets: e.sets,
+                  reps: e.reps,
+                  weight: e.weight,
+                  rest: e.rest,
+                  time: e.time,
+                  distance: e.distance,
+                  pace: e.pace,
+                  time_cap: e.time_cap,
+                  score_type: e.score_type,
+                  target: e.target,
+                })),
+              })),
+            })),
+          }))
+          setPlan({ id: active.id, name: active.name, description: active.description || undefined, weeks: mapped })
+          const start = (active as any).start_date || null
+          setActivePlanStart(start)
+          const info = computePlanForDate({ id: active.id, name: active.name, description: active.description || undefined, weeks: mapped }, start, new Date())
+          setTodayPlanLabel(info?.label || null)
+        }
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn("Failed to load plans", (e as any)?.message)
@@ -144,11 +182,12 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   // Build the current week dynamically (Sun-Sat) and preselect today
   const weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
   const today = new Date()
-  const startOfWeek = new Date(today)
-  startOfWeek.setDate(today.getDate() - today.getDay()) // Sunday
+  const initialWeekStart = new Date(today)
+  initialWeekStart.setDate(today.getDate() - today.getDay()) // Sunday
+  const [weekStart, setWeekStart] = useState<Date>(initialWeekStart)
   const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(startOfWeek)
-    d.setDate(startOfWeek.getDate() + i)
+    const d = new Date(weekStart)
+    d.setDate(weekStart.getDate() + i)
     return {
       day: weekdayNames[d.getDay()],
       date: d.getDate(),
@@ -158,18 +197,29 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   const [selectedDayIndex, setSelectedDayIndex] = useState<number>(today.getDay())
   const [workoutTime, setWorkoutTime] = useState(0)
   const [isWorkoutActive, setIsWorkoutActive] = useState(false)
+  const [isWorkoutPaused, setIsWorkoutPaused] = useState(false)
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [completedBlocks, setCompletedBlocks] = useState<boolean[]>([false, false, false])
+  const [sessionExercises, setSessionExercises] = useState<SessionExerciseRow[]>([])
+  const [setCounts, setSetCounts] = useState<Record<string, number>>({})
+  const [restRemaining, setRestRemaining] = useState<Record<string, number>>({})
+  const restTimers = React.useRef<Record<string, NodeJS.Timeout | null>>({}).current
+  // Guided completion flow
+  const [exerciseOrder, setExerciseOrder] = useState<string[]>([])
+  const [currentExerciseIdx, setCurrentExerciseIdx] = useState<number>(0)
+  const [completedExercises, setCompletedExercises] = useState<Record<string, boolean>>({})
+  const [planToSessionMap, setPlanToSessionMap] = useState<Record<string, string>>({})
 
   // Timer effect for workout
   useEffect(() => {
     let interval: NodeJS.Timeout
-    if (isWorkoutActive) {
+    if (isWorkoutActive && !isWorkoutPaused) {
       interval = setInterval(() => {
         setWorkoutTime((prev) => prev + 1)
       }, 1000)
     }
     return () => clearInterval(interval)
-  }, [isWorkoutActive])
+  }, [isWorkoutActive, isWorkoutPaused])
 
   const formatWorkoutTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -177,13 +227,41 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
   }
 
+  // Map today's date to plan day based on start_date
+  const isoDate = (d: Date) => {
+    // Use device local date (no UTC shift) to match user's expectation
+    const y = d.getFullYear(); const m = String(d.getMonth()+1).padStart(2,'0'); const day = String(d.getDate()).padStart(2,'0')
+    return `${y}-${m}-${day}`
+  }
+  const computePlanForDate = (p: TrainingPlan, startDateISO: string | null, targetDate: Date) => {
+    if (!startDateISO) return null
+    const targetISO = isoDate(targetDate)
+    const diff = Math.floor((Date.parse(targetISO) - Date.parse(startDateISO)) / 86400000)
+    if (diff < 0) return null
+    const numWeeks = p.weeks.length
+    if (numWeeks === 0) return null
+    const horizon = numWeeks * 7
+    if (diff >= horizon) {
+      return { weekIndex: -1, dayIndex: -1, label: "No plan scheduled for this week", subLabel: null, showPlanName: false }
+    }
+    const wi = Math.floor(diff / 7)
+    const di = diff % 7
+    const week = p.weeks[wi]
+    const weekName = week.name || `Week ${wi + 1}`
+    const dayObj = week.days[di]
+    if (dayObj) {
+      const dayName = dayObj.name || `Day ${di + 1}`
+      return { weekIndex: wi, dayIndex: di, label: `${weekName} • ${dayName}`, subLabel: null, showPlanName: true }
+    }
+    // Placeholder for missing day inside an existing week
+    return { weekIndex: wi, dayIndex: di, label: "No plan made for today", subLabel: null, showPlanName: true }
+  }
+
+  // Will recompute after plan state is declared below
+
   // weekDays computed above
 
-  const workoutBlocks = [
-    { id: "A", name: "Bench Press", exercises: 1 },
-    { id: "B", name: "Incline DB Press", exercises: 2 },
-    { id: "C", name: "Plank Variations", exercises: 2 },
-  ]
+  const workoutBlocks: any[] = []
 
   const toggleBlockCompletion = (index: number) => {
     const newCompletedBlocks = [...completedBlocks]
@@ -199,6 +277,25 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   type TrainingPlan = { id: string; name: string; description?: string; weeks: Week[] }
 
   const [plan, setPlan] = useState<TrainingPlan | null>(null)
+  const [activePlanStart, setActivePlanStart] = useState<string | null>(null)
+  const [todayPlanLabel, setTodayPlanLabel] = useState<string | null>(null)
+  const [todayPlanSubLabel, setTodayPlanSubLabel] = useState<string | null>(null)
+  const [showPlanName, setShowPlanName] = useState<boolean>(true)
+  useEffect(() => {
+    if (plan && activePlanStart) {
+      // Map based on currently selected calendar day
+      const target = new Date(weekStart)
+      target.setDate(weekStart.getDate() + selectedDayIndex)
+      const info = computePlanForDate(plan, activePlanStart, target)
+      setTodayPlanLabel(info?.label || null)
+      setTodayPlanSubLabel(info?.subLabel || null)
+      setShowPlanName(!!info?.showPlanName)
+    }
+  }, [plan, activePlanStart, selectedDayIndex, weekStart])
+  const [showSummary, setShowSummary] = useState(false)
+  const [summarySeconds, setSummarySeconds] = useState(0)
+  const [workoutStartedAt, setWorkoutStartedAt] = useState<Date | null>(null)
+  const [endConfirmOpen, setEndConfirmOpen] = useState(false)
   const [planModalOpen, setPlanModalOpen] = useState(false)
   const [weekModalOpen, setWeekModalOpen] = useState<{ open: boolean; weekIndex?: number }>({ open: false })
   const [dayModalOpen, setDayModalOpen] = useState<{ open: boolean; weekIndex?: number }>({ open: false })
@@ -208,6 +305,15 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   // Temp form fields
   const [planName, setPlanName] = useState("")
   const [planDescription, setPlanDescription] = useState("")
+  const localDateYYYYMMDD = () => {
+    const d = new Date()
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  const [planStartDate, setPlanStartDate] = useState<string>(localDateYYYYMMDD())
+  const [planIsActive, setPlanIsActive] = useState<boolean>(true)
   const [weekName, setWeekName] = useState("")
   const [dayNames, setDayNames] = useState<string[]>([""])
   const [blockNames, setBlockNames] = useState<string[]>([""])
@@ -222,7 +328,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
       try {
         const name = planName || "Untitled Plan"
         const desc = planDescription || undefined
-        const dbPlan = await createPlanInDb(name, desc)
+        const dbPlan = await createPlanInDb(name, desc, planStartDate, planIsActive)
         setPlan({ id: dbPlan.id, name: dbPlan.name, description: dbPlan.description || undefined, weeks: [] })
         setMyPlans((prev) => [{ id: dbPlan.id, name: dbPlan.name, description: dbPlan.description }, ...prev])
       } catch (e) {
@@ -232,6 +338,8 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
         setPlanModalOpen(false)
         setPlanName("")
         setPlanDescription("")
+        setPlanStartDate(localDateYYYYMMDD())
+        setPlanIsActive(true)
       }
     })()
   }
@@ -601,7 +709,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
             {/* Weekly Calendar */}
             <View style={styles.sectionCard}>
               <View style={styles.weekCalendarContainer}>
-                <TouchableOpacity style={styles.calendarArrow}>
+                <TouchableOpacity style={styles.calendarArrowBox} onPress={() => setWeekStart(new Date(weekStart.getTime() - 7 * 86400000))}>
                   <Ionicons name="chevron-back" size={24} color="#666" />
                 </TouchableOpacity>
 
@@ -623,7 +731,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                   ))}
                 </View>
 
-                <TouchableOpacity style={styles.calendarArrow}>
+                <TouchableOpacity style={styles.calendarArrowBox} onPress={() => setWeekStart(new Date(weekStart.getTime() + 7 * 86400000))}>
                   <Ionicons name="chevron-forward" size={24} color="#666" />
                 </TouchableOpacity>
               </View>
@@ -633,56 +741,200 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
             <View style={styles.sectionCard}>
               <Text style={styles.workoutTimerTitle}>Workout Timer</Text>
               <Text style={styles.workoutTimerDisplay}>{formatWorkoutTime(workoutTime)}</Text>
-              <Text style={styles.workoutType}>Upper Power</Text>
+              {plan ? (
+                <>
+                  {showPlanName && <Text style={styles.planNameUnderTimer}>{plan.name}</Text>}
+                  <Text style={styles.workoutType}>{todayPlanLabel ? todayPlanLabel : 'No plan scheduled today'}</Text>
+                </>
+              ) : (
+                <Text style={styles.workoutType}>No plan scheduled today</Text>
+              )}
 
               <TouchableOpacity
                 style={styles.startWorkoutButton}
-                onPress={() => {
+                onPress={async () => {
+                  // Toggle pause/resume if active
                   if (isWorkoutActive) {
-                    setIsWorkoutActive(false)
-                  } else {
-                    setIsWorkoutActive(true)
-                    setWorkoutTime(0)
+                    setIsWorkoutPaused((p)=> !p)
+                    return
                   }
+                  // start new workout without resetting if already counting
+                  setIsWorkoutActive(true)
+                  setIsWorkoutPaused(false)
+                  if (!workoutStartedAt) setWorkoutStartedAt(new Date())
+                  // Attempt resume
+                  try {
+                    const resumed = await getActiveSessionForToday()
+                    if (resumed) {
+                      setActiveSessionId(resumed.session.id)
+                      setSessionExercises(resumed.exercises)
+                      const counts: Record<string, number> = {}
+                      for (const s of (resumed.sets || [])) {
+                        counts[s.session_exercise_id] = Math.max(counts[s.session_exercise_id] || 0, s.set_index)
+                      }
+                      setSetCounts(counts)
+                      return
+                    }
+                  } catch {}
+                  // Start from selected plan day if available
+                  if (plan && plan.weeks.length) {
+                    // map from selected calendar day
+                    const target = new Date(weekStart); target.setDate(weekStart.getDate() + selectedDayIndex)
+                    const info = computePlanForDate(plan, activePlanStart, target)
+                    const day = info && info.weekIndex >= 0 ? plan.weeks[info.weekIndex]?.days[info.dayIndex] : undefined
+                    if (day) {
+                      const snapshot = buildSnapshotFromPlanDay(day as any)
+                      try {
+                        const created = await createSessionFromSnapshot({ planId: plan.id, planDayId: day.id, exercises: snapshot })
+                        setActiveSessionId(created.session.id)
+                        setSessionExercises(created.exercises)
+                        setSetCounts({})
+                        // Build order and mapping for guided completion
+                        const order = snapshot.map((s) => s.plan_exercise_id as string).filter(Boolean)
+                        setExerciseOrder(order)
+                        setCurrentExerciseIdx(0)
+                        const map: Record<string, string> = {}
+                        created.exercises.forEach((sx) => {
+                          if ((sx as any).plan_exercise_id) map[(sx as any).plan_exercise_id as string] = sx.id
+                        })
+                        setPlanToSessionMap(map)
+                        setCompletedExercises({})
+                      } catch {}
+                      return
+                    }
+                  }
+                  // Fallback: free session
+                  try {
+                    const created = await createSessionFromSnapshot({ exercises: [] })
+                    setActiveSessionId(created.session.id)
+                    setSessionExercises(created.exercises)
+                    setSetCounts({})
+                    setExerciseOrder([])
+                    setCurrentExerciseIdx(0)
+                    setCompletedExercises({})
+                  } catch {}
                 }}
               >
-                <Ionicons name={isWorkoutActive ? "pause" : "play"} size={20} color="#fff" />
-                <Text style={styles.startWorkoutButtonText}>{isWorkoutActive ? "Pause Workout" : "Start Workout"}</Text>
+                <Ionicons name={isWorkoutActive && !isWorkoutPaused ? "pause" : "play"} size={20} color="#fff" />
+                <Text style={styles.startWorkoutButtonText}>{isWorkoutActive ? (isWorkoutPaused ? "Resume Workout" : "Pause Workout") : "Start Workout"}</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.endSessionButton}>
+              {isWorkoutActive && (
+              <TouchableOpacity style={styles.endSessionButton} onPress={() => setEndConfirmOpen(true)}>
                 <Ionicons name="square-outline" size={20} color="#EF4444" />
                 <Text style={styles.endSessionButtonText}>End Session</Text>
               </TouchableOpacity>
+              )}
             </View>
 
-            {/* Workout Blocks */}
-            {workoutBlocks.map((block, index) => (
-              <View key={block.id} style={styles.sectionCard}>
-                <View style={styles.workoutBlockHeader}>
-                  <TouchableOpacity style={styles.blockCheckbox} onPress={() => toggleBlockCompletion(index)}>
-                    <View style={[styles.checkbox, completedBlocks[index] && styles.checkedCheckbox]}>
-                      {completedBlocks[index] && <Ionicons name="checkmark" size={16} color="#fff" />}
+            {/* Active Session Exercises */}
+            {isWorkoutActive && sessionExercises.length > 0 && (
+              <View style={styles.sectionCard}>
+                {sessionExercises.map((ex) => {
+                  const tgtSets = ex.target_sets || 0
+                  const done = setCounts[ex.id] || 0
+                  const restLeft = restRemaining[ex.id] || 0
+                  return (
+                    <View key={ex.id} style={{ borderTopWidth: 1, borderTopColor: "#eee", paddingTop: 12, marginTop: 12 }}>
+                      <Text style={{ fontSize: 16, fontWeight: "600", color: "#333" }}>{ex.name}</Text>
+                      <Text style={{ color: "#666", marginTop: 4 }}>Sets: {tgtSets || "-"}  {ex.target_reps ? `• ${ex.target_reps} reps` : ""} {ex.target_weight ? `• ${ex.target_weight}` : ""}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
+                        <Text style={{ color: "#10B981", fontWeight: "700" }}>{done}/{tgtSets} completed</Text>
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              const next = (setCounts[ex.id] || 0) + 1
+                              try {
+                                await completeSet({ sessionExerciseId: ex.id, setIndex: next })
+                                setSetCounts({ ...setCounts, [ex.id]: next })
+                              } catch {}
+                            }}
+                            style={{ backgroundColor: "#4A90E2", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 }}>
+                            <Text style={{ color: "#fff", fontWeight: "700" }}>Complete Set</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => {
+                              const duration = ex.target_rest_seconds || 60
+                              if (restTimers[ex.id]) { clearInterval(restTimers[ex.id]!); restTimers[ex.id] = null }
+                              setRestRemaining((prev)=> ({ ...prev, [ex.id]: duration }))
+                              restTimers[ex.id] = setInterval(() => {
+                                setRestRemaining((prev) => {
+                                  const v = Math.max(0, (prev[ex.id] || 0) - 1)
+                                  if (v === 0 && restTimers[ex.id]) { clearInterval(restTimers[ex.id]!); restTimers[ex.id] = null }
+                                  return { ...prev, [ex.id]: v }
+                                })
+                              }, 1000)
+                            }}
+                            style={{ borderWidth: 1, borderColor: "#e5e7eb", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 }}>
+                            <Text style={{ fontWeight: "700", color: "#333" }}>{restLeft > 0 ? `Rest ${restLeft}s` : "Start Rest"}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
                     </View>
-                  </TouchableOpacity>
-
-                  <View style={styles.blockLabel}>
-                    <Text style={styles.blockId}>Block {block.id}</Text>
-                  </View>
-
-                  <View style={styles.blockInfo}>
-                    <Text style={styles.blockName}>{block.name}</Text>
-                    <Text style={styles.blockExercises}>
-                      {block.exercises} exercise{block.exercises > 1 ? "s" : ""}
-                    </Text>
-                  </View>
-
-                  <TouchableOpacity style={styles.blockDropdown}>
-                    <Ionicons name="chevron-down" size={20} color="#666" />
-                  </TouchableOpacity>
-                </View>
+                  )
+                })}
               </View>
-            ))}
+            )}
+
+            {/* Preview / Guided list for selected day */}
+            {plan && activePlanStart && (
+              (() => {
+                const target = new Date(weekStart); target.setDate(weekStart.getDate() + selectedDayIndex)
+                const info = computePlanForDate(plan, activePlanStart, target)
+                if (!info || info.weekIndex < 0) return null
+                const day = plan.weeks[info.weekIndex]?.days[info.dayIndex]
+                if (!day) return null
+                const activeOrderId = exerciseOrder[currentExerciseIdx]
+                return (
+                  <View style={styles.sectionCard}>
+                    {day.blocks.map((b) => {
+                      const allDone = (b.exercises || []).every((e) => completedExercises[e.id])
+                      return (
+                        <View key={b.id} style={{ marginBottom: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                            <Ionicons name={allDone ? 'checkbox' : 'square-outline'} size={20} color={allDone ? '#10B981' : '#999'} />
+                            <Text style={{ marginLeft: 8, fontWeight: '700', color: '#333' }}>{b.name}</Text>
+                          </View>
+                          {(b.exercises || []).map((e) => {
+                            const checked = !!completedExercises[e.id]
+                            const isActive = isWorkoutActive && e.id === activeOrderId
+                            const disabled = !isWorkoutActive || !isActive
+                            return (
+                              <TouchableOpacity key={e.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, opacity: disabled && !checked ? 0.6 : 1 }} disabled={disabled}
+                                onPress={async () => {
+                                  // mark complete and advance
+                                  setCompletedExercises((prev)=> ({ ...prev, [e.id]: true }))
+                                  // persist one set for the matching session exercise if we have it
+                                  const sid = planToSessionMap[e.id]
+                                  if (sid) { try { await completeSet({ sessionExerciseId: sid, setIndex: 1 }) } catch {} }
+                                  // advance pointer
+                                  setCurrentExerciseIdx((idx)=> {
+                                    const next = idx + 1
+                                    return next < exerciseOrder.length ? next : idx
+                                  })
+                                }}>
+                                <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={20} color={checked ? '#10B981' : isActive ? '#4A90E2' : '#999'} />
+                                <Text style={{ marginLeft: 8, color: '#333' }}>{e.name}</Text>
+                              </TouchableOpacity>
+                            )
+                          })}
+                        </View>
+                      )
+                    })}
+                  </View>
+                )
+              })()
+            )}
+
+            {showSummary && (
+              <View style={styles.sectionCard}>
+                <Text style={{ fontSize: 18, fontWeight: "700", color: "#333", textAlign: "center", marginBottom: 8 }}>Workout Complete</Text>
+                <Text style={{ fontSize: 32, fontWeight: "800", color: "#111827", textAlign: "center", fontFamily: "monospace", marginBottom: 12 }}>{formatWorkoutTime(summarySeconds)}</Text>
+                <TouchableOpacity style={styles.startWorkoutButton} onPress={() => setShowSummary(false)}>
+                  <Text style={styles.startWorkoutButtonText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </>
         ) : (
           // Plan tab content
@@ -983,6 +1235,11 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
               <Text style={styles.modalLabel}>Description</Text>
               <TextInput style={styles.modalInput} placeholder="Description" placeholderTextColor="#999" value={planDescription} onChangeText={setPlanDescription} />
             </View>
+            <View style={styles.modalFieldRow}>
+              <Text style={styles.modalLabel}>Start date</Text>
+              <TextInput style={styles.modalInput} placeholder="YYYY-MM-DD" placeholderTextColor="#999" value={planStartDate} onChangeText={setPlanStartDate} />
+            </View>
+            {/* Plans default to active; toggle removed for simplicity */}
             <TouchableOpacity style={styles.modalSaveButton} onPress={createPlan}>
               <Text style={styles.modalSaveButtonText}>Create</Text>
             </TouchableOpacity>
@@ -1417,14 +1674,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  calendarArrow: {
-    padding: 8,
+  calendarArrowBox: {
+    width: 32,
+    alignItems: 'center',
+    paddingVertical: 8,
   },
   weekDaysContainer: {
     flexDirection: "row",
     flex: 1,
     justifyContent: "space-between",
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
   },
   weekDayButton: {
     alignItems: "center",
@@ -1476,7 +1735,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#666",
     textAlign: "center",
-    marginBottom: 32,
+    marginBottom: 8,
+  },
+  planNameUnderTimer: {
+    fontSize: 16,
+    color: '#333',
+    textAlign: 'center',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  noPlanSub: {
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 2,
+    marginBottom: 24,
   },
   startWorkoutButton: {
     backgroundColor: "#4A90E2",
