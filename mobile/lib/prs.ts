@@ -39,4 +39,30 @@ export async function upsertPersonalRecords(input: Omit<PersonalRecords, "user_i
   if (error) throw new Error(error.message)
 }
 
+export type PrLift = 'bench' | 'squat' | 'deadlift' | 'ohp'
+export type PrHistoryRow = { id: string; user_id: string; lift: PrLift; value: number; recorded_at: string }
+
+export async function addPrEntry(lift: PrLift, value: number, recordedAt?: Date): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser()
+  if (!auth.user) throw new Error('Not authenticated')
+  const { error } = await supabase
+    .from<PrHistoryRow>('personal_record_history')
+    .insert([{ user_id: auth.user.id, lift, value, recorded_at: recordedAt ? recordedAt.toISOString() : new Date().toISOString() } as any])
+  if (error) throw new Error(error.message)
+}
+
+export async function getPrSeries(lift: PrLift, limit = 100): Promise<Array<{ recorded_at: string; value: number }>> {
+  const { data: auth } = await supabase.auth.getUser()
+  if (!auth.user) throw new Error('Not authenticated')
+  const { data, error } = await supabase
+    .from<PrHistoryRow>('personal_record_history')
+    .select('recorded_at, value')
+    .eq('user_id', auth.user.id)
+    .eq('lift', lift)
+    .order('recorded_at', { ascending: true })
+    .limit(limit)
+  if (error) throw new Error(error.message)
+  return (data || [])
+}
+
 

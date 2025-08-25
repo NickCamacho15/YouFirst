@@ -17,10 +17,11 @@ import {
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { Loader2, Check } from "lucide-react-native"
+import ConfettiCannon from 'react-native-confetti-cannon'
 import Svg, { Circle } from "react-native-svg"
 import TopHeader from "../components/TopHeader"
 import { LineChart } from "react-native-chart-kit"
-import { getPersonalRecords, upsertPersonalRecords } from "../lib/prs"
+import { getPersonalRecords, upsertPersonalRecords, addPrEntry, getPrSeries } from "../lib/prs"
 import { createPlanInDb, listPlans, listPlanTree, createWeek as dbCreateWeek, createDay as dbCreateDay, createBlock as dbCreateBlock, createExercise as dbCreateExercise, updateExercise as dbUpdateExercise, deleteExercises as dbDeleteExercises } from "../lib/plans"
 import { buildSnapshotFromPlanDay, createSessionFromSnapshot, getActiveSessionForToday, endSession, completeSet, markExercisesCompleted, getWorkoutStats, type SessionExerciseRow } from "../lib/workout"
 
@@ -45,15 +46,15 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
 
   const screenWidth = Dimensions.get("window").width
 
-  // Sample data for the chart
+  // Dynamic chart data populated from PR history
+  const [benchSeries, setBenchSeries] = useState<Array<{ x: string; y: number }>>([])
+  const [squatSeries, setSquatSeries] = useState<Array<{ x: string; y: number }>>([])
+  const [deadliftSeries, setDeadliftSeries] = useState<Array<{ x: string; y: number }>>([])
+  const [ohpSeries, setOhpSeries] = useState<Array<{ x: string; y: number }>>([])
   const chartData = {
-    labels: ["", "", "", "", "", "", ""],
+    labels: (benchSeries.length ? benchSeries : squatSeries.length ? squatSeries : deadliftSeries.length ? deadliftSeries : ohpSeries).map(p => p.x),
     datasets: [
-      {
-        data: [1, 1, 1, 1, 1, 1, 1],
-        color: (opacity = 1) => `rgba(74, 144, 226, ${opacity})`,
-        strokeWidth: 2,
-      },
+      { data: benchSeries.map(p => p.y), color: (opacity = 1) => `rgba(74, 144, 226, ${opacity})`, strokeWidth: 2 },
     ],
   }
 
@@ -71,6 +72,13 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
       r: "4",
       strokeWidth: "2",
       stroke: "#4A90E2",
+    },
+    formatYLabel: (value: string) => {
+      const n = Number(value)
+      if (!Number.isFinite(n)) return ""
+      const nearest = Math.round(n / 5) * 5
+      // Only show labels that are close to multiples of 5
+      return Math.abs(n - nearest) < 1 ? String(nearest) : ""
     },
   }
 
@@ -137,6 +145,23 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn('Failed to load workout stats', (e as any)?.message)
+      }
+      // Load PR history series for charts
+      try {
+        const [b, s, d, o] = await Promise.all([
+          getPrSeries('bench'),
+          getPrSeries('squat'),
+          getPrSeries('deadlift'),
+          getPrSeries('ohp'),
+        ])
+        const fmt = (rows: Array<{ recorded_at: string; value: number }>) => rows.map(r => ({ x: new Date(r.recorded_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), y: Number(r.value) }))
+        setBenchSeries(fmt(b))
+        setSquatSeries(fmt(s))
+        setDeadliftSeries(fmt(d))
+        setOhpSeries(fmt(o))
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('Failed to load PR history', (e as any)?.message)
       }
     })()
   }, [])
@@ -521,12 +546,12 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
             <View style={styles.sectionCard}>
               <View style={styles.sectionHeader}>
                 <View style={styles.sectionTitleContainer}>
-                  <Ionicons name="trophy-outline" size={20} color="#4A90E2" />
-                  <Text style={styles.sectionTitle}>Personal Records (1RM)</Text>
+                  <Ionicons name="trophy-outline" size={20} color="#4A90E2"/>
+                  <Text style={styles.sectionTitle}>Personal Records (1RM) </Text>
                 </View>
-                <TouchableOpacity style={[styles.buildPlanButton, { backgroundColor: '#4A90E2' }]} onPress={() => setPrUpdateOpen(true)}>
+                <TouchableOpacity style={styles.prActionButton} onPress={() => setPrUpdateOpen(true)}>
                   <Ionicons name="trophy-outline" size={16} color="#fff" />
-                  <Text style={styles.buildPlanButtonText}>Update a PR</Text>
+                  <Text style={styles.prActionText}>Update a PR</Text>
                 </TouchableOpacity>
               </View>
 
@@ -575,138 +600,33 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
               </View>
             </View>
 
-            {/* Weekly Volume Summary */}
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeader}>
-                <View style={styles.sectionTitleContainer}>
-                  <Ionicons name="bar-chart-outline" size={20} color="#4A90E2" />
-                  <Text style={styles.sectionTitle}>Weekly Volume Summary</Text>
-                </View>
-                <View style={styles.timePeriodSelector}>
-                  <TouchableOpacity style={styles.timePeriodButton}>
-                    <Text style={styles.timePeriodButtonText}>1 Month</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.timePeriodButton, styles.activePeriodButton]}>
-                    <Text style={[styles.timePeriodButtonText, styles.activePeriodButtonText]}>6 Months</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.timePeriodButton}>
-                    <Text style={styles.timePeriodButtonText}>1 Year</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+            {/* Weekly Volume Summary removed per request */}
 
-              <View style={styles.chartContainer}>
-                <LineChart
-                  data={chartData}
-                  width={screenWidth - 80}
-                  height={180}
-                  chartConfig={chartConfig}
-                  bezier
-                  style={styles.chart}
-                  withHorizontalLabels={true}
-                  withVerticalLabels={false}
-                  withDots={true}
-                  withShadow={false}
-                  withInnerLines={false}
-                  withOuterLines={false}
-                />
-              </View>
-            </View>
+            {/* Exercise Progress summary removed per request */}
 
-            {/* Exercise Progress */}
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeader}>
-                <View style={styles.sectionTitleContainer}>
-                  <Ionicons name="trending-up-outline" size={20} color="#4A90E2" />
-                  <Text style={styles.sectionTitle}>Exercise Progress</Text>
-                </View>
-              </View>
-
-              <View style={styles.exerciseLegend}>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: "#4A90E2" }]} />
-                  <Text style={styles.legendText}>Bench Press</Text>
-                </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: "#10B981" }]} />
-                  <Text style={styles.legendText}>Squat</Text>
-                </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: "#F59E0B" }]} />
-                  <Text style={styles.legendText}>Clean</Text>
-                </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: "#EF4444" }]} />
-                  <Text style={styles.legendText}>Overhead Press</Text>
-                </View>
-              </View>
-
-              <View style={styles.chartContainer}>
-                <LineChart
-                  data={chartData}
-                  width={screenWidth - 80}
-                  height={180}
-                  chartConfig={chartConfig}
-                  bezier
-                  style={styles.chart}
-                  withHorizontalLabels={true}
-                  withVerticalLabels={false}
-                  withDots={true}
-                  withShadow={false}
-                  withInnerLines={false}
-                  withOuterLines={false}
-                />
-              </View>
-            </View>
-
-            {/* Individual Exercise Progress Charts */}
-            {["Bench Press", "Squat", "Clean", "Overhead Press"].map((exercise, index) => {
-              const colors = ["#4A90E2", "#10B981", "#F59E0B", "#EF4444"]
+            {/* Individual Exercise Progress Charts (driven by PR history). Use a default single point if empty. */}
+            {([
+              { name: 'Bench Press', color: '#4A90E2', series: benchSeries },
+              { name: 'Squat', color: '#10B981', series: squatSeries },
+              { name: 'Clean', color: '#F59E0B', series: deadliftSeries },
+              { name: 'Overhead Press', color: '#EF4444', series: ohpSeries },
+            ] as Array<{ name: string; color: string; series: Array<{ x: string; y: number }> }>).map(({ name, color, series }) => {
+              const labels = (series.length ? series : [{ x: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), y: 0 }]).map(p => p.x)
+              const dataPoints = (series.length ? series : [{ x: '', y: 0 }]).map(p => p.y)
               return (
-                <View key={exercise} style={styles.sectionCard}>
+                <View key={name} style={styles.sectionCard}>
                   <View style={styles.sectionHeader}>
                     <View style={styles.sectionTitleContainer}>
-                      <Ionicons name="trending-up-outline" size={20} color={colors[index]} />
-                      <Text style={styles.sectionTitle}>{exercise} Progress</Text>
+                      <Ionicons name="trending-up-outline" size={20} color={color} />
+                      <Text style={styles.sectionTitle}>{name} Progress</Text>
                     </View>
                   </View>
-
                   <View style={styles.chartContainer}>
                     <LineChart
-                      data={{
-                        labels: ["Mar 3", "Mar 24", "Apr 14", "May 5", "May 26", "Jun 23", "Jul 14", "Aug 11"],
-                        datasets: [
-                          {
-                            data: [1, 1, 1, 1, 1, 1, 1, 1],
-                            color: (opacity = 1) =>
-                              `rgba(${
-                                colors[index] === "#4A90E2"
-                                  ? "74, 144, 226"
-                                  : colors[index] === "#10B981"
-                                    ? "16, 185, 129"
-                                    : colors[index] === "#F59E0B"
-                                      ? "245, 158, 11"
-                                      : "239, 68, 68"
-                              }, ${opacity})`,
-                            strokeWidth: 2,
-                          },
-                        ],
-                      }}
+                      data={{ labels, datasets: [{ data: dataPoints, color: () => color, strokeWidth: 2 }] }}
                       width={screenWidth - 80}
                       height={180}
-                      chartConfig={{
-                        ...chartConfig,
-                        color: (opacity = 1) =>
-                          `rgba(${
-                            colors[index] === "#4A90E2"
-                              ? "74, 144, 226"
-                              : colors[index] === "#10B981"
-                                ? "16, 185, 129"
-                                : colors[index] === "#F59E0B"
-                                  ? "245, 158, 11"
-                                  : "239, 68, 68"
-                          }, ${opacity})`,
-                      }}
+                      chartConfig={chartConfig}
                       bezier
                       style={styles.chart}
                       withHorizontalLabels={true}
@@ -717,8 +637,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                       withOuterLines={false}
                     />
                   </View>
-
-                  <Text style={styles.chartSubtitle}>Tracking sets × reps progression</Text>
+                  <Text style={styles.chartSubtitle}>Tracking PR history</Text>
                 </View>
               )
             })}
@@ -1330,6 +1249,29 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                   deadlift_1rm: prLift==='Deadlift'? val : prs.deadlift || null,
                   overhead_press_1rm: prLift==='Overhead Press'? val : prs.ohp || null,
                 })
+                if (val !== null) {
+                  const mapLift: Record<string, 'bench'|'squat'|'deadlift'|'ohp'> = {
+                    'Bench Press': 'bench',
+                    'Squat': 'squat',
+                    'Deadlift': 'deadlift',
+                    'Overhead Press': 'ohp',
+                  }
+                  await addPrEntry(mapLift[prLift], val)
+                  // Silent refresh of chart series
+                  try {
+                    const [b, s, d, o] = await Promise.all([
+                      getPrSeries('bench'),
+                      getPrSeries('squat'),
+                      getPrSeries('deadlift'),
+                      getPrSeries('ohp'),
+                    ])
+                    const fmt = (rows: Array<{ recorded_at: string; value: number }>) => rows.map(r => ({ x: new Date(r.recorded_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), y: Number(r.value) }))
+                    setBenchSeries(fmt(b))
+                    setSquatSeries(fmt(s))
+                    setDeadliftSeries(fmt(d))
+                    setOhpSeries(fmt(o))
+                  } catch {}
+                }
                 setPrs({
                   bench: prLift==='Bench Press'? (val||0) : prs.bench,
                   squat: prLift==='Squat'? (val||0) : prs.squat,
@@ -1361,10 +1303,11 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                 'Momentum is yours. This is how greatness compounds.',
               ][Math.floor(Math.random()*4)]}
             </Text>
-            <TouchableOpacity style={[styles.modalSaveButton, { marginTop: 12 }]} onPress={()=> setPrSuccessOpen(false)}>
+            <TouchableOpacity style={[styles.modalSaveButton, { marginTop: 12, alignSelf: 'stretch' }]} onPress={()=> setPrSuccessOpen(false)}>
               <Text style={styles.modalSaveButtonText}>Close</Text>
             </TouchableOpacity>
           </View>
+          <ConfettiCannon count={120} origin={{ x: 0, y: 0 }} fadeOut autoStart={true} explosionSpeed={350} fallSpeed={2400} />
         </View>
       )}
       {/* Build Plan Modal */}
@@ -2148,6 +2091,20 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "600",
+    marginLeft: 6,
+  },
+  prActionButton: {
+    backgroundColor: '#4A90E2',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  prActionText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
     marginLeft: 6,
   },
   myPlansTitle: {
