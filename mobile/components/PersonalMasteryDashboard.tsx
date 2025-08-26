@@ -1,41 +1,25 @@
 import { View, Text, StyleSheet } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
+import { useEffect, useState } from 'react'
+import { getPersonalMasteryMetrics, type PersonalMastery } from '../lib/dashboard'
 import { Target } from "lucide-react-native"
 
 const PersonalMasteryDashboard = () => {
+  const [data, setData] = useState<PersonalMastery | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    const load = async () => {
+      try { setLoading(true); const d = await getPersonalMasteryMetrics(); setData(d) } finally { setLoading(false) }
+    }
+    load()
+  }, [])
+
   const metrics = [
-    {
-      value: "0",
-      label: "Tasks Completed",
-      sublabel: "lifetime",
-      icon: "checkmark-circle-outline",
-      backgroundColor: "#BFDBFE",
-      valueColor: "#4A90E2",
-    },
-    {
-      value: "0",
-      label: "Best Streak",
-      sublabel: "days",
-      icon: "flame-outline",
-      backgroundColor: "#BBF7D0",
-      valueColor: "#10B981",
-    },
-    {
-      value: "0%",
-      label: "Consistency",
-      sublabel: "this month",
-      icon: "star-outline",
-      backgroundColor: "#E3D0FF",
-      valueColor: "#8B5CF6",
-    },
-    {
-      value: "0",
-      label: "Active Goals",
-      sublabel: "in progress",
-      icon: "radio-button-off-outline",
-      backgroundColor: "#FEF3C7",
-      valueColor: "#F59E0B",
-    },
+    { value: loading ? '…' : String(data?.tasksCompleted ?? 0), label: 'Tasks Completed', sublabel: 'this week', icon: 'checkmark-circle-outline', backgroundColor: '#BFDBFE', valueColor: '#4A90E2' },
+    { value: loading ? '…' : String(data?.bestStreak ?? 0), label: 'Best Streak', sublabel: 'days', icon: 'flame-outline', backgroundColor: '#BBF7D0', valueColor: '#10B981' },
+    { value: loading ? '…' : `${data?.consistencyPercent ?? 0}%`, label: 'Consistency', sublabel: 'this month', icon: 'star-outline', backgroundColor: '#E3D0FF', valueColor: '#8B5CF6' },
+    { value: loading ? '…' : String(data?.activeGoals ?? 0), label: 'Active Goals', sublabel: 'in progress', icon: 'radio-button-off-outline', backgroundColor: '#FEF3C7', valueColor: '#F59E0B' },
   ]
 
   return (

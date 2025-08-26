@@ -56,6 +56,15 @@ export async function deleteRoutine(id: string): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
+export async function updateRoutine(id: string, changes: { title?: string; position?: number }): Promise<void> {
+  const payload: any = {}
+  if (typeof changes.title === 'string') payload.title = changes.title
+  if (typeof changes.position === 'number') payload.position = changes.position
+  if (!Object.keys(payload).length) return
+  const { error } = await supabase.from('user_routines').update(payload).eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
 export async function toggleRoutineCompleted(routineId: string, completed: boolean, dateKey?: string): Promise<void> {
   const { data: auth } = await supabase.auth.getUser()
   if (!auth.user) throw new Error('Not authenticated')
@@ -75,10 +84,9 @@ export async function getRoutineStats(routineIds: string[], anchorISO?: string):
   const { data: auth } = await supabase.auth.getUser()
   if (!auth.user) throw new Error('Not authenticated')
   const anchor = startOfDay(anchorISO ? parseDateKeyLocal(anchorISO) : new Date())
-  // Define week window containing the anchor
+  // Define week window containing the anchor (Sunday–Saturday)
   const weekStart = startOfDay(new Date(anchor))
-  const day = weekStart.getDay(); const diff = (day === 0 ? -6 : 1) - day
-  weekStart.setDate(weekStart.getDate() + diff)
+  weekStart.setDate(anchor.getDate() - anchor.getDay()) // previous Sunday (or today if Sunday)
   const weekEnd = startOfDay(new Date(weekStart)); weekEnd.setDate(weekStart.getDate() + 7)
   // Fetch a rolling window to compute streak across week boundaries
   const streakFrom = startOfDay(new Date(anchor)); streakFrom.setDate(anchor.getDate() - 60)

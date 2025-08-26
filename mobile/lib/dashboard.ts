@@ -67,4 +67,72 @@ export async function getTodaySummary(): Promise<TodaySummary> {
   }
 }
 
+// Personal Mastery Dashboard metrics
+export type PersonalMastery = {
+  tasksCompleted: number
+  bestStreak: number
+  consistencyPercent: number
+  activeGoals: number
+}
+
+function toDateKeyLocal(d: Date): string {
+  const y = d.getFullYear(); const m = String(d.getMonth()+1).padStart(2,'0'); const day = String(d.getDate()).padStart(2,'0')
+  return `${y}-${m}-${day}`
+}
+
+export async function getPersonalMasteryMetrics(): Promise<PersonalMastery> {
+  const { data: auth } = await supabase.auth.getUser()
+  const uid = auth.user?.id
+  if (!uid) throw new Error('Not authenticated')
+
+  // Current week window (Sunday–Saturday)
+  const today = new Date(); today.setHours(0,0,0,0)
+  const weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay())
+  const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 7)
+  const weekStartKey = toDateKeyLocal(weekStart); const weekEndKey = toDateKeyLocal(weekEnd)
+
+  // Counts for this week only
+  const [tasksDoneRes, routineLogsRes, goalsCountRes] = await Promise.all([
+    supabase.from('day_tasks').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('done', true).gte('task_date', weekStartKey).lt('task_date', weekEndKey),
+    supabase.from('user_routine_logs').select('id,log_date', { count: 'exact' }).eq('user_id', uid).eq('completed', true).gte('log_date', weekStartKey).lt('log_date', weekEndKey),
+    supabase.from('goals').select('id', { count: 'exact', head: true }).eq('user_id', uid),
+  ])
+  const tasksCompleted = (tasksDoneRes.count || 0) + (routineLogsRes.count || 0)
+  const activeGoals = goalsCountRes.count || 0
+
+  // Streak and consistency from routine logs
+  const start = new Date(today); start.setDate(start.getDate() - 180)
+  const startKey = toDateKeyLocal(start); const todayKey = toDateKeyLocal(today)
+  const { data: streakRows, error: streakErr } = await supabase
+    .from('user_routine_logs')
+    .select('log_date')
+    .eq('user_id', uid)
+    .eq('completed', true)
+    .gte('log_date', startKey)
+    .lte('log_date', todayKey)
+    .order('log_date')
+  if (streakErr) throw new Error(streakErr.message)
+  const dates = new Set((streakRows || []).map((r: any) => r.log_date as string))
+
+  // Best streak over the fetched window
+  let best = 0; let current = 0
+  const probe = new Date(start)
+  while (probe <= today) {
+    const key = toDateKeyLocal(probe)
+    if (dates.has(key)) { current += 1 } else { best = Math.max(best, current); current = 0 }
+    probe.setDate(probe.getDate() + 1)
+  }
+  best = Math.max(best, current)
+
+  // Consistency for this month: days with at least one completion / days elapsed this month
+  const monthStart = new Date(today); monthStart.setDate(1)
+  const monthDenom = today.getDate() // elapsed days including today
+  let monthCount = 0
+  const mm = new Date(monthStart)
+  for (let i = 0; i < monthDenom; i++) { if (dates.has(toDateKeyLocal(mm))) monthCount += 1; mm.setDate(mm.getDate()+1) }
+  const consistencyPercent = monthDenom > 0 ? Math.round((monthCount / monthDenom) * 100) : 0
+
+  return { tasksCompleted, bestStreak: best, consistencyPercent, activeGoals }
+}
+
 
