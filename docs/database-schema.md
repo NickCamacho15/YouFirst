@@ -146,6 +146,51 @@ All tables have Row-Level Security enabled to ensure users can only access their
 | goal_prog_cud_own | Users can create/update/delete progress where user_id = auth.uid() AND the goal belongs to them |
 
 ### 6. personal_records
+### 7. day_tasks (mobile Today’s Tasks)
+
+Stores per-user, per-day tasks used by the mobile home screen.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | uuid | Primary key |
+| user_id | uuid | References users(id) |
+| task_date | date | YYYY-MM-DD task date |
+| title | text | Task title |
+| time_text | text | Optional time label (e.g., "6:00 PM") |
+| done | boolean | Completed flag |
+| created_at | timestamptz | Creation timestamp |
+
+Indexes:
+- `day_tasks_user_date_idx` on `(user_id, task_date)`
+
+RLS Policies:
+- `day_tasks_select_own`: select where `user_id = auth.uid()`
+- `day_tasks_cud_own`: insert/update/delete where `user_id = auth.uid()`
+
+Example SQL:
+
+```sql
+create table if not exists public.day_tasks (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  task_date date not null,
+  title text not null,
+  time_text text,
+  done boolean not null default false,
+  created_at timestamptz default now()
+);
+create index if not exists day_tasks_user_date_idx on public.day_tasks(user_id, task_date);
+alter table public.day_tasks enable row level security;
+
+drop policy if exists day_tasks_select_own on public.day_tasks;
+create policy day_tasks_select_own on public.day_tasks
+  for select to authenticated using (user_id = auth.uid());
+
+drop policy if exists day_tasks_cud_own on public.day_tasks;
+create policy day_tasks_cud_own on public.day_tasks
+  for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+```
+
 
 Stores a user's 1RM personal records for key lifts.
 
