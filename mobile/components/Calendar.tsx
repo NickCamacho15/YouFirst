@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { addMonths, format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay } from 'date-fns';
+import { getWinsForMonth, subscribeWins, toDateKey } from '../lib/wins'
 
 export default function Calendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [wonDays, setWonDays] = useState<Set<string>>(new Set())
   
   // Get days of current month
   const monthStart = startOfMonth(currentDate);
@@ -18,6 +20,17 @@ export default function Calendar() {
   // Navigation
   const nextMonth = () => setCurrentDate(addMonths(currentDate, 1));
   const prevMonth = () => setCurrentDate(addMonths(currentDate, -1));
+
+  // Load wins for the visible month and refresh on win events
+  useEffect(() => {
+    let unsub: (() => void) | undefined
+    const load = async () => {
+      try { setWonDays(await getWinsForMonth(currentDate)) } catch { setWonDays(new Set()) }
+    }
+    load()
+    unsub = subscribeWins(() => { load() })
+    return () => { if (unsub) unsub() }
+  }, [currentDate])
   
   // Render day cells
   const renderDays = () => {
@@ -43,28 +56,26 @@ export default function Calendar() {
     
     return weeks.map((week, i) => (
       <View key={i} style={styles.week}>
-        {week.map((day, j) => (
-          <TouchableOpacity
-            key={j}
-            style={[
-              styles.day,
-              day && isSameDay(day, selectedDate) ? styles.selectedDay : null
-            ]}
-            onPress={() => day && setSelectedDate(day)}
-            disabled={!day}
-          >
-            {day ? (
-              <Text style={[
-                styles.dayText,
-                day && isSameDay(day, selectedDate) ? styles.selectedDayText : null
-              ]}>
-                {format(day, 'd')}
-              </Text>
-            ) : (
-              <Text style={styles.emptyDay}></Text>
-            )}
-          </TouchableOpacity>
-        ))}
+        {week.map((day, j) => {
+          const isWon = !!(day && wonDays.has(toDateKey(day!)))
+          const isSelected = !!(day && isSameDay(day!, selectedDate))
+          return (
+            <TouchableOpacity
+              key={j}
+              style={[styles.day, isWon ? styles.wonDay : isSelected ? styles.selectedDay : null]}
+              onPress={() => day && setSelectedDate(day)}
+              disabled={!day}
+            >
+              {day ? (
+                <Text style={[styles.dayText, isWon ? styles.wonDayText : isSelected ? styles.selectedDayText : null]}>
+                  {format(day, 'd')}
+                </Text>
+              ) : (
+                <Text style={styles.emptyDay}></Text>
+              )}
+            </TouchableOpacity>
+          )
+        })}
       </View>
     ));
   };
@@ -159,6 +170,11 @@ const styles = StyleSheet.create({
     borderRadius: 100,
     backgroundColor: '#f8f8f8',
   },
+  wonDay: {
+    backgroundColor: '#22C55E',
+    borderWidth: 1,
+    borderColor: '#22C55E',
+  },
   emptyDay: {
     flex: 1,
     backgroundColor: 'transparent',
@@ -172,6 +188,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '500',
     color: '#333',
+  },
+  wonDayText: {
+    color: 'white',
   },
   selectedDayText: {
     color: 'white',

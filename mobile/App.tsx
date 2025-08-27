@@ -124,7 +124,7 @@ const styles = StyleSheet.create({
   },
   bottomNavContainer: {
     backgroundColor: "#fff",
-    paddingBottom: 20,
+    paddingBottom: 6,
     borderTopWidth: 1,
     borderTopColor: "#f0f0f0",
   },

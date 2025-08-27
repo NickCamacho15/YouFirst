@@ -11,6 +11,19 @@ export type AppNotification = {
   created_at: string
 }
 
+// Simple pub/sub so UI can refresh badge and lists when notifications change
+type Listener = () => void
+const listeners = new Set<Listener>()
+export function subscribeNotifications(listener: Listener): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
+export function emitNotificationsChanged(): void {
+  for (const l of Array.from(listeners)) {
+    try { l() } catch {}
+  }
+}
+
 export async function getUnreadCount(): Promise<number> {
   const { data: auth } = await supabase.auth.getUser()
   const uid = auth.user?.id
@@ -20,6 +33,23 @@ export async function getUnreadCount(): Promise<number> {
     .select("id", { count: "exact", head: true })
     .eq("user_id", uid)
     .eq("is_read", false)
+  return count || 0
+}
+
+// Weekly unread count (last 7 days, inclusive of today)
+export async function getUnreadCountForPastWeek(): Promise<number> {
+  const { data: auth } = await supabase.auth.getUser()
+  const uid = auth.user?.id
+  if (!uid) return 0
+  const end = new Date(); end.setHours(23,59,59,999)
+  const start = new Date(end); start.setDate(end.getDate() - 6); start.setHours(0,0,0,0)
+  const { count } = await supabase
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", uid)
+    .eq("is_read", false)
+    .gte("created_at", start.toISOString())
+    .lte("created_at", end.toISOString())
   return count || 0
 }
 
@@ -42,6 +72,7 @@ export async function markAllRead(): Promise<void> {
   const uid = auth.user?.id
   if (!uid) return
   await supabase.from("notifications").update({ is_read: true }).eq("user_id", uid)
+  emitNotificationsChanged()
 }
 
 export async function createNotification(input: { type: string; title: string; body?: string; data?: any }): Promise<void> {
@@ -57,6 +88,23 @@ export async function createNotification(input: { type: string; title: string; b
       data: input.data ?? null,
     },
   ])
+  emitNotificationsChanged()
+}
+
+// Realtime channel to update UI when new notifications arrive
+let channel: any | null = null
+export function ensureNotificationsRealtime(): void {
+  if (channel) return
+  try {
+    channel = (supabase as any).channel?.("notifications_channel")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, () => {
+        emitNotificationsChanged()
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "notifications" }, () => {
+        emitNotificationsChanged()
+      })
+      .subscribe()
+  } catch {}
 }
 
 

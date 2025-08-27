@@ -1,8 +1,8 @@
 import type React from "react"
 import { useEffect, useState } from "react"
-import { View, Text, StyleSheet, TouchableOpacity, Pressable } from "react-native"
+import { View, Text, StyleSheet, TouchableOpacity, Pressable, FlatList } from "react-native"
 import { Bell, User, LogOut } from "lucide-react-native"
-import { getUnreadCount, markAllRead } from "../lib/notifications"
+import { getUnreadCountForPastWeek, listNotifications, markAllRead, subscribeNotifications, ensureNotificationsRealtime } from "../lib/notifications"
 import { logout as supabaseLogout } from "../lib/auth"
 
 interface TopHeaderProps { showShadow?: boolean; onLogout?: () => void }
@@ -11,13 +11,26 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout }) =
   const [menuOpen, setMenuOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [unread, setUnread] = useState(0)
+  const [notifOpen, setNotifOpen] = useState(false)
+  const [items, setItems] = useState<any[]>([])
 
   useEffect(() => {
     let mounted = true
-    ;(async () => {
-      try { const c = await getUnreadCount(); if (mounted) setUnread(c) } catch {}
-    })()
-    return () => { mounted = false }
+    ensureNotificationsRealtime()
+    const refresh = async () => {
+      try {
+        const [c, list] = await Promise.all([
+          getUnreadCountForPastWeek(),
+          listNotifications(10),
+        ])
+        if (!mounted) return
+        setUnread(c)
+        setItems(list)
+      } catch {}
+    }
+    refresh()
+    const unsub = subscribeNotifications(() => { refresh() })
+    return () => { mounted = false; if (unsub) unsub() }
   }, [])
 
   const handleLogout = async () => {
@@ -41,7 +54,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout }) =
       </View>
 
       <View style={styles.right}>
-        <TouchableOpacity style={styles.iconButton} hitSlop={8} onPress={async ()=> { await markAllRead(); setUnread(0) }}>
+        <TouchableOpacity style={styles.iconButton} hitSlop={8} onPress={()=> setNotifOpen(v=>!v)} onLongPress={async ()=> { await markAllRead(); setUnread(0); setNotifOpen(false) }}>
           <View>
             <Bell color="#111" width={22} height={22} />
             {unread > 0 && (
@@ -55,9 +68,30 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout }) =
         </TouchableOpacity>
       </View>
 
-      {menuOpen && (
+      {(menuOpen || notifOpen) && (
         <>
-          <Pressable style={styles.backdrop} onPress={() => setMenuOpen(false)} />
+          <Pressable style={styles.backdrop} onPress={() => { setMenuOpen(false); setNotifOpen(false) }} />
+          {notifOpen ? (
+            <View style={[styles.menu, { width: 260 }]}> 
+              <Text style={[styles.menuText, { fontWeight: '800', marginBottom: 6 }]}>Notifications</Text>
+              <FlatList
+                data={items}
+                keyExtractor={(n)=> n.id}
+                ItemSeparatorComponent={() => <View style={styles.menuDivider} />}
+                style={{ maxHeight: 260 }}
+                renderItem={({item}) => (
+                  <View style={{ paddingVertical: 8, paddingHorizontal: 12 }}>
+                    <Text style={{ color: '#111', fontWeight: '700', marginBottom: 2 }}>{item.title}</Text>
+                    {!!item.body && <Text style={{ color: '#6b7280', fontSize: 12 }}>{item.body}</Text>}
+                    <Text style={{ color: '#9ca3af', fontSize: 11, marginTop: 4 }}>{new Date(item.created_at).toLocaleString()}</Text>
+                  </View>
+                )}
+              />
+              <TouchableOpacity style={{ paddingVertical: 10, paddingHorizontal: 12 }} onPress={async ()=> { await markAllRead(); setUnread(0); setItems([]); setNotifOpen(false) }}>
+                <Text style={{ color: '#2563EB', fontWeight: '700' }}>Mark all as read</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
           <View style={styles.menu}>
             <TouchableOpacity style={styles.menuItem} onPress={() => setMenuOpen(false)}>
               <User color="#111" width={18} height={18} />
@@ -69,6 +103,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout }) =
               <Text style={[styles.menuText, { color: "#ef4444" }]}>{loggingOut ? "Logging out…" : "Log Out"}</Text>
             </TouchableOpacity>
           </View>
+          )}
         </>
       )}
     </View>

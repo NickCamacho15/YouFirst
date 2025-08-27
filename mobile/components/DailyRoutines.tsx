@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useEffect } from "react"
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, Easing, Alert, AppState, type AppStateStatus } from "react-native"
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, Easing, Alert, AppState, Modal, type AppStateStatus } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { LinearGradient } from "expo-linear-gradient"
 import EditEntityModal from "./EditEntityModal"
 import { createTask, listTasksByDate, setTaskDone, deleteTask, updateTask, toDateKey } from "../lib/tasks"
 import { listRoutines, createRoutine, getRoutineStats, toggleRoutineCompleted, listRoutineCompletionsByDate, deleteRoutine, updateRoutine } from "../lib/routines"
 import { getPersonalMasteryMetrics, emitPersonalMasteryChanged } from "../lib/dashboard"
+import { emitWinsChanged } from "../lib/wins"
 import { supabase } from "../lib/supabase"
 
 const daysOfWeek = [
@@ -71,6 +72,9 @@ const DailyRoutines = () => {
   const [newTaskTime, setNewTaskTime] = useState("")
   const [routineEditor, setRoutineEditor] = useState<{ id: string; type: 'morning' | 'evening'; title: string } | null>(null)
   const [taskEditor, setTaskEditor] = useState<{ index: number; title: string; time?: string } | null>(null)
+  const [pendingDeleteMorningId, setPendingDeleteMorningId] = useState<string | null>(null)
+  const [pendingDeleteEveningId, setPendingDeleteEveningId] = useState<string | null>(null)
+  const [pendingDeleteTaskIndex, setPendingDeleteTaskIndex] = useState<number | null>(null)
 
   useEffect(() => {
     setMorningChecks(morningItems.map((i) => !!i.completed))
@@ -238,6 +242,8 @@ const DailyRoutines = () => {
     Animated.timing(item.anim, { toValue: (s?.weekPercent || 0), duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
     // Refresh dashboard metrics asynchronously (best effort)
     try { await getPersonalMasteryMetrics(); emitPersonalMasteryChanged() } catch {}
+    // Always emit so dependent UI (button/calendar/streaks) re-check immediately
+    try { emitWinsChanged() } catch {}
   }
   const toggleMorning = async (index: number) => {
     if (isFutureSelectedDay()) { Alert.alert('Not allowed', "You can't complete morning routines for a future day."); return }
@@ -254,6 +260,7 @@ const DailyRoutines = () => {
     setMorningItems(next)
     Animated.timing(item.anim, { toValue: (s?.weekPercent || 0), duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
     try { await getPersonalMasteryMetrics(); emitPersonalMasteryChanged() } catch {}
+    try { emitWinsChanged() } catch {}
   }
   const toggleTask = async (index: number) => {
     const next = tasksChecks.map((v, i) => (i === index ? !v : v))
@@ -272,6 +279,7 @@ const DailyRoutines = () => {
       }))
     }
     try { await getPersonalMasteryMetrics(); emitPersonalMasteryChanged() } catch {}
+    try { emitWinsChanged() } catch {}
   }
   return (
     <View style={styles.container}>
@@ -352,7 +360,7 @@ const DailyRoutines = () => {
                 <TouchableOpacity onPress={() => { setRoutineEditor({ id: item.id, type: 'morning', title: item.title }) }} style={{ padding: 6, marginLeft: 8 }}>
                   <Ionicons name="create-outline" size={18} color="#3B82F6" />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={async () => { try { await deleteRoutine(item.id); const m = await listRoutines('morning'); const ms = await getRoutineStats(m.map(r=>r.id)); const items = m.map(r=>{ const s = ms[r.id] || {streakDays:0, weekPercent:0, completedToday:false}; return { id:r.id, title:r.title, streak:s.streakDays, percent:s.weekPercent, completed:s.completedToday, anim:new Animated.Value(s.weekPercent||0) } }); setMorningItems(items) } catch(e:any){ Alert.alert('Delete failed', e?.message||'Try again') } }} style={{ padding: 6 }}>
+                <TouchableOpacity onPress={() => setPendingDeleteMorningId(item.id)} style={{ padding: 6 }}>
                   <Ionicons name="trash-outline" size={18} color="#ef4444" />
                 </TouchableOpacity>
               </>
@@ -409,17 +417,7 @@ const DailyRoutines = () => {
                 <TouchableOpacity onPress={() => { setTaskEditor({ index: idx, title: task.title, time: task.time }) }} style={{ padding: 6, marginLeft: 8 }}>
                   <Ionicons name="create-outline" size={18} color="#4A90E2" />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={async () => {
-                    const key = toDateKey(getSelectedDate())
-                    const rows = await listTasksByDate(key)
-                    const row = rows[idx]
-                    if (row) {
-                      await deleteTask(row.id)
-                      const updated = await listTasksByDate(key)
-                      setTasksByDay((prev) => ({ ...prev, [currentDay]: updated.map(r => ({ title: r.title, time: r.time_text || undefined })) }))
-                      setTasksChecks((prev) => prev.filter((_, i) => i !== idx))
-                    }
-                  }} style={{ padding: 6 }}>
+                <TouchableOpacity onPress={() => setPendingDeleteTaskIndex(idx)} style={{ padding: 6 }}>
                     <Ionicons name="trash-outline" size={18} color="#ef4444" />
                   </TouchableOpacity>
               </>
@@ -514,7 +512,7 @@ const DailyRoutines = () => {
                 <TouchableOpacity onPress={() => { setRoutineEditor({ id: item.id, type: 'evening', title: item.title }) }} style={{ padding: 6, marginLeft: 8 }}>
                   <Ionicons name="create-outline" size={18} color="#8B5CF6" />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={async () => { try { await deleteRoutine(item.id); const e = await listRoutines('evening'); const es = await getRoutineStats(e.map(r=>r.id)); const items = e.map(r=>{ const s = es[r.id] || {streakDays:0, weekPercent:0, completedToday:false}; return { id:r.id, title:r.title, streak:s.streakDays, percent:s.weekPercent, completed:s.completedToday, anim:new Animated.Value(s.weekPercent||0) } }); setEveningItems(items) } catch(e:any){ Alert.alert('Delete failed', e?.message||'Try again') } }} style={{ padding: 6 }}>
+                <TouchableOpacity onPress={() => setPendingDeleteEveningId(item.id)} style={{ padding: 6 }}>
                   <Ionicons name="trash-outline" size={18} color="#ef4444" />
                 </TouchableOpacity>
               </>
@@ -561,6 +559,100 @@ const DailyRoutines = () => {
           submitLabel="Save"
         />
       )}
+      {/* Delete confirmations */}
+      <Modal transparent visible={!!pendingDeleteMorningId} animationType="fade">
+        <View style={{ flex: 1, backgroundColor: '#00000066', justifyContent: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Delete morning routine?</Text>
+            <Text style={{ color: '#6b7280', marginBottom: 12 }}>This action cannot be undone.</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <TouchableOpacity onPress={() => setPendingDeleteMorningId(null)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8 }}>
+                <Text>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={async () => {
+                const id = pendingDeleteMorningId
+                setPendingDeleteMorningId(null)
+                if (!id) return
+                try {
+                  await deleteRoutine(id)
+                  const m = await listRoutines('morning')
+                  const ms = await getRoutineStats(m.map(r=>r.id))
+                  const items = m.map(r=> { const s = ms[r.id] || { streakDays:0, weekPercent:0, completedToday:false }; return { id:r.id, title:r.title, streak:s.streakDays, percent:s.weekPercent, completed:s.completedToday, anim:new Animated.Value(s.weekPercent||0) } })
+                  setMorningItems(items)
+                } catch(e:any) {
+                  Alert.alert('Delete failed', e?.message || 'Try again')
+                }
+              }} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#EF4444' }}>
+                <Text style={{ color: '#fff', fontWeight: '700' }}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal transparent visible={pendingDeleteTaskIndex !== null} animationType="fade">
+        <View style={{ flex: 1, backgroundColor: '#00000066', justifyContent: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Delete task?</Text>
+            <Text style={{ color: '#6b7280', marginBottom: 12 }}>This action cannot be undone.</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <TouchableOpacity onPress={() => setPendingDeleteTaskIndex(null)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8 }}>
+                <Text>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={async () => {
+                const idx = pendingDeleteTaskIndex
+                setPendingDeleteTaskIndex(null)
+                if (idx === null) return
+                try {
+                  const key = toDateKey(getSelectedDate())
+                  const rows = await listTasksByDate(key)
+                  const row = rows[idx]
+                  if (row) {
+                    await deleteTask(row.id)
+                    const updated = await listTasksByDate(key)
+                    setTasksByDay((prev) => ({ ...prev, [currentDay]: updated.map(r => ({ title: r.title, time: r.time_text || undefined })) }))
+                    setTasksChecks((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                } catch(e:any) {
+                  Alert.alert('Delete failed', e?.message || 'Try again')
+                }
+              }} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#EF4444' }}>
+                <Text style={{ color: '#fff', fontWeight: '700' }}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal transparent visible={!!pendingDeleteEveningId} animationType="fade">
+        <View style={{ flex: 1, backgroundColor: '#00000066', justifyContent: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Delete evening routine?</Text>
+            <Text style={{ color: '#6b7280', marginBottom: 12 }}>This action cannot be undone.</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <TouchableOpacity onPress={() => setPendingDeleteEveningId(null)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8 }}>
+                <Text>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={async () => {
+                const id = pendingDeleteEveningId
+                setPendingDeleteEveningId(null)
+                if (!id) return
+                try {
+                  await deleteRoutine(id)
+                  const e = await listRoutines('evening')
+                  const es = await getRoutineStats(e.map(r=>r.id))
+                  const items = e.map(r => { const s = es[r.id] || { streakDays:0, weekPercent:0, completedToday:false }; return { id:r.id, title:r.title, streak:s.streakDays, percent:s.weekPercent, completed:s.completedToday, anim:new Animated.Value(s.weekPercent||0) } })
+                  setEveningItems(items)
+                } catch(e:any) {
+                  Alert.alert('Delete failed', e?.message || 'Try again')
+                }
+              }} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#EF4444' }}>
+                <Text style={{ color: '#fff', fontWeight: '700' }}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       {taskEditor && (
         <EditEntityModal
           visible={!!taskEditor}
