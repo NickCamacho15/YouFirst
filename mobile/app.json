@@ -2,7 +2,7 @@
   "expo": {
     "name": "mobile",
     "slug": "mobile",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -34,9 +34,12 @@
       "expo-image-picker"
     ],
     "extra": {
-      "expoPublicApiBaseUrl": "http://localhost:3000",
       "expoPublicSupabaseUrl": "https://jevviwdsnyvvtpnqbecm.supabase.co",
-      "expoPublicSupabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpldnZpd2Rzbnl2dnRwbnFiZWNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM0NDY1NDIsImV4cCI6MjA2OTAyMjU0Mn0.AfPBcGnrOnqNVP3v3bJr58OCGFSH_6fhIIGgEM3qN6A"
+      "expoPublicSupabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpldnZpd2Rzbnl2dnRwbnFiZWNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM0NDY1NDIsImV4cCI6MjA2OTAyMjU0Mn0.AfPBcGnrOnqNVP3v3bJr58OCGFSH_6fhIIGgEM3qN6A",
+      "expoPublicApiBaseUrl": "http://localhost:3000",
+      "eas": {
+        "projectId": "d44ec5f1-06a0-4e9b-b711-6b251d4037da"
+      }
     }
   }
 }
