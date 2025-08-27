@@ -25,9 +25,9 @@ import { getPersonalRecords, upsertPersonalRecords, addPrEntry, getPrSeries } fr
 import { createPlanInDb, listPlans, listPlanTree, createWeek as dbCreateWeek, createDay as dbCreateDay, createBlock as dbCreateBlock, createExercise as dbCreateExercise, updateExercise as dbUpdateExercise, deleteExercises as dbDeleteExercises } from "../lib/plans"
 import { buildSnapshotFromPlanDay, createSessionFromSnapshot, getActiveSessionForToday, endSession, completeSet, markExercisesCompleted, getWorkoutStats, type SessionExerciseRow } from "../lib/workout"
 
-interface ScreenProps { onLogout?: () => void }
+interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void }
 
-const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
+const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
   const [activeTab, setActiveTab] = useState("profile")
   const [prs, setPrs] = useState({ bench: 0, squat: 0, deadlift: 0, ohp: 0 })
   const [editOpen, setEditOpen] = useState(false)
@@ -500,7 +500,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout }) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
-      <TopHeader onLogout={onLogout} />
+      <TopHeader onLogout={onLogout} onOpenProfile={onOpenProfile} />
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Body Section */}

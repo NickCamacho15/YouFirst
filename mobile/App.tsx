@@ -8,6 +8,7 @@ import GoalsScreen from "./screens/GoalsScreen"
 import DisciplinesScreen from "./screens/DisciplinesScreen"
 import MindScreen from "./screens/MindScreen"
 import BodyScreen from "./screens/BodyScreen"
+import ProfileScreen from "./screens/ProfileScreen"
 import { Mountain, Target, Brain, Dumbbell } from "lucide-react-native"
 import Calendar from "./components/Calendar"
 import StreakStats from "./components/StreakStats"
@@ -39,7 +40,7 @@ const App: React.FC = () => {
       <StatusBar barStyle="dark-content" />
       {currentScreen === "home" ? (
         <>
-          <TopHeader onLogout={handleLogout} />
+          <TopHeader onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
           <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
             <Calendar />
             <StreakStats />
@@ -50,13 +51,15 @@ const App: React.FC = () => {
           </ScrollView>
         </>
       ) : currentScreen === "goals" ? (
-        <GoalsScreen onLogout={handleLogout} />
+        <GoalsScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
       ) : currentScreen === "disciplines" ? (
-        <DisciplinesScreen onLogout={handleLogout} />
+        <DisciplinesScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
       ) : currentScreen === "mind" ? (
-        <MindScreen onLogout={handleLogout} />
+        <MindScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
       ) : currentScreen === "body" ? (
-        <BodyScreen onLogout={handleLogout} />
+        <BodyScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
+      ) : currentScreen === "profile" ? (
+        <ProfileScreen onLogout={handleLogout} />
       ) : (
         <ScrollView style={styles.scrollView}>
           <Text style={styles.comingSoon}>Coming Soon</Text>

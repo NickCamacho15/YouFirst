@@ -7,9 +7,9 @@ import GoalWizardModal from "../components/GoalWizardModal"
 import { createGoal, listGoals, GoalRecord, setGoalStepDone, listAchievements, AchievementRecord, completeGoal, deleteGoal } from "../lib/goals"
 import { format } from "date-fns"
 
-interface ScreenProps { onLogout?: () => void }
+interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void }
 
-const GoalsScreen: React.FC<ScreenProps> = ({ onLogout }) => {
+const GoalsScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
   const [wizardOpen, setWizardOpen] = useState(false)
   const [goals, setGoals] = useState<GoalRecord[]>([])
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -79,7 +79,7 @@ const GoalsScreen: React.FC<ScreenProps> = ({ onLogout }) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
-      <TopHeader onLogout={onLogout} />
+      <TopHeader onLogout={onLogout} onOpenProfile={onOpenProfile} />
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Active Goals Section */}

@@ -10,9 +10,9 @@ import { createChallenge, listChallenges, type ChallengeRow, setRuleCompleted, g
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { addPersonalRule, deletePersonalRule, listPersonalRuleChecks, listPersonalRules, setPersonalRuleCompleted } from "../lib/personal-rules"
 
-interface ScreenProps { onLogout?: () => void }
+interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void }
 
-const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout }) => {
+const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
   const [activeTab, setActiveTab] = useState("challenge")
   const [showCreate, setShowCreate] = useState(false)
   const [title, setTitle] = useState("")
@@ -214,7 +214,7 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout }) => {
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
       {/* Header */}
-      <TopHeader onLogout={onLogout} />
+      <TopHeader onLogout={onLogout} onOpenProfile={onOpenProfile} />
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Tab Navigation */}

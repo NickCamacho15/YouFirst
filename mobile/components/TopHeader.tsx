@@ -1,18 +1,20 @@
 import type React from "react"
 import { useEffect, useState } from "react"
-import { View, Text, StyleSheet, TouchableOpacity, Pressable, FlatList } from "react-native"
+import { View, Text, StyleSheet, TouchableOpacity, Pressable, FlatList, Image } from "react-native"
 import { Bell, User, LogOut } from "lucide-react-native"
 import { getUnreadCountForPastWeek, listNotifications, markAllRead, subscribeNotifications, ensureNotificationsRealtime } from "../lib/notifications"
-import { logout as supabaseLogout } from "../lib/auth"
+import { logout as supabaseLogout, getCurrentUser } from "../lib/auth"
 
-interface TopHeaderProps { showShadow?: boolean; onLogout?: () => void }
+interface TopHeaderProps { showShadow?: boolean; onLogout?: () => void; onOpenProfile?: () => void }
 
-const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout }) => {
+const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout, onOpenProfile }) => {
   const [menuOpen, setMenuOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [unread, setUnread] = useState(0)
   const [notifOpen, setNotifOpen] = useState(false)
   const [items, setItems] = useState<any[]>([])
+  const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null)
+  const [profileInitial, setProfileInitial] = useState<string>('')
 
   useEffect(() => {
     let mounted = true
@@ -28,7 +30,17 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout }) =
         setItems(list)
       } catch {}
     }
+    const refreshUser = async () => {
+      try {
+        const u = await getCurrentUser()
+        if (!mounted) return
+        setProfileImageUrl(u?.profileImageUrl || null)
+        const init = (u?.username || u?.email || 'U').slice(0,1).toUpperCase()
+        setProfileInitial(init)
+      } catch {}
+    }
     refresh()
+    refreshUser()
     const unsub = subscribeNotifications(() => { refresh() })
     return () => { mounted = false; if (unsub) unsub() }
   }, [])
@@ -63,8 +75,18 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout }) =
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.profileButton} onPress={() => setMenuOpen(v => !v)} activeOpacity={0.8}>
-          <User color="#fff" width={16} height={16} />
+        <TouchableOpacity
+          style={styles.profileButton}
+          onPress={async () => { setMenuOpen(v => !v); try { const u = await getCurrentUser(); setProfileImageUrl(u?.profileImageUrl || null); setProfileInitial((u?.username || u?.email || 'U').slice(0,1).toUpperCase()) } catch {} }}
+          activeOpacity={0.8}
+        >
+          {profileImageUrl ? (
+            <Image source={{ uri: profileImageUrl }} style={{ width: 32, height: 32, borderRadius: 16 }} onError={() => setProfileImageUrl(null)} />
+          ) : profileInitial ? (
+            <Text style={styles.profileInitial}>{profileInitial}</Text>
+          ) : (
+            <User color="#fff" width={16} height={16} />
+          )}
         </TouchableOpacity>
       </View>
 
@@ -93,7 +115,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout }) =
             </View>
           ) : (
           <View style={styles.menu}>
-            <TouchableOpacity style={styles.menuItem} onPress={() => setMenuOpen(false)}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuOpen(false); onOpenProfile && onOpenProfile() }}>
               <User color="#111" width={18} height={18} />
               <Text style={styles.menuText}>My Profile</Text>
             </TouchableOpacity>

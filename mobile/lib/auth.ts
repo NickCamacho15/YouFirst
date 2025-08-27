@@ -1,4 +1,4 @@
-import { supabase } from "./supabase"
+import { supabase, uploadToStorage, getPublicUrlFromStorage } from "./supabase"
 
 export interface LoginPayload {
   // identifier can be email or username
@@ -18,6 +18,7 @@ export interface User {
   email: string
   displayName: string
   username?: string
+  profileImageUrl?: string | null
 }
 
 async function upsertUserRow(user: { id: string; email: string; displayName?: string; username?: string }) {
@@ -71,6 +72,7 @@ export async function login(payload: LoginPayload): Promise<User> {
     email: data.user.email || emailToUse,
     displayName: data.user.user_metadata?.display_name || "",
     username: data.user.user_metadata?.username || undefined,
+    profileImageUrl: data.user.user_metadata?.profile_image_url || null,
   }
   // Ensure a corresponding row exists in public.users
   await upsertUserRow({ id: user.id, email: user.email, displayName: user.displayName, username: user.username })
@@ -92,6 +94,7 @@ export async function register(payload: RegisterPayload): Promise<User> {
     email: data.user.email || payload.email,
     displayName: payload.displayName,
     username: payload.username.toLowerCase(),
+    profileImageUrl: null,
   }
 
   // If email confirmations are disabled in Supabase, signUp returns a session
@@ -115,11 +118,82 @@ export async function register(payload: RegisterPayload): Promise<User> {
 export async function getCurrentUser(): Promise<User | null> {
   const { data } = await supabase.auth.getUser()
   if (!data.user) return null
-  return { id: data.user.id, email: data.user.email || "", displayName: data.user.user_metadata?.display_name || "", username: data.user.user_metadata?.username || undefined }
+  return {
+    id: data.user.id,
+    email: data.user.email || "",
+    displayName: data.user.user_metadata?.display_name || "",
+    username: data.user.user_metadata?.username || undefined,
+    profileImageUrl: data.user.user_metadata?.profile_image_url || null,
+  }
 }
 
 export async function logout(): Promise<void> {
   await supabase.auth.signOut()
+}
+
+// Profile update helpers
+export async function updateEmail(newEmail: string): Promise<void> {
+  const { data, error } = await supabase.auth.updateUser({ email: newEmail })
+  if (error) throw new Error(error.message)
+  const user = data.user
+  if (user) {
+    await upsertUserRow({ id: user.id, email: user.email || newEmail, displayName: user.user_metadata?.display_name, username: user.user_metadata?.username })
+  }
+}
+
+export async function updateUsername(newUsername: string): Promise<void> {
+  const lower = newUsername.trim().toLowerCase()
+  const { data, error } = await supabase.auth.updateUser({ data: { username: lower } })
+  if (error) throw new Error(error.message)
+  const user = data.user
+  if (user) {
+    try {
+      const { error: upErr } = await supabase
+        .from("users")
+        .update({ username: lower })
+        .eq("id", user.id)
+      if (upErr) throw upErr
+    } catch (e: any) {
+      throw new Error(e?.message || "Failed to update username")
+    }
+  }
+}
+
+export async function updatePassword(newPassword: string): Promise<void> {
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) throw new Error(error.message)
+}
+
+// ---- Profile Image helpers ----
+
+export async function updateProfileImageUrl(pathInBucket: string | null): Promise<void> {
+  const publicUrl = pathInBucket ? getPublicUrlFromStorage("avatars", pathInBucket) : null
+  const { error, data } = await supabase.auth.updateUser({ data: { profile_image_url: publicUrl } })
+  if (error) throw new Error(error.message)
+  // mirror on public.users
+  const user = data.user
+  if (user) {
+    try {
+      const { error: upErr } = await supabase
+        .from("users")
+        .update({ profile_image_url: publicUrl })
+        .eq("id", user.id)
+      if (upErr) throw upErr
+    } catch (e: any) {
+      throw new Error(e?.message || "Failed to update profile image URL")
+    }
+  }
+}
+
+export async function uploadProfileImage(file: Blob | ArrayBuffer | Uint8Array, contentType: string, fileName: string): Promise<{ publicUrl: string | null }>{
+  const { data: auth } = await supabase.auth.getUser()
+  const userId = auth.user?.id
+  if (!userId) throw new Error("Not authenticated")
+  const cleanName = fileName.replace(/[^a-zA-Z0-9_.-]/g, "_")
+  const storagePath = `${userId}/${Date.now()}_${cleanName}`
+  const { publicUrl } = await uploadToStorage("avatars", storagePath, file as any, contentType, true)
+  await updateProfileImageUrl(storagePath)
+  return { publicUrl }
 }
 
 

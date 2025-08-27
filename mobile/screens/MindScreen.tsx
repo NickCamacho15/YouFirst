@@ -411,9 +411,9 @@ const MeditationContent: React.FC<{
     )
   }
 
-interface ScreenProps { onLogout?: () => void }
+interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void }
 
-const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
+const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
   const [activeTab, setActiveTab] = useState("reading")
   const [activeSubTab, setActiveSubTab] = useState("list")
   const [isSessionActive, setIsSessionActive] = useState(false)
@@ -620,7 +620,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
     return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
-      <TopHeader onLogout={onLogout} />
+      <TopHeader onLogout={onLogout} onOpenProfile={onOpenProfile} />
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {/* Mind Training Section */}
         <View style={styles.mindTrainingSection}>
