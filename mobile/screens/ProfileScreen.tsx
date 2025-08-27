@@ -91,7 +91,7 @@ const ProfileScreen: React.FC<ScreenProps> = ({ onBack, onLogout }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
-      <TopHeader onLogout={onLogout} />
+      {/* Header rendered persistently in App */}
       <ScrollView style={styles.scroll} contentContainerStyle={{ padding: 20 }}>
         <Text style={styles.title}>My Profile</Text>
 

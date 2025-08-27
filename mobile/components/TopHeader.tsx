@@ -3,7 +3,9 @@ import { useEffect, useState } from "react"
 import { View, Text, StyleSheet, TouchableOpacity, Pressable, FlatList, Image } from "react-native"
 import { Bell, User, LogOut } from "lucide-react-native"
 import { getUnreadCountForPastWeek, listNotifications, markAllRead, subscribeNotifications, ensureNotificationsRealtime } from "../lib/notifications"
-import { logout as supabaseLogout, getCurrentUser } from "../lib/auth"
+import { logout as supabaseLogout } from "../lib/auth"
+import { forceClearAuthStorage } from "../lib/supabase"
+import { useUser } from "../lib/user-context"
 
 interface TopHeaderProps { showShadow?: boolean; onLogout?: () => void; onOpenProfile?: () => void }
 
@@ -13,6 +15,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout, onO
   const [unread, setUnread] = useState(0)
   const [notifOpen, setNotifOpen] = useState(false)
   const [items, setItems] = useState<any[]>([])
+  const { user, refresh } = useUser()
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null)
   const [profileInitial, setProfileInitial] = useState<string>('')
 
@@ -32,11 +35,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout, onO
     }
     const refreshUser = async () => {
       try {
-        const u = await getCurrentUser()
-        if (!mounted) return
-        setProfileImageUrl(u?.profileImageUrl || null)
-        const init = (u?.username || u?.email || 'U').slice(0,1).toUpperCase()
-        setProfileInitial(init)
+        await refresh()
       } catch {}
     }
     refresh()
@@ -49,15 +48,30 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout, onO
     if (loggingOut) return
     setLoggingOut(true)
     try {
-      await supabaseLogout()
-    } catch (e) {
-      // no-op; we still reset local state below
+      // Race sign-out with a timeout to ensure UI never hangs
+      await Promise.race([
+        supabaseLogout(),
+        new Promise<void>((resolve) => setTimeout(() => resolve(), 2500)),
+      ])
+    } catch {
+      // ignore; proceed to local logout state regardless
     } finally {
-      setMenuOpen(false)
-      setLoggingOut(false)
+      try { await forceClearAuthStorage() } catch {}
+      // Fire-and-forget refresh to avoid blocking UI during logout
+      try { setTimeout(() => { refresh().catch(()=>{}) }, 0) } catch {}
+      // Close UI and force local logout state immediately
+      try { setMenuOpen(false) } catch {}
+      try { setLoggingOut(false) } catch {}
       onLogout && onLogout()
     }
   }
+
+  useEffect(() => {
+    const url = user?.profileImageUrl || null
+    setProfileImageUrl(url)
+    const init = (user?.username || user?.email || 'U').slice(0,1).toUpperCase()
+    setProfileInitial(init)
+  }, [user])
 
   return (
     <View style={[styles.header, showShadow && styles.headerShadow]}> 
@@ -77,7 +91,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout, onO
 
         <TouchableOpacity
           style={styles.profileButton}
-          onPress={async () => { setMenuOpen(v => !v); try { const u = await getCurrentUser(); setProfileImageUrl(u?.profileImageUrl || null); setProfileInitial((u?.username || u?.email || 'U').slice(0,1).toUpperCase()) } catch {} }}
+          onPress={async () => { setMenuOpen(v => !v); try { await refresh(); } catch {} }}
           activeOpacity={0.8}
         >
           {profileImageUrl ? (

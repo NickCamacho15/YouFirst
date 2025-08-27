@@ -79,7 +79,7 @@ const GoalsScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
-      <TopHeader onLogout={onLogout} onOpenProfile={onOpenProfile} />
+      {/* Header rendered persistently in App */}
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Active Goals Section */}

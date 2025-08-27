@@ -48,3 +48,15 @@ export async function uploadToStorage(
 }
 
 
+// Force-clear any persisted Supabase auth tokens to recover from stuck states
+export async function forceClearAuthStorage(): Promise<void> {
+  try {
+    const keys = await AsyncStorage.getAllKeys()
+    const toRemove = keys.filter((k) => k.includes('supabase') || k.startsWith('sb-'))
+    if (toRemove.length) {
+      await AsyncStorage.multiRemove(toRemove)
+    }
+  } catch {}
+}
+
+

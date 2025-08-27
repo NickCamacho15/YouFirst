@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image } from "react-native"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import AuthScreen from "./screens/AuthScreen"
 import GoalsScreen from "./screens/GoalsScreen"
 import DisciplinesScreen from "./screens/DisciplinesScreen"
@@ -17,96 +17,126 @@ import WeeklyPerformance from "./components/WeeklyPerformance"
 import DailyRoutines from "./components/DailyRoutines"
 import PersonalMasteryDashboard from "./components/PersonalMasteryDashboard"
 import TopHeader from "./components/TopHeader"
+import { UserProvider } from "./lib/user-context"
+import { ensureNotificationsRealtime, getUnreadCountForPastWeek, listNotifications } from "./lib/notifications"
 
 const App: React.FC = () => {
-  const [currentScreen, setCurrentScreen] = useState("home")
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [appEpoch, setAppEpoch] = useState(0)
 
   const handleLogin = () => {
     setIsAuthenticated(true)
+    // On a successful login, reset the epoch to establish a clean app context
+    setAppEpoch((e) => e + 1)
   }
 
   const handleLogout = () => {
     setIsAuthenticated(false)
     setCurrentScreen("home")
+    setAppEpoch((e) => e + 1)
   }
 
+  const [currentScreen, setCurrentScreen] = useState("home")
   if (!isAuthenticated) {
-    return <AuthScreen onLogin={handleLogin} />
+    return (
+      <UserProvider key={`provider-${appEpoch}`}>
+        <AuthScreen onLogin={handleLogin} />
+      </UserProvider>
+    )
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      {currentScreen === "home" ? (
-        <>
-          <TopHeader onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-          <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-            <Calendar />
-            <StreakStats />
-            <WonTodayButton />
-            <WeeklyPerformance />
-            <DailyRoutines />
-            <PersonalMasteryDashboard />
-          </ScrollView>
-        </>
-      ) : currentScreen === "goals" ? (
-        <GoalsScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-      ) : currentScreen === "disciplines" ? (
-        <DisciplinesScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-      ) : currentScreen === "mind" ? (
-        <MindScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-      ) : currentScreen === "body" ? (
-        <BodyScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-      ) : currentScreen === "profile" ? (
-        <ProfileScreen onLogout={handleLogout} />
-      ) : (
-        <ScrollView style={styles.scrollView}>
-          <Text style={styles.comingSoon}>Coming Soon</Text>
-        </ScrollView>
-      )}
-      <View style={styles.bottomNavContainer}>
-        <View style={styles.bottomNavigation}>
-          <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("disciplines")}>
-            <View style={styles.navIconContainer}>
-              <Mountain stroke="#777" width={24} height={24} />
-            </View>
-            <Text style={styles.navLabel}>Disciplines</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("goals")}>
-            <View style={styles.navIconContainer}>
-              <Target stroke="#777" width={24} height={24} />
-            </View>
-            <Text style={styles.navLabel}>Goals</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.centerNavItem} onPress={() => setCurrentScreen("home")}>
-            <View style={styles.centerButton}>
-              <Text style={styles.centerButtonText}>.uoY</Text>
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("mind")}>
-            <View style={styles.navIconContainer}>
-              <Brain stroke="#777" width={24} height={24} />
-            </View>
-            <Text style={styles.navLabel}>Mind</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("body")}>
-            <View style={styles.navIconContainer}>
-              <Dumbbell stroke="#777" width={24} height={24} />
-            </View>
-            <Text style={styles.navLabel}>Body</Text>
-          </TouchableOpacity>
+    <UserProvider key={`provider-${appEpoch}`}>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" />
+        <TopHeader onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
+        {/* Prime notifications/light prefetch so header badge has data */}
+        <PrefetchOnce />
+        {/* Keep screens mounted, toggle with display to avoid remount flicker */}
+        <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, display: currentScreen === "home" ? "flex" : "none" }}>
+            <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+              <Calendar />
+              <StreakStats />
+              <WonTodayButton />
+              <WeeklyPerformance />
+              <DailyRoutines />
+              <PersonalMasteryDashboard />
+            </ScrollView>
+          </View>
+          <View style={{ flex: 1, display: currentScreen === "goals" ? "flex" : "none" }}>
+            <GoalsScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
+          </View>
+          <View style={{ flex: 1, display: currentScreen === "disciplines" ? "flex" : "none" }}>
+            <DisciplinesScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
+          </View>
+          <View style={{ flex: 1, display: currentScreen === "mind" ? "flex" : "none" }}>
+            <MindScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
+          </View>
+          <View style={{ flex: 1, display: currentScreen === "body" ? "flex" : "none" }}>
+            <BodyScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
+          </View>
+          <View style={{ flex: 1, display: currentScreen === "profile" ? "flex" : "none" }}>
+            <ProfileScreen onLogout={handleLogout} />
+          </View>
         </View>
-        <View style={styles.navIndicator}>
-          {currentScreen === "disciplines" && <View style={[styles.indicatorLine, { left: "0%", width: "20%" }]} />}
-          {currentScreen === "goals" && <View style={[styles.indicatorLine, { left: "20%", width: "20%" }]} />}
-          {currentScreen === "home" && <View style={[styles.indicatorLine, { left: "40%", width: "20%" }]} />}
-          {currentScreen === "mind" && <View style={[styles.indicatorLine, { left: "60%", width: "20%" }]} />}
-          {currentScreen === "body" && <View style={[styles.indicatorLine, { left: "80%", width: "20%" }]} />}
+        <View style={styles.bottomNavContainer}>
+          <View style={styles.bottomNavigation}>
+            <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("disciplines")}>
+              <View style={styles.navIconContainer}>
+                <Mountain stroke="#777" width={24} height={24} />
+              </View>
+              <Text style={styles.navLabel}>Disciplines</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("goals")}>
+              <View style={styles.navIconContainer}>
+                <Target stroke="#777" width={24} height={24} />
+              </View>
+              <Text style={styles.navLabel}>Goals</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.centerNavItem} onPress={() => setCurrentScreen("home")}>
+              <View style={styles.centerButton}>
+                <Text style={styles.centerButtonText}>.uoY</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("mind")}>
+              <View style={styles.navIconContainer}>
+                <Brain stroke="#777" width={24} height={24} />
+              </View>
+              <Text style={styles.navLabel}>Mind</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("body")}>
+              <View style={styles.navIconContainer}>
+                <Dumbbell stroke="#777" width={24} height={24} />
+              </View>
+              <Text style={styles.navLabel}>Body</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.navIndicator}>
+            {currentScreen === "disciplines" && <View style={[styles.indicatorLine, { left: "0%", width: "20%" }]} />}
+            {currentScreen === "goals" && <View style={[styles.indicatorLine, { left: "20%", width: "20%" }]} />}
+            {currentScreen === "home" && <View style={[styles.indicatorLine, { left: "40%", width: "20%" }]} />}
+            {currentScreen === "mind" && <View style={[styles.indicatorLine, { left: "60%", width: "20%" }]} />}
+            {currentScreen === "body" && <View style={[styles.indicatorLine, { left: "80%", width: "20%" }]} />}
+          </View>
         </View>
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </UserProvider>
   )
+}
+
+const PrefetchOnce: React.FC = () => {
+  useEffect(() => {
+    let mounted = true
+    ensureNotificationsRealtime()
+    ;(async () => {
+      try {
+        await Promise.all([getUnreadCountForPastWeek(), listNotifications(5)])
+      } catch {}
+    })()
+    return () => { mounted = false }
+  }, [])
+  return null
 }
 
 const styles = StyleSheet.create({

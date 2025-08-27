@@ -620,7 +620,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
     return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
-      <TopHeader onLogout={onLogout} onOpenProfile={onOpenProfile} />
+      {/* Header rendered persistently in App */}
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {/* Mind Training Section */}
         <View style={styles.mindTrainingSection}>

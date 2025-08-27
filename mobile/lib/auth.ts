@@ -1,4 +1,5 @@
 import { supabase, uploadToStorage, getPublicUrlFromStorage } from "./supabase"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 
 export interface LoginPayload {
   // identifier can be email or username
@@ -50,17 +51,61 @@ async function upsertUserRow(user: { id: string; email: string; displayName?: st
   }
 }
 
+async function mapUsernameToEmailLocally(username: string | undefined, email: string | undefined) {
+  if (!username || !email) return
+  try {
+    const key = "youfirst_username_email_map_v1"
+    const raw = await AsyncStorage.getItem(key)
+    const map = raw ? JSON.parse(raw) as Record<string,string> : {}
+    map[username.toLowerCase()] = email
+    await AsyncStorage.setItem(key, JSON.stringify(map))
+  } catch {}
+}
+
+async function resolveEmailFromLocalMap(username: string): Promise<string | null> {
+  try {
+    const key = "youfirst_username_email_map_v1"
+    const raw = await AsyncStorage.getItem(key)
+    if (!raw) return null
+    const map = JSON.parse(raw) as Record<string,string>
+    const hit = map[username.toLowerCase()]
+    return hit || null
+  } catch { return null }
+}
+
 export async function login(payload: LoginPayload): Promise<User> {
   // Determine if identifier is email or username
   const isEmail = payload.identifier.includes("@")
   let emailToUse = payload.identifier
   if (!isEmail) {
-    // Resolve email from username via RPC
-    const { data: rpcData, error: rpcError } = await supabase.rpc("resolve_email_by_username", {
-      p_username: payload.identifier,
-    })
-    if (rpcError || !rpcData) throw new Error("Invalid credentials")
-    emailToUse = rpcData as string
+    // Resolve email from username with multiple strategies and timeouts to avoid hangs
+    const username = payload.identifier
+    // 0) Try local cache first for instant resolution
+    const localEmail = await resolveEmailFromLocalMap(username)
+    if (localEmail) {
+      emailToUse = localEmail
+    } else {
+    const resolveViaRpc = async () => {
+      const { data, error } = await supabase.rpc("resolve_email_by_username", { p_username: username })
+      if (error || !data) throw new Error(error?.message || "Invalid credentials")
+      return String(data)
+    }
+    const resolveViaPublicTable = async () => {
+      const { data, error } = await supabase.from("users").select("email").eq("username", username).limit(1).maybeSingle()
+      if (error || !data?.email) throw new Error("Invalid credentials")
+      return String(data.email)
+    }
+    const resolveWithTimeout = <T,>(p: Promise<T>, ms: number) => Promise.race<T>([
+      p,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error("Lookup timed out")), ms)) as any,
+    ])
+    try {
+      emailToUse = await resolveWithTimeout(resolveViaRpc(), 3000)
+    } catch {
+      // Fallback to public users table with a shorter timeout
+      emailToUse = await resolveWithTimeout(resolveViaPublicTable(), 2000)
+    }
+    }
   }
   const { data, error } = await supabase.auth.signInWithPassword({
     email: emailToUse,
@@ -74,8 +119,15 @@ export async function login(payload: LoginPayload): Promise<User> {
     username: data.user.user_metadata?.username || undefined,
     profileImageUrl: data.user.user_metadata?.profile_image_url || null,
   }
-  // Ensure a corresponding row exists in public.users
-  await upsertUserRow({ id: user.id, email: user.email, displayName: user.displayName, username: user.username })
+  // Update local username→email cache for faster next login
+  await mapUsernameToEmailLocally(user.username, user.email)
+  // Ensure a corresponding row exists in public.users (non-blocking)
+  try {
+    await Promise.race([
+      upsertUserRow({ id: user.id, email: user.email, displayName: user.displayName, username: user.username }),
+      new Promise<void>((resolve) => setTimeout(() => resolve(), 1200)),
+    ])
+  } catch {}
   return user
 }
 
@@ -112,6 +164,9 @@ export async function register(payload: RegisterPayload): Promise<User> {
     )
   }
 
+  // Cache mapping for future username login
+  await mapUsernameToEmailLocally(user.username, user.email)
+
   return user
 }
 
@@ -128,7 +183,12 @@ export async function getCurrentUser(): Promise<User | null> {
 }
 
 export async function logout(): Promise<void> {
-  await supabase.auth.signOut()
+  try {
+    await Promise.race([
+      supabase.auth.signOut(),
+      new Promise<void>((resolve) => setTimeout(() => resolve(), 2000)),
+    ])
+  } catch {}
 }
 
 // Profile update helpers

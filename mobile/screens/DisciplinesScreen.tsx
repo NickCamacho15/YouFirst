@@ -213,8 +213,7 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
-      {/* Header */}
-      <TopHeader onLogout={onLogout} onOpenProfile={onOpenProfile} />
+      {/* Header rendered persistently in App */}
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Tab Navigation */}

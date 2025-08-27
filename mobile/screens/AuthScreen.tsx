@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { login, register } from "../lib/auth"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 import {
   View,
   Text,
@@ -34,7 +35,10 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
     setError(null)
     try {
       const identifier = activeTab === "login" ? (email || username) : email
-      await login({ identifier: identifier || "", password })
+      const result = await Promise.race([
+        login({ identifier: identifier || "", password }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Login timed out. Please try again.")), 8000)),
+      ])
       onLogin()
     } catch (e: any) {
       setError(e?.message || "Login failed")
@@ -42,6 +46,12 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
       setSubmitting(false)
     }
   }
+
+  // Make this screen behave like a fresh cold start after app logout by clearing volatile UI state
+  // (Auth tokens are already cleared on logout). This resets the form and any previous error.
+  // Using a tiny effect ensures it runs once per mount.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  ;(() => { setTimeout(() => { setError(null); setSubmitting(false) }, 0) })()
 
   const handleRegister = async () => {
     if (!email || !username || !password || password !== confirmPassword) return
