@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { useEffect, useState } from 'react'
-import { getPersonalMasteryMetrics, type PersonalMastery } from '../lib/dashboard'
+import { getPersonalMasteryMetrics, subscribePersonalMastery, type PersonalMastery } from '../lib/dashboard'
 import { Target } from "lucide-react-native"
 
 const PersonalMasteryDashboard = () => {
@@ -13,6 +13,8 @@ const PersonalMasteryDashboard = () => {
       try { setLoading(true); const d = await getPersonalMasteryMetrics(); setData(d) } finally { setLoading(false) }
     }
     load()
+    const unsub = subscribePersonalMastery(() => { load() })
+    return () => { unsub() }
   }, [])
 
   const metrics = [

@@ -20,9 +20,10 @@ import TopHeader from "../components/TopHeader"
 import { Brain } from "lucide-react-native"
 import { saveReadingSession, getReadingStats, listReadingSessions, type ReadingSessionRow } from "../lib/reading"
 import { listBooks, addBook, listInsights, addInsight, deleteBook, markBookCompleted, type UserBook, type ReadingInsight } from "../lib/books"
-import { saveMeditationSession, getMeditationStats } from "../lib/meditation"
+import { saveMeditationSession, getMeditationStats, getMilestonesWithStatus, awardEligibleMilestones, type MilestoneWithStatus } from "../lib/meditation"
 import { preloadSounds, playIntervalChime, playFinalBell } from "../lib/sounds"
 import { listTrackedApps, addTrackedApp, deleteTrackedApp, saveUsage, getUsageForRange, getMonthlyTotals, getStats, type TrackedApp } from "../lib/distraction"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 
 type StatCardProps = {
     title: string
@@ -175,6 +176,7 @@ const MeditationContent: React.FC<{
   medTotalSeconds: number
   medSessionCount: number
   medDayStreak: number
+  milestones: MilestoneWithStatus[]
   prepSeconds: number
   intervalMinutes: number
   meditationMinutes: number
@@ -197,7 +199,7 @@ const MeditationContent: React.FC<{
   onStartOrEnd: () => void
   onPauseResume: () => void
   onDoneComplete?: () => void
-}> = ({ medTotalSeconds, medSessionCount, medDayStreak, prepSeconds, intervalMinutes, meditationMinutes, onDecreasePrep, onIncreasePrep, onDecreaseInterval, onIncreaseInterval, onDecreaseMeditation, onIncreaseMeditation, onSetPrep, onSetInterval, onSetMeditation, medActive, medPhase, medPaused, medElapsed, nextChimeIn, prepRemaining, medRemaining, onStartOrEnd, onPauseResume, onDoneComplete }) => {
+}> = ({ medTotalSeconds, medSessionCount, medDayStreak, milestones, prepSeconds, intervalMinutes, meditationMinutes, onDecreasePrep, onIncreasePrep, onDecreaseInterval, onIncreaseInterval, onDecreaseMeditation, onIncreaseMeditation, onSetPrep, onSetInterval, onSetMeditation, medActive, medPhase, medPaused, medElapsed, nextChimeIn, prepRemaining, medRemaining, onStartOrEnd, onPauseResume, onDoneComplete }) => {
   const formatHrs = (s: number) => `${Math.floor(s / 3600)}h`
   const [prepWidth, setPrepWidth] = useState(1)
   const [intWidth, setIntWidth] = useState(1)
@@ -386,20 +388,23 @@ const MeditationContent: React.FC<{
           )}
         </View>
 
-      {/* Milestones placeholder */}
+      {/* Milestones */}
         <View style={styles.milestonesSection}>
           <View style={styles.milestonesHeader}>
             <Ionicons name="trophy-outline" size={24} color="#FFB800" />
             <Text style={styles.milestonesTitle}>Milestones</Text>
           </View>
           <View style={styles.milestonesGrid}>
-          {["First Session","Week Warrior","Mindful Month","Sacred 40","Quarter Master","10 Hour Club","50 Sessions","100 Sessions"].map((t,idx)=> (
-            <View key={idx} style={styles.milestoneCard}>
-              <Ionicons name="star-outline" size={32} color="#ccc" />
-              <Text style={[styles.milestoneTitle, { color: "#ccc" }]}>{t}</Text>
-              <Text style={[styles.milestoneDescription, { color: "#ccc" }]}>Coming soon</Text>
+          {milestones.map((m)=> {
+            const achieved = !!m.achieved
+            return (
+              <View key={m.code} style={[styles.milestoneCard, achieved && { backgroundColor: "#E8F7F0", borderColor: "#34D399" }] }>
+                <Ionicons name={achieved ? "star" : "star-outline"} size={32} color={achieved ? "#FFB800" : "#ccc"} />
+                <Text style={[styles.milestoneTitle, { color: achieved ? "#111827" : "#ccc" }]}>{m.title}</Text>
+                <Text style={[styles.milestoneDescription, { color: achieved ? "#6b7280" : "#ccc" }]}>{achieved ? (m.awardedAt ? new Date(m.awardedAt).toLocaleDateString() : "Unlocked") : (m.description || "")}</Text>
               </View>
-            ))}
+            )
+          })}
           </View>
         </View>
       </>
@@ -446,6 +451,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   const [medTotalSeconds, setMedTotalSeconds] = useState(0)
   const [medSessionCount, setMedSessionCount] = useState(0)
   const [medDayStreak, setMedDayStreak] = useState(0)
+  const [milestones, setMilestones] = useState<MilestoneWithStatus[]>([])
   // Meditation session UI state
   const [medPhase, setMedPhase] = useState<"idle" | "prep" | "meditating" | "complete">("idle")
   const [medPaused, setMedPaused] = useState(false)
@@ -453,6 +459,50 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
   const [nextChimeIn, setNextChimeIn] = useState(0) // seconds
   const [medStartAt, setMedStartAt] = useState<Date | null>(null)
   const medLoopRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Persist meditation slider settings across app restarts
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const raw = await AsyncStorage.getItem("youfirst_meditation_settings_v1")
+        if (raw) {
+          const obj = JSON.parse(raw)
+          if (typeof obj.prepSeconds === "number") setPrepSeconds(Math.max(0, Math.min(60, Math.floor(obj.prepSeconds))))
+          if (typeof obj.intervalMinutes === "number") setIntervalMinutes(Math.max(1, Math.min(60, Math.floor(obj.intervalMinutes))))
+          if (typeof obj.meditationMinutes === "number") setMeditationMinutes(Math.max(1, Math.min(60, Math.floor(obj.meditationMinutes))))
+        }
+      } catch {}
+    })()
+  }, [])
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const payload = { prepSeconds, intervalMinutes, meditationMinutes }
+        await AsyncStorage.setItem("youfirst_meditation_settings_v1", JSON.stringify(payload))
+      } catch {}
+    })()
+  }, [prepSeconds, intervalMinutes, meditationMinutes])
+
+  // Persist a meditation session and refresh stats + milestones
+  const persistMeditationSession = async (opts: { startedAt: Date; durationSeconds: number }) => {
+    try {
+      await saveMeditationSession({
+        startedAt: opts.startedAt.toISOString(),
+        endedAt: new Date().toISOString(),
+        durationSeconds: Math.max(0, Math.floor(opts.durationSeconds || 0)),
+        prepSeconds,
+        intervalMinutes,
+        meditationMinutes,
+      })
+      const m = await getMeditationStats()
+      setMedTotalSeconds(m.totalSeconds)
+      setMedSessionCount(m.sessionCount)
+      setMedDayStreak(m.dayStreak)
+      setMilestones(await getMilestonesWithStatus(m))
+      await awardEligibleMilestones(m)
+    } catch {}
+  }
 
   // Timer effect
   useEffect(() => {
@@ -481,6 +531,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
         setMedTotalSeconds(m.totalSeconds)
         setMedSessionCount(m.sessionCount)
         setMedDayStreak(m.dayStreak)
+        setMilestones(await getMilestonesWithStatus(m))
       } catch {
         // ignore for now
       }
@@ -556,25 +607,10 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
           playFinalBell()
           setMedPhase("complete")
           setMedActive(false)
-          // save
+          // save (natural completion uses planned duration)
           const start = medStartAt || new Date()
           const total = meditationMinutes * 60
-          ;(async () => {
-            try {
-              await saveMeditationSession({
-                startedAt: start.toISOString(),
-                endedAt: new Date().toISOString(),
-                durationSeconds: total,
-                prepSeconds,
-                intervalMinutes,
-                meditationMinutes,
-              })
-              const m = await getMeditationStats()
-              setMedTotalSeconds(m.totalSeconds)
-              setMedSessionCount(m.sessionCount)
-              setMedDayStreak(m.dayStreak)
-            } catch {}
-          })()
+          ;(async () => { await persistMeditationSession({ startedAt: start, durationSeconds: total }) })()
         }
       }
     }, 1000)
@@ -641,6 +677,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
             medTotalSeconds={medTotalSeconds}
             medSessionCount={medSessionCount}
             medDayStreak={medDayStreak}
+            milestones={milestones}
             prepSeconds={prepSeconds}
             intervalMinutes={intervalMinutes}
             meditationMinutes={meditationMinutes}
@@ -674,9 +711,14 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout }) => {
                 if (prepSeconds === 0) { Vibration.vibrate(100) }
               } else {
                 // End early
+                const start = medStartAt || new Date()
+                const elapsed = medElapsed
                 setMedPhase("complete")
                 setMedActive(false)
                 setMedPaused(true)
+                if (elapsed > 0) {
+                  ;(async () => { await persistMeditationSession({ startedAt: start, durationSeconds: elapsed }) })()
+                }
               }
             }}
             onPauseResume={() => setMedPaused((p)=>!p)}

@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useEffect } from "react"
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, Easing, Alert } from "react-native"
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Animated, Easing, Alert, AppState, type AppStateStatus } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { LinearGradient } from "expo-linear-gradient"
+import EditEntityModal from "./EditEntityModal"
 import { createTask, listTasksByDate, setTaskDone, deleteTask, updateTask, toDateKey } from "../lib/tasks"
 import { listRoutines, createRoutine, getRoutineStats, toggleRoutineCompleted, listRoutineCompletionsByDate, deleteRoutine, updateRoutine } from "../lib/routines"
-import { getPersonalMasteryMetrics } from "../lib/dashboard"
+import { getPersonalMasteryMetrics, emitPersonalMasteryChanged } from "../lib/dashboard"
 import { supabase } from "../lib/supabase"
 
 const daysOfWeek = [
@@ -23,24 +24,12 @@ type DayTask = { title: string; time?: string; done?: boolean }
 type TasksByDay = Record<string, DayTask[]>
 
 const DailyRoutines = () => {
-  const initialIndex = (() => {
-    const now = new Date()
-    const monBased = now.getDay() === 0 ? 6 : now.getDay() - 1
-    return monBased
-  })()
-  const [currentDayIndex, setCurrentDayIndex] = useState(initialIndex)
-  const [weekStartDate, setWeekStartDate] = useState<Date>(() => {
-    const today = new Date(); today.setHours(0,0,0,0)
-    // Sunday as week start
-    const start = new Date(today)
-    start.setDate(today.getDate() - today.getDay())
-    return start
-  })
+  // Use a single selectedDate source-of-truth, aligned with the calendar component
+  const [selectedDate, setSelectedDate] = useState<Date>(() => { const d = new Date(); d.setHours(0,0,0,0); return d })
 
   // Helpers must be defined before first use
   const getSelectedDate = (): Date => {
-    const date = new Date(weekStartDate)
-    date.setDate(weekStartDate.getDate() + currentDayIndex)
+    const date = new Date(selectedDate)
     date.setHours(0,0,0,0)
     return date
   }
@@ -72,9 +61,6 @@ const DailyRoutines = () => {
   const [eveningItems, setEveningItems] = useState<RoutineItem[]>([])
   const [addMorningOpen, setAddMorningOpen] = useState(false)
   const [addEveningOpen, setAddEveningOpen] = useState(false)
-  const [editMorningIndex, setEditMorningIndex] = useState<number | null>(null)
-  const [editEveningIndex, setEditEveningIndex] = useState<number | null>(null)
-  const [editRoutineTitle, setEditRoutineTitle] = useState("")
   const [newMorningTitle, setNewMorningTitle] = useState("")
   const [newEveningTitle, setNewEveningTitle] = useState("")
   const [savingMorning, setSavingMorning] = useState(false)
@@ -83,9 +69,8 @@ const DailyRoutines = () => {
   const [adding, setAdding] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState("")
   const [newTaskTime, setNewTaskTime] = useState("")
-  const [editingIndex, setEditingIndex] = useState<number | null>(null)
-  const [editTitle, setEditTitle] = useState("")
-  const [editTime, setEditTime] = useState("")
+  const [routineEditor, setRoutineEditor] = useState<{ id: string; type: 'morning' | 'evening'; title: string } | null>(null)
+  const [taskEditor, setTaskEditor] = useState<{ index: number; title: string; time?: string } | null>(null)
 
   useEffect(() => {
     setMorningChecks(morningItems.map((i) => !!i.completed))
@@ -98,8 +83,10 @@ const DailyRoutines = () => {
     let unsub: any
     const loadRoutines = async () => {
       const [mRows, eRows] = await Promise.all([listRoutines('morning'), listRoutines('evening')])
-      const mStats = await getRoutineStats(mRows.map(r => r.id))
-      const eStats = await getRoutineStats(eRows.map(r => r.id))
+      // Anchor initial stats to the currently selected date so checkboxes reflect that day
+      const selectedKey = toDateKey(getSelectedDate())
+      const mStats = await getRoutineStats(mRows.map(r => r.id), selectedKey)
+      const eStats = await getRoutineStats(eRows.map(r => r.id), selectedKey)
       const mItems: RoutineItem[] = mRows.map((r) => {
         const s = mStats[r.id] || { streakDays: 0, weekPercent: 0, completedToday: false }
         return { id: r.id, title: r.title, streak: s.streakDays, percent: s.weekPercent, completed: s.completedToday, anim: new Animated.Value(s.weekPercent || 0) }
@@ -110,6 +97,13 @@ const DailyRoutines = () => {
       })
       setMorningItems(mItems)
       setEveningItems(eItems)
+      // Also set completion based on the selected date (not just today)
+      try {
+        const mapM = await listRoutineCompletionsByDate(mItems.map(i => i.id), selectedKey)
+        const mapE = await listRoutineCompletionsByDate(eItems.map(i => i.id), selectedKey)
+        setMorningItems((prev) => prev.map((i) => ({ ...i, completed: !!mapM[i.id] })))
+        setEveningItems((prev) => prev.map((i) => ({ ...i, completed: !!mapE[i.id] })))
+      } catch {}
     }
     const init = async () => {
       const { data } = await supabase.auth.getUser()
@@ -163,7 +157,55 @@ const DailyRoutines = () => {
     }
     loadDayData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDayIndex])
+  }, [selectedDate])
+
+  // Refresh date and data when app returns to foreground (handles day rollover while app inactive)
+  useEffect(() => {
+    const handleAppStateChange = (state: AppStateStatus) => {
+      if (state !== 'active') return
+      const today = new Date(); today.setHours(0,0,0,0)
+      if (today.getTime() !== selectedDate.getTime()) {
+        setSelectedDate(today)
+      } else {
+        // Force-refresh day data to sync with backend changes even if index/week didn't change
+        const date = getSelectedDate()
+        const key = toDateKey(date)
+        ;(async () => {
+          try {
+            if (morningItems.length) {
+              const mStats = await getRoutineStats(morningItems.map(i => i.id), key)
+              const updatedM = morningItems.map((i) => {
+                const s = mStats[i.id]
+                const percent = s ? s.weekPercent : i.percent
+                const streak = s ? s.streakDays : i.streak
+                Animated.timing(i.anim, { toValue: percent, duration: 400, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
+                return { ...i, percent, streak }
+              })
+              const map = await listRoutineCompletionsByDate(updatedM.map(i => i.id), key)
+              setMorningItems(updatedM.map((i) => ({ ...i, completed: !!map[i.id] })))
+            }
+            if (eveningItems.length) {
+              const eStats = await getRoutineStats(eveningItems.map(i => i.id), key)
+              const updatedE = eveningItems.map((i) => {
+                const s = eStats[i.id]
+                const percent = s ? s.weekPercent : i.percent
+                const streak = s ? s.streakDays : i.streak
+                Animated.timing(i.anim, { toValue: percent, duration: 400, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
+                return { ...i, percent, streak }
+              })
+              const map = await listRoutineCompletionsByDate(updatedE.map(i => i.id), key)
+              setEveningItems(updatedE.map((i) => ({ ...i, completed: !!map[i.id] })))
+            }
+            const rows = await listTasksByDate(key)
+            setTasksByDay((prev) => ({ ...prev, [currentDay]: rows.map(r => ({ title: r.title, time: r.time_text || undefined, done: !!r.done })) }))
+            setTasksChecks(rows.map(r => !!r.done))
+          } catch {}
+        })()
+      }
+    }
+    const sub = AppState.addEventListener('change', handleAppStateChange)
+    return () => { sub.remove() }
+  }, [selectedDate, morningItems, eveningItems, currentDay])
 
   // Load tasks for selected day from Supabase
   useEffect(() => {
@@ -175,28 +217,10 @@ const DailyRoutines = () => {
       setTasksChecks(rows.map(r => !!r.done))
     }
     load()
-  }, [currentDayIndex, weekStartDate])
+  }, [selectedDate])
 
-  const prevDay = () => {
-    if (currentDayIndex === 0) {
-      const prev = new Date(weekStartDate)
-      prev.setDate(weekStartDate.getDate() - 7)
-      setWeekStartDate(prev)
-      setCurrentDayIndex(6)
-    } else {
-      setCurrentDayIndex((i) => i - 1)
-    }
-  }
-  const nextDay = () => {
-    if (currentDayIndex === 6) {
-      const next = new Date(weekStartDate)
-      next.setDate(weekStartDate.getDate() + 7)
-      setWeekStartDate(next)
-      setCurrentDayIndex(0)
-    } else {
-      setCurrentDayIndex((i) => i + 1)
-    }
-  }
+  const prevDay = () => { const d = new Date(selectedDate); d.setDate(d.getDate() - 1); setSelectedDate(d) }
+  const nextDay = () => { const d = new Date(selectedDate); d.setDate(d.getDate() + 1); setSelectedDate(d) }
 
   const toggleCheck = async (index: number) => {
     if (isFutureSelectedDay()) { Alert.alert('Not allowed', "You can't complete evening routines for a future day."); return }
@@ -213,7 +237,7 @@ const DailyRoutines = () => {
     setEveningItems(next)
     Animated.timing(item.anim, { toValue: (s?.weekPercent || 0), duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
     // Refresh dashboard metrics asynchronously (best effort)
-    try { await getPersonalMasteryMetrics() } catch {}
+    try { await getPersonalMasteryMetrics(); emitPersonalMasteryChanged() } catch {}
   }
   const toggleMorning = async (index: number) => {
     if (isFutureSelectedDay()) { Alert.alert('Not allowed', "You can't complete morning routines for a future day."); return }
@@ -229,7 +253,7 @@ const DailyRoutines = () => {
     next[index] = { ...item, completed: newDone, percent: s?.weekPercent || 0, streak: s?.streakDays || 0 }
     setMorningItems(next)
     Animated.timing(item.anim, { toValue: (s?.weekPercent || 0), duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
-    try { await getPersonalMasteryMetrics() } catch {}
+    try { await getPersonalMasteryMetrics(); emitPersonalMasteryChanged() } catch {}
   }
   const toggleTask = async (index: number) => {
     const next = tasksChecks.map((v, i) => (i === index ? !v : v))
@@ -247,7 +271,7 @@ const DailyRoutines = () => {
         [currentDay]: (prev[currentDay] || []).map((t, i) => (i === index ? { ...t, done: next[index] } : t)),
       }))
     }
-    try { await getPersonalMasteryMetrics() } catch {}
+    try { await getPersonalMasteryMetrics(); emitPersonalMasteryChanged() } catch {}
   }
   return (
     <View style={styles.container}>
@@ -322,31 +346,16 @@ const DailyRoutines = () => {
                 </View>
               </TouchableOpacity>
               <View style={{ flex: 1 }}>
-                {editMorningIndex === idx ? (
-                  <TextInput value={editRoutineTitle} onChangeText={setEditRoutineTitle} placeholder="Routine" placeholderTextColor="#94a3b8" style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }} />
-                ) : (
-                  <Text style={styles.habitLabel}>{item.title}</Text>
-                )}
+                <Text style={styles.habitLabel}>{item.title}</Text>
               </View>
-              {editMorningIndex === idx ? (
-                <>
-                  <TouchableOpacity onPress={async () => { try { await updateRoutine(item.id, { title: editRoutineTitle.trim() }); const m = await listRoutines('morning'); const ms = await getRoutineStats(m.map(r=>r.id)); const items = m.map(r=>{ const s = ms[r.id] || {streakDays:0, weekPercent:0, completedToday:false}; return { id:r.id, title:r.title, streak:s.streakDays, percent:s.weekPercent, completed:s.completedToday, anim:new Animated.Value(s.weekPercent||0) } }); setMorningItems(items); setEditMorningIndex(null) } catch(e:any){ Alert.alert('Update failed', e?.message||'Try again') } }} style={{ padding: 6, marginLeft: 8 }}>
-                    <Ionicons name="save" size={18} color="#3B82F6" />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setEditMorningIndex(null)} style={{ padding: 6 }}>
-                    <Ionicons name="close" size={18} color="#6b7280" />
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <>
-                  <TouchableOpacity onPress={() => { setEditMorningIndex(idx); setEditRoutineTitle(item.title) }} style={{ padding: 6, marginLeft: 8 }}>
-                    <Ionicons name="create-outline" size={18} color="#3B82F6" />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={async () => { try { await deleteRoutine(item.id); const m = await listRoutines('morning'); const ms = await getRoutineStats(m.map(r=>r.id)); const items = m.map(r=>{ const s = ms[r.id] || {streakDays:0, weekPercent:0, completedToday:false}; return { id:r.id, title:r.title, streak:s.streakDays, percent:s.weekPercent, completed:s.completedToday, anim:new Animated.Value(s.weekPercent||0) } }); setMorningItems(items) } catch(e:any){ Alert.alert('Delete failed', e?.message||'Try again') } }} style={{ padding: 6 }}>
-                    <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                  </TouchableOpacity>
-                </>
-              )}
+              <>
+                <TouchableOpacity onPress={() => { setRoutineEditor({ id: item.id, type: 'morning', title: item.title }) }} style={{ padding: 6, marginLeft: 8 }}>
+                  <Ionicons name="create-outline" size={18} color="#3B82F6" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={async () => { try { await deleteRoutine(item.id); const m = await listRoutines('morning'); const ms = await getRoutineStats(m.map(r=>r.id)); const items = m.map(r=>{ const s = ms[r.id] || {streakDays:0, weekPercent:0, completedToday:false}; return { id:r.id, title:r.title, streak:s.streakDays, percent:s.weekPercent, completed:s.completedToday, anim:new Animated.Value(s.weekPercent||0) } }); setMorningItems(items) } catch(e:any){ Alert.alert('Delete failed', e?.message||'Try again') } }} style={{ padding: 6 }}>
+                  <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                </TouchableOpacity>
+              </>
               <View style={[styles.streakBadge, { backgroundColor: "#E6F7F1" }]}>
                 <Text style={[styles.streakText, { color: "#10B981" }]}>{item.streak} day streak</Text>
               </View>
@@ -393,52 +402,15 @@ const DailyRoutines = () => {
                 </View>
               </TouchableOpacity>
               <View style={{ flex: 1 }}>
-                {editingIndex === idx ? (
-                  <>
-                    <TextInput value={editTitle} onChangeText={setEditTitle} placeholder="Task title" placeholderTextColor="#94a3b8" style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }} />
-                    <TextInput value={editTime} onChangeText={setEditTime} placeholder="Time (optional)" placeholderTextColor="#94a3b8" style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, marginTop: 6 }} />
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.taskTitle}>{task.title}</Text>
-                    <Text style={styles.taskTime}>{task.time ?? ""}</Text>
-                  </>
-                )}
+                <Text style={styles.taskTitle}>{task.title}</Text>
+                <Text style={styles.taskTime}>{task.time ?? ""}</Text>
               </View>
-              {editingIndex === idx ? (
-                <>
-                  <TouchableOpacity onPress={async () => {
-                    const base = new Date()
-                    const weekday = base.getDay() === 0 ? 6 : base.getDay() - 1
-                    const date = new Date(base)
-                    date.setDate(base.getDate() - weekday + currentDayIndex)
-                    const key = toDateKey(date)
-                    const rows = await listTasksByDate(key)
-                    const row = rows[idx]
-                    if (row) {
-                      await updateTask(row.id, { title: editTitle.trim(), timeText: editTime.trim() })
-                      const updated = await listTasksByDate(key)
-                      setTasksByDay((prev) => ({ ...prev, [currentDay]: updated.map(r => ({ title: r.title, time: r.time_text || undefined })) }))
-                    }
-                    setEditingIndex(null)
-                  }} style={{ padding: 6, marginLeft: 8 }}>
-                    <Ionicons name="save" size={18} color="#4A90E2" />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => { setEditingIndex(null) }} style={{ padding: 6 }}>
-                    <Ionicons name="close" size={18} color="#6b7280" />
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <>
-                  <TouchableOpacity onPress={() => { setEditingIndex(idx); setEditTitle(task.title); setEditTime(task.time || '') }} style={{ padding: 6, marginLeft: 8 }}>
-                    <Ionicons name="create-outline" size={18} color="#4A90E2" />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={async () => {
-                    const base = new Date()
-                    const weekday = base.getDay() === 0 ? 6 : base.getDay() - 1
-                    const date = new Date(base)
-                    date.setDate(base.getDate() - weekday + currentDayIndex)
-                    const key = toDateKey(date)
+              <>
+                <TouchableOpacity onPress={() => { setTaskEditor({ index: idx, title: task.title, time: task.time }) }} style={{ padding: 6, marginLeft: 8 }}>
+                  <Ionicons name="create-outline" size={18} color="#4A90E2" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={async () => {
+                    const key = toDateKey(getSelectedDate())
                     const rows = await listTasksByDate(key)
                     const row = rows[idx]
                     if (row) {
@@ -450,8 +422,7 @@ const DailyRoutines = () => {
                   }} style={{ padding: 6 }}>
                     <Ionicons name="trash-outline" size={18} color="#ef4444" />
                   </TouchableOpacity>
-                </>
-              )}
+              </>
             </View>
           </LinearGradient>
         ))}
@@ -467,11 +438,7 @@ const DailyRoutines = () => {
               </TouchableOpacity>
               <TouchableOpacity onPress={async () => {
                 if (!newTaskTitle.trim()) { setAdding(false); return }
-                const base = new Date()
-                const weekday = base.getDay() === 0 ? 6 : base.getDay() - 1
-                const date = new Date(base)
-                date.setDate(base.getDate() - weekday + currentDayIndex)
-                const key = toDateKey(date)
+                const key = toDateKey(getSelectedDate())
                 await createTask({ dateKey: key, title: newTaskTitle.trim(), timeText: newTaskTime.trim() || undefined })
                 const rows = await listTasksByDate(key)
                 setTasksByDay((prev) => ({ ...prev, [currentDay]: rows.map(r => ({ title: r.title, time: r.time_text || undefined })) }))
@@ -541,31 +508,16 @@ const DailyRoutines = () => {
                 </View>
               </TouchableOpacity>
               <View style={{ flex: 1 }}>
-                {editEveningIndex === idx ? (
-                  <TextInput value={editRoutineTitle} onChangeText={setEditRoutineTitle} placeholder="Routine" placeholderTextColor="#94a3b8" style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }} />
-                ) : (
-                  <Text style={styles.habitLabel}>{item.title}</Text>
-                )}
+                <Text style={styles.habitLabel}>{item.title}</Text>
               </View>
-              {editEveningIndex === idx ? (
-                <>
-                  <TouchableOpacity onPress={async () => { try { await updateRoutine(item.id, { title: editRoutineTitle.trim() }); const e = await listRoutines('evening'); const es = await getRoutineStats(e.map(r=>r.id)); const items = e.map(r=>{ const s = es[r.id] || {streakDays:0, weekPercent:0, completedToday:false}; return { id:r.id, title:r.title, streak:s.streakDays, percent:s.weekPercent, completed:s.completedToday, anim:new Animated.Value(s.weekPercent||0) } }); setEveningItems(items); setEditEveningIndex(null) } catch(e:any){ Alert.alert('Update failed', e?.message||'Try again') } }} style={{ padding: 6, marginLeft: 8 }}>
-                    <Ionicons name="save" size={18} color="#8B5CF6" />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setEditEveningIndex(null)} style={{ padding: 6 }}>
-                    <Ionicons name="close" size={18} color="#6b7280" />
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <>
-                  <TouchableOpacity onPress={() => { setEditEveningIndex(idx); setEditRoutineTitle(item.title) }} style={{ padding: 6, marginLeft: 8 }}>
-                    <Ionicons name="create-outline" size={18} color="#8B5CF6" />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={async () => { try { await deleteRoutine(item.id); const e = await listRoutines('evening'); const es = await getRoutineStats(e.map(r=>r.id)); const items = e.map(r=>{ const s = es[r.id] || {streakDays:0, weekPercent:0, completedToday:false}; return { id:r.id, title:r.title, streak:s.streakDays, percent:s.weekPercent, completed:s.completedToday, anim:new Animated.Value(s.weekPercent||0) } }); setEveningItems(items) } catch(e:any){ Alert.alert('Delete failed', e?.message||'Try again') } }} style={{ padding: 6 }}>
-                    <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                  </TouchableOpacity>
-                </>
-              )}
+              <>
+                <TouchableOpacity onPress={() => { setRoutineEditor({ id: item.id, type: 'evening', title: item.title }) }} style={{ padding: 6, marginLeft: 8 }}>
+                  <Ionicons name="create-outline" size={18} color="#8B5CF6" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={async () => { try { await deleteRoutine(item.id); const e = await listRoutines('evening'); const es = await getRoutineStats(e.map(r=>r.id)); const items = e.map(r=>{ const s = es[r.id] || {streakDays:0, weekPercent:0, completedToday:false}; return { id:r.id, title:r.title, streak:s.streakDays, percent:s.weekPercent, completed:s.completedToday, anim:new Animated.Value(s.weekPercent||0) } }); setEveningItems(items) } catch(e:any){ Alert.alert('Delete failed', e?.message||'Try again') } }} style={{ padding: 6 }}>
+                  <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                </TouchableOpacity>
+              </>
               <View style={[styles.streakBadge, { backgroundColor: "#EAF7EE" }]}>
                 <Text style={[styles.streakText, { color: "#16A34A" }]}>{item.streak} day streak</Text>
               </View>
@@ -580,6 +532,65 @@ const DailyRoutines = () => {
           </LinearGradient>
         ))}
       </View>
+      {/* Edit modals */}
+      {routineEditor && (
+        <EditEntityModal
+          visible={!!routineEditor}
+          title="Edit Routine"
+          accentColor={routineEditor.type === 'morning' ? '#3B82F6' : '#8B5CF6'}
+          fields={[{ key: 'title', label: 'Routine name', placeholder: 'Routine' }]}
+          initialValues={{ title: routineEditor.title }}
+          onClose={() => setRoutineEditor(null)}
+          onSubmit={async ({ title }) => {
+            try {
+              await updateRoutine(routineEditor.id, { title: (title || '').trim() })
+              const rows = await listRoutines(routineEditor.type)
+              const stats = await getRoutineStats(rows.map(r => r.id))
+              const items = rows.map(r => {
+                const s = stats[r.id] || { streakDays: 0, weekPercent: 0, completedToday: false }
+                return { id: r.id, title: r.title, streak: s.streakDays, percent: s.weekPercent, completed: s.completedToday, anim: new Animated.Value(s.weekPercent || 0) }
+              })
+              if (routineEditor.type === 'morning') setMorningItems(items)
+              else setEveningItems(items)
+            } catch (e: any) {
+              Alert.alert('Update failed', e?.message || 'Try again')
+            } finally {
+              setRoutineEditor(null)
+            }
+          }}
+          submitLabel="Save"
+        />
+      )}
+      {taskEditor && (
+        <EditEntityModal
+          visible={!!taskEditor}
+          title="Edit Task"
+          accentColor="#22C55E"
+          fields={[
+            { key: 'title', label: 'Title', placeholder: 'Task title' },
+            { key: 'time', label: 'Time', placeholder: 'Time (optional)' },
+          ]}
+          initialValues={{ title: taskEditor.title, time: taskEditor.time || '' }}
+          onClose={() => setTaskEditor(null)}
+          onSubmit={async ({ title, time }) => {
+            try {
+              const key = toDateKey(getSelectedDate())
+              const rows = await listTasksByDate(key)
+              const row = rows[taskEditor.index]
+              if (row) {
+                await updateTask(row.id, { title: (title || '').trim(), timeText: (time || '').trim() })
+                const updated = await listTasksByDate(key)
+                setTasksByDay((prev) => ({ ...prev, [currentDay]: updated.map(r => ({ title: r.title, time: r.time_text || undefined, done: !!r.done })) }))
+              }
+            } catch (e: any) {
+              Alert.alert('Update failed', e?.message || 'Try again')
+            } finally {
+              setTaskEditor(null)
+            }
+          }}
+          submitLabel="Save"
+        />
+      )}
     </View>
   )
 }

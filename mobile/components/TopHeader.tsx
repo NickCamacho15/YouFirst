@@ -1,7 +1,8 @@
 import type React from "react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { View, Text, StyleSheet, TouchableOpacity, Pressable } from "react-native"
 import { Bell, User, LogOut } from "lucide-react-native"
+import { getUnreadCount, markAllRead } from "../lib/notifications"
 import { logout as supabaseLogout } from "../lib/auth"
 
 interface TopHeaderProps { showShadow?: boolean; onLogout?: () => void }
@@ -9,6 +10,15 @@ interface TopHeaderProps { showShadow?: boolean; onLogout?: () => void }
 const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout }) => {
   const [menuOpen, setMenuOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [unread, setUnread] = useState(0)
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try { const c = await getUnreadCount(); if (mounted) setUnread(c) } catch {}
+    })()
+    return () => { mounted = false }
+  }, [])
 
   const handleLogout = async () => {
     if (loggingOut) return
@@ -31,8 +41,13 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout }) =
       </View>
 
       <View style={styles.right}>
-        <TouchableOpacity style={styles.iconButton} hitSlop={8}>
-          <Bell color="#111" width={22} height={22} />
+        <TouchableOpacity style={styles.iconButton} hitSlop={8} onPress={async ()=> { await markAllRead(); setUnread(0) }}>
+          <View>
+            <Bell color="#111" width={22} height={22} />
+            {unread > 0 && (
+              <View style={styles.badge}><Text style={styles.badgeText}>{unread > 9 ? '9+' : String(unread)}</Text></View>
+            )}
+          </View>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.profileButton} onPress={() => setMenuOpen(v => !v)} activeOpacity={0.8}>
@@ -124,6 +139,19 @@ const styles = StyleSheet.create({
   },
   menuText: { marginLeft: 8, color: "#111", fontSize: 14, fontWeight: "600" },
   menuDivider: { height: 1, backgroundColor: "#f0f0f0", marginVertical: 4 },
+  badge: {
+    position: "absolute",
+    right: -4,
+    top: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#EF4444",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 2,
+  },
+  badgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
 })
 
 export default TopHeader

@@ -88,14 +88,11 @@ export async function getRoutineStats(routineIds: string[], anchorISO?: string):
   const weekStart = startOfDay(new Date(anchor))
   weekStart.setDate(anchor.getDate() - anchor.getDay()) // previous Sunday (or today if Sunday)
   const weekEnd = startOfDay(new Date(weekStart)); weekEnd.setDate(weekStart.getDate() + 7)
-  // Fetch a rolling window to compute streak across week boundaries
-  const streakFrom = startOfDay(new Date(anchor)); streakFrom.setDate(anchor.getDate() - 60)
   const { data, error } = await supabase
     .from('user_routine_logs')
     .select('routine_id, log_date, completed')
     .eq('user_id', auth.user.id)
     .in('routine_id', routineIds)
-    .gte('log_date', toDateKeyLocal(streakFrom))
     .lte('log_date', toDateKeyLocal(anchor))
   if (error) throw new Error(error.message)
   // Aggregate per routine
@@ -107,9 +104,11 @@ export async function getRoutineStats(routineIds: string[], anchorISO?: string):
     const datesAll = byIdAll[id]
     const anchorKey = toDateKeyLocal(anchor)
     const completedToday = datesAll.has(anchorKey)
-    // streak to anchor
+    // Streak through most recent completed day up to anchor.
+    // If not completed on the anchor day, compute streak ending on the previous day.
     let streak = 0
     const probe = new Date(anchor)
+    if (!completedToday) { probe.setDate(probe.getDate() - 1) }
     while (true) {
       const key = toDateKeyLocal(probe)
       if (datesAll.has(key)) { streak += 1; probe.setDate(probe.getDate()-1) } else { break }

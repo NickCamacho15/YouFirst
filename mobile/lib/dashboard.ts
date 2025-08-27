@@ -54,7 +54,7 @@ export async function getTodaySummary(): Promise<TodaySummary> {
   const [readingSec, meditationSec, screenSec, workoutSec] = await Promise.all([
     // adjust table/fields to your schema names
     sumSeconds('user_reading_sessions', 'started_at', 'duration_seconds'),
-    sumSeconds('meditation_sessions', 'startedAt', 'durationSeconds'),
+    sumSeconds('meditation_sessions', 'started_at', 'duration_seconds'),
     sumSeconds('screen_time_entries', 'started_at', 'duration_seconds'),
     sumSeconds('workout_sessions', 'started_at', 'total_seconds', (q)=> q.eq('status','completed')),
   ])
@@ -133,6 +133,22 @@ export async function getPersonalMasteryMetrics(): Promise<PersonalMastery> {
   const consistencyPercent = monthDenom > 0 ? Math.round((monthCount / monthDenom) * 100) : 0
 
   return { tasksCompleted, bestStreak: best, consistencyPercent, activeGoals }
+}
+
+
+// --------- Personal Mastery change events (simple pub-sub) ---------
+type Listener = () => void
+const pmListeners = new Set<Listener>()
+
+export function subscribePersonalMastery(listener: Listener): () => void {
+  pmListeners.add(listener)
+  return () => { pmListeners.delete(listener) }
+}
+
+export function emitPersonalMasteryChanged(): void {
+  for (const l of Array.from(pmListeners)) {
+    try { l() } catch {}
+  }
 }
 
 
