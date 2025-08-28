@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect, useRef } from "react"
 import type React from "react"
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, Dimensions, Modal, TextInput, ActivityIndicator, Animated, Easing } from "react-native"
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, Dimensions, Modal, TextInput, ActivityIndicator, Animated, Easing, KeyboardAvoidingView, Platform } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { Shield, CalendarDays, Plus } from "lucide-react-native"
 import TopHeader from "../components/TopHeader"
@@ -375,6 +375,7 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
                   </TouchableOpacity>
                 </View>
 
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
                 <ScrollView style={{ marginTop: 16 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
                   <Text style={styles.inputLabel}>Challenge Title *</Text>
                   <TextInput value={title} onChangeText={setTitle} placeholder="e.g., No Social Media, No Fast Food" style={styles.input} />
@@ -415,6 +416,7 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
                     <Text style={styles.secondaryButtonText}>Cancel</Text>
                   </TouchableOpacity>
                 </ScrollView>
+                </KeyboardAvoidingView>
               </SafeAreaView>
             </Modal>
           </>

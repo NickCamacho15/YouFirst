@@ -611,8 +611,12 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
               { name: 'Clean', color: '#F59E0B', series: deadliftSeries },
               { name: 'Overhead Press', color: '#EF4444', series: ohpSeries },
             ] as Array<{ name: string; color: string; series: Array<{ x: string; y: number }> }>).map(({ name, color, series }) => {
-              const labels = (series.length ? series : [{ x: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), y: 0 }]).map(p => p.x)
-              const dataPoints = (series.length ? series : [{ x: '', y: 0 }]).map(p => p.y)
+              const seriesOrFallback = (series.length ? series : [{ x: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), y: 0 }])
+              // To prevent X-axis label overlap, only show roughly 4–6 evenly spaced labels and hide the rest.
+              const targetTicks = 6
+              const tickEvery = Math.max(1, Math.ceil(seriesOrFallback.length / targetTicks))
+              const labels = seriesOrFallback.map((p, idx) => (idx % tickEvery === 0 ? p.x : ''))
+              const dataPoints = seriesOrFallback.map(p => p.y)
               return (
                 <View key={name} style={styles.sectionCard}>
                   <View style={styles.sectionHeader}>
@@ -635,6 +639,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
                       withShadow={false}
                       withInnerLines={false}
                       withOuterLines={false}
+                      verticalLabelRotation={0}
                     />
                   </View>
                   <Text style={styles.chartSubtitle}>Tracking PR history</Text>
@@ -2097,13 +2102,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#4A90E2',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 8,
+    alignSelf: 'flex-start',
   },
   prActionText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     marginLeft: 6,
   },

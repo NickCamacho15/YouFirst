@@ -22,6 +22,15 @@ export interface User {
   profileImageUrl?: string | null
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label?: string): Promise<T> {
+  return Promise.race<T>([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(label ? `${label} timed out` : "Request timed out")), ms)
+    ) as any,
+  ])
+}
+
 async function upsertUserRow(user: { id: string; email: string; displayName?: string; username?: string }) {
   // Best-effort upsert into public.users table. RLS should typically allow inserting
   // a row where id === auth.uid(). If RLS blocks (e.g., no session yet), this will
@@ -73,6 +82,21 @@ async function resolveEmailFromLocalMap(username: string): Promise<string | null
   } catch { return null }
 }
 
+async function removeUsernameFromLocalMap(username: string | undefined): Promise<void> {
+  if (!username) return
+  try {
+    const key = "youfirst_username_email_map_v1"
+    const raw = await AsyncStorage.getItem(key)
+    if (!raw) return
+    const map = JSON.parse(raw) as Record<string,string>
+    const k = username.toLowerCase()
+    if (map[k]) {
+      delete map[k]
+      await AsyncStorage.setItem(key, JSON.stringify(map))
+    }
+  } catch {}
+}
+
 export async function login(payload: LoginPayload): Promise<User> {
   // Determine if identifier is email or username
   const isEmail = payload.identifier.includes("@")
@@ -83,8 +107,29 @@ export async function login(payload: LoginPayload): Promise<User> {
     // 0) Try local cache first for instant resolution
     const localEmail = await resolveEmailFromLocalMap(username)
     if (localEmail) {
-      emailToUse = localEmail
-    } else {
+      // Validate local cache against server to avoid stale username logins
+      try {
+        const verify = async () => {
+          const { data, error } = await supabase
+            .from("users")
+            .select("email")
+            .eq("username", username.toLowerCase())
+            .limit(1)
+            .maybeSingle()
+          if (error) throw error
+          return data?.email || null
+        }
+        const serverEmail = await withTimeout(verify(), 1200, "Verify username")
+        if (serverEmail && serverEmail.toLowerCase() === localEmail.toLowerCase()) {
+          emailToUse = localEmail
+        } else {
+          // Stale mapping; fall through to remote resolution paths
+        }
+      } catch {
+        // On verification failure, proceed to remote resolution below rather than trusting cache
+      }
+    }
+    if (emailToUse === payload.identifier) {
     const resolveViaRpc = async () => {
       const { data, error } = await supabase.rpc("resolve_email_by_username", { p_username: username })
       if (error || !data) throw new Error(error?.message || "Invalid credentials")
@@ -172,13 +217,30 @@ export async function register(payload: RegisterPayload): Promise<User> {
 
 export async function getCurrentUser(): Promise<User | null> {
   const { data } = await supabase.auth.getUser()
-  if (!data.user) return null
-  return {
-    id: data.user.id,
-    email: data.user.email || "",
-    displayName: data.user.user_metadata?.display_name || "",
-    username: data.user.user_metadata?.username || undefined,
-    profileImageUrl: data.user.user_metadata?.profile_image_url || null,
+  const authUser = data.user
+  if (!authUser) return null
+  // Prefer canonical values from public.users, with auth metadata as fallback
+  try {
+    const { data: profile } = await supabase
+      .from("users")
+      .select("email, display_name, username, profile_image_url")
+      .eq("id", authUser.id)
+      .maybeSingle()
+    return {
+      id: authUser.id,
+      email: profile?.email || authUser.email || "",
+      displayName: profile?.display_name || authUser.user_metadata?.display_name || "",
+      username: profile?.username || authUser.user_metadata?.username || undefined,
+      profileImageUrl: profile?.profile_image_url ?? authUser.user_metadata?.profile_image_url ?? null,
+    }
+  } catch {
+    return {
+      id: authUser.id,
+      email: authUser.email || "",
+      displayName: authUser.user_metadata?.display_name || "",
+      username: authUser.user_metadata?.username || undefined,
+      profileImageUrl: authUser.user_metadata?.profile_image_url || null,
+    }
   }
 }
 
@@ -193,34 +255,56 @@ export async function logout(): Promise<void> {
 
 // Profile update helpers
 export async function updateEmail(newEmail: string): Promise<void> {
-  const { data, error } = await supabase.auth.updateUser({ email: newEmail })
-  if (error) throw new Error(error.message)
-  const user = data.user
-  if (user) {
-    await upsertUserRow({ id: user.id, email: user.email || newEmail, displayName: user.user_metadata?.display_name, username: user.user_metadata?.username })
-  }
+  const { data: auth } = await supabase.auth.getUser()
+  const user = auth.user
+  if (!user) throw new Error("Not authenticated")
+  // 1) Canonical table first
+  await withTimeout(
+    upsertUserRow({ id: user.id, email: newEmail, displayName: user.user_metadata?.display_name, username: user.user_metadata?.username }),
+    8000,
+    "Update profile email"
+  )
+  // 2) Best-effort mirror into auth
+  try {
+    await withTimeout(supabase.auth.updateUser({ email: newEmail }), 4000, "Mirror auth email")
+  } catch {}
+  // 3) Refresh cache mapping for current username
+  const uname = (user.user_metadata?.username as string | undefined) || undefined
+  if (uname) await mapUsernameToEmailLocally(uname, newEmail)
 }
 
 export async function updateUsername(newUsername: string): Promise<void> {
   const lower = newUsername.trim().toLowerCase()
-  const { data, error } = await supabase.auth.updateUser({ data: { username: lower } })
-  if (error) throw new Error(error.message)
-  const user = data.user
-  if (user) {
-    try {
-      const { error: upErr } = await supabase
-        .from("users")
-        .update({ username: lower })
-        .eq("id", user.id)
-      if (upErr) throw upErr
-    } catch (e: any) {
-      throw new Error(e?.message || "Failed to update username")
-    }
+  const { data: auth } = await supabase.auth.getUser()
+  const user = auth.user
+  if (!user) throw new Error("Not authenticated")
+  // 1) Canonical: ensure row exists and set username (include email to satisfy NOT NULL)
+  await withTimeout(
+    upsertUserRow({ id: user.id, email: user.email || "", displayName: user.user_metadata?.display_name, username: lower }),
+    8000,
+    "Update profile username"
+  )
+  // 2) Best-effort mirror into auth metadata (non-blocking, short timeout)
+  try {
+    await withTimeout(
+      supabase.auth.updateUser({ data: { username: lower } }),
+      4000,
+      "Mirror auth username"
+    )
+  } catch {}
+  // 3) Update local cache
+  await mapUsernameToEmailLocally(lower, user.email || undefined)
+  // 4) Remove stale cache for any previous username value
+  const previous = (user.user_metadata?.username as string | undefined) || undefined
+  if (previous && previous !== lower) {
+    await removeUsernameFromLocalMap(previous)
   }
 }
 
 export async function updatePassword(newPassword: string): Promise<void> {
-  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  const { data: auth } = await supabase.auth.getUser()
+  if (!auth.user) throw new Error("Not authenticated")
+  const { error } = await withTimeout(supabase.auth.updateUser({ password: newPassword }), 8000, "Update password")
   if (error) throw new Error(error.message)
 }
 

@@ -14,6 +14,8 @@ import {
   TextInput,
   Modal,
   Vibration,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import TopHeader from "../components/TopHeader"
@@ -834,143 +836,149 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
       {/* Add Book Modal */}
       <Modal visible={addBookOpen} animationType="slide" transparent>
         <View style={{ flex: 1, backgroundColor: "#00000066", justifyContent: "center", padding: 20 }}>
-          <View style={{ backgroundColor: "#fff", borderRadius: 12, padding: 16 }}>
-            <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 8 }}>Add Book</Text>
-            <TextInput value={newBookTitle} onChangeText={setNewBookTitle} placeholder="Title" style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 10 }} />
-            <TextInput value={newBookAuthor} onChangeText={setNewBookAuthor} placeholder="Author (optional)" style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 10 }} />
-            <TextInput value={newBookPages} onChangeText={setNewBookPages} inputMode="numeric" placeholder="Total pages (optional)" style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 10 }} />
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <TouchableOpacity onPress={() => { setAddBookOpen(false); setNewBookTitle(""); setNewBookAuthor(""); setNewBookPages("") }} style={{ paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}>
-                <Text style={{ fontWeight: "600" }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={async () => {
-                if (!newBookTitle.trim()) return
-                const created = await addBook({ title: newBookTitle.trim(), author: newBookAuthor.trim() || undefined, totalPages: newBookPages.trim() ? parseInt(newBookPages, 10) : undefined })
-                setBooks([created, ...books])
-                setBookTitle(created.title)
-                setAddBookOpen(false); setNewBookTitle(""); setNewBookAuthor(""); setNewBookPages("")
-              }} style={{ backgroundColor: "#111827", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 }}>
-                <Text style={{ color: "#fff", fontWeight: "700" }}>Save</Text>
-              </TouchableOpacity>
-            </View>
-            </View>
-            </View>
-      </Modal>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+           <View style={{ backgroundColor: "#fff", borderRadius: 12, padding: 16 }}>
+             <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 8 }}>Add Book</Text>
+             <TextInput value={newBookTitle} onChangeText={setNewBookTitle} placeholder="Title" style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 10 }} />
+             <TextInput value={newBookAuthor} onChangeText={setNewBookAuthor} placeholder="Author (optional)" style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 10 }} />
+             <TextInput value={newBookPages} onChangeText={setNewBookPages} inputMode="numeric" placeholder="Total pages (optional)" style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 10 }} />
+             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+               <TouchableOpacity onPress={() => { setAddBookOpen(false); setNewBookTitle(""); setNewBookAuthor(""); setNewBookPages("") }} style={{ paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}>
+                 <Text style={{ fontWeight: "600" }}>Cancel</Text>
+               </TouchableOpacity>
+               <TouchableOpacity onPress={async () => {
+                 if (!newBookTitle.trim()) return
+                 const created = await addBook({ title: newBookTitle.trim(), author: newBookAuthor.trim() || undefined, totalPages: newBookPages.trim() ? parseInt(newBookPages, 10) : undefined })
+                 setBooks([created, ...books])
+                 setBookTitle(created.title)
+                 setAddBookOpen(false); setNewBookTitle(""); setNewBookAuthor(""); setNewBookPages("")
+               }} style={{ backgroundColor: "#111827", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 }}>
+                 <Text style={{ color: "#fff", fontWeight: "700" }}>Save</Text>
+               </TouchableOpacity>
+             </View>
+           </View>
+          </KeyboardAvoidingView>
+         </View>
+       </Modal>
 
-      {/* Add Insight Modal */}
-      <Modal visible={addInsightOpen} animationType="slide" transparent>
-        <View style={{ flex: 1, backgroundColor: "#00000066", justifyContent: "center", padding: 20 }}>
-          <View style={{ backgroundColor: "#fff", borderRadius: 12, padding: 16 }}>
-            <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 8 }}>Add Insight</Text>
-            <TextInput value={newInsightText} onChangeText={setNewInsightText} placeholder="What insight did you get?" multiline placeholderTextColor="#999" style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, minHeight: 100, textAlignVertical: "top", marginBottom: 10 }} />
-            {/* simple book picker */}
-            <View style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, marginBottom: 10 }}>
-              <ScrollView style={{ maxHeight: 150 }}>
-                <TouchableOpacity onPress={() => setSelectedBookIdForInsight(undefined)} style={{ padding: 10 }}>
-                  <Text style={{ color: !selectedBookIdForInsight ? "#111827" : "#6b7280" }}>No book</Text>
-                </TouchableOpacity>
-                {books.map((b) => (
-                  <TouchableOpacity key={b.id} onPress={() => setSelectedBookIdForInsight(b.id)} style={{ padding: 10 }}>
-                    <Text style={{ color: selectedBookIdForInsight === b.id ? "#111827" : "#6b7280" }}>{b.title}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-          </View>
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <TouchableOpacity onPress={() => { setAddInsightOpen(false); setNewInsightText(""); setSelectedBookIdForInsight(undefined) }} style={{ paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}>
-                <Text style={{ fontWeight: "600" }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={async () => {
-                if (!newInsightText.trim()) return
-                const created = await addInsight({ insight: newInsightText.trim(), bookId: selectedBookIdForInsight })
-                setInsights([created, ...insights])
-                setAddInsightOpen(false); setNewInsightText(""); setSelectedBookIdForInsight(undefined)
-              }} style={{ backgroundColor: "#111827", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 }}>
-                <Text style={{ color: "#fff", fontWeight: "700" }}>Save</Text>
-              </TouchableOpacity>
-        </View>
-          </View>
-            </View>
-      </Modal>
+       {/* Add Insight Modal */}
+       <Modal visible={addInsightOpen} animationType="slide" transparent>
+         <View style={{ flex: 1, backgroundColor: "#00000066", justifyContent: "center", padding: 20 }}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+           <View style={{ backgroundColor: "#fff", borderRadius: 12, padding: 16 }}>
+             <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 8 }}>Add Insight</Text>
+             <TextInput value={newInsightText} onChangeText={setNewInsightText} placeholder="What insight did you get?" multiline placeholderTextColor="#999" style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, minHeight: 100, textAlignVertical: "top", marginBottom: 10 }} />
+             {/* simple book picker */}
+             <View style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, marginBottom: 10 }}>
+               <ScrollView style={{ maxHeight: 150 }}>
+                 <TouchableOpacity onPress={() => setSelectedBookIdForInsight(undefined)} style={{ padding: 10 }}>
+                   <Text style={{ color: !selectedBookIdForInsight ? "#111827" : "#6b7280" }}>No book</Text>
+                 </TouchableOpacity>
+                 {books.map((b) => (
+                   <TouchableOpacity key={b.id} onPress={() => setSelectedBookIdForInsight(b.id)} style={{ padding: 10 }}>
+                     <Text style={{ color: selectedBookIdForInsight === b.id ? "#111827" : "#6b7280" }}>{b.title}</Text>
+                   </TouchableOpacity>
+                 ))}
+               </ScrollView>
+           </View>
+             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+               <TouchableOpacity onPress={() => { setAddInsightOpen(false); setNewInsightText(""); setSelectedBookIdForInsight(undefined) }} style={{ paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}>
+                 <Text style={{ fontWeight: "600" }}>Cancel</Text>
+               </TouchableOpacity>
+               <TouchableOpacity onPress={async () => {
+                 if (!newInsightText.trim()) return
+                 const created = await addInsight({ insight: newInsightText.trim(), bookId: selectedBookIdForInsight })
+                 setInsights([created, ...insights])
+                 setAddInsightOpen(false); setNewInsightText(""); setSelectedBookIdForInsight(undefined)
+               }} style={{ backgroundColor: "#111827", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 }}>
+                 <Text style={{ color: "#fff", fontWeight: "700" }}>Save</Text>
+               </TouchableOpacity>
+         </View>
+           </View>
+          </KeyboardAvoidingView>
+           </View>
+       </Modal>
 
-      {/* Reflection Modal placed at root so it doesn't unmount the input */}
-      <Modal visible={isReflectOpen} animationType="slide" transparent>
-        <View style={{ flex: 1, backgroundColor: "#00000066", justifyContent: "center", padding: 20 }}>
-          <View style={{ backgroundColor: "#fff", borderRadius: 12, padding: 16 }}>
-            <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 8 }}>Reading Session Complete!</Text>
-            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
-              <Ionicons name="book-outline" size={18} color="#4A90E2" />
-              <Text style={{ marginLeft: 6 }}>Reading Session</Text>
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
-              <Ionicons name="time-outline" size={18} color="#10B981" />
-              <Text style={{ marginLeft: 6 }}>{Math.floor(sessionTime / 60)} minutes</Text>
-              </View>
-            <Text style={{ fontSize: 14, fontWeight: "600", marginBottom: 6 }}>Share your reflection (optional)</Text>
-            <TextInput
-              value={reflectionText}
-              onChangeText={setReflectionText}
-              placeholder="What insights did you gain? What did you learn? How will you apply this knowledge?"
-              placeholderTextColor="#999"
-              style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, minHeight: 100, textAlignVertical: "top", marginBottom: 10 }}
-              multiline
-            />
-            <TextInput
-              value={pagesRead}
-              onChangeText={setPagesRead}
-              placeholder="Pages read (optional)"
-              inputMode="numeric"
-              style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 12 }}
-            />
-            <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 4 }}>
-              <TouchableOpacity
-                onPress={() => {
-                  setIsReflectOpen(false)
-                  setReflectionText("")
-                  setPagesRead("")
-                  setSessionTime(0)
-                  setSessionStartedAt(null)
-                }}
-                style={{ paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}
-              >
-                <Text style={{ fontWeight: "600" }}>Skip</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                disabled={isSaving}
-                onPress={async () => {
-                  if (!sessionStartedAt) { setIsReflectOpen(false); return }
-                  try {
-                    setIsSaving(true)
-                    await saveReadingSession({
-                      startedAt: sessionStartedAt.toISOString(),
-                      endedAt: new Date().toISOString(),
-                      durationSeconds: sessionTime,
-                      bookTitle,
-                      reflection: reflectionText,
-                      pagesRead: pagesRead.trim() ? parseInt(pagesRead, 10) : undefined,
-                    })
-                    const stats = await getReadingStats()
-                    setTotalSeconds(stats.totalSeconds)
-                    setSessionCount(stats.sessionCount)
-                    setAverageSeconds(stats.averageSeconds)
-                    setRecentSessions(await listReadingSessions(10))
-                  } finally {
-                    setIsSaving(false)
-                    setIsReflectOpen(false)
-                    setReflectionText("")
-                    setPagesRead("")
-                    setSessionTime(0)
-                    setSessionStartedAt(null)
-                  }
-                }}
-                style={{ backgroundColor: "#111827", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 }}
-              >
-                <Text style={{ color: "#fff", fontWeight: "700" }}>{isSaving ? "Saving..." : "Save Session"}</Text>
-              </TouchableOpacity>
-              </View>
-              </View>
-            </View>
-      </Modal>
+       {/* Reflection Modal placed at root so it doesn't unmount the input */}
+       <Modal visible={isReflectOpen} animationType="slide" transparent>
+         <View style={{ flex: 1, backgroundColor: "#00000066", justifyContent: "center", padding: 20 }}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+           <View style={{ backgroundColor: "#fff", borderRadius: 12, padding: 16 }}>
+             <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 8 }}>Reading Session Complete!</Text>
+             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+               <Ionicons name="book-outline" size={18} color="#4A90E2" />
+               <Text style={{ marginLeft: 6 }}>Reading Session</Text>
+             </View>
+             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
+               <Ionicons name="time-outline" size={18} color="#10B981" />
+               <Text style={{ marginLeft: 6 }}>{Math.floor(sessionTime / 60)} minutes</Text>
+               </View>
+             <Text style={{ fontSize: 14, fontWeight: "600", marginBottom: 6 }}>Share your reflection (optional)</Text>
+             <TextInput
+               value={reflectionText}
+               onChangeText={setReflectionText}
+               placeholder="What insights did you gain? What did you learn? How will you apply this knowledge?"
+               placeholderTextColor="#999"
+               style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, minHeight: 100, textAlignVertical: "top", marginBottom: 10 }}
+               multiline
+             />
+             <TextInput
+               value={pagesRead}
+               onChangeText={setPagesRead}
+               placeholder="Pages read (optional)"
+               inputMode="numeric"
+               style={{ borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 10, marginBottom: 12 }}
+             />
+             <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 4 }}>
+               <TouchableOpacity
+                 onPress={() => {
+                   setIsReflectOpen(false)
+                   setReflectionText("")
+                   setPagesRead("")
+                   setSessionTime(0)
+                   setSessionStartedAt(null)
+                 }}
+                 style={{ paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#e5e7eb" }}
+               >
+                 <Text style={{ fontWeight: "600" }}>Skip</Text>
+               </TouchableOpacity>
+               <TouchableOpacity
+                 disabled={isSaving}
+                 onPress={async () => {
+                   if (!sessionStartedAt) { setIsReflectOpen(false); return }
+                   try {
+                     setIsSaving(true)
+                     await saveReadingSession({
+                       startedAt: sessionStartedAt.toISOString(),
+                       endedAt: new Date().toISOString(),
+                       durationSeconds: sessionTime,
+                       bookTitle,
+                       reflection: reflectionText,
+                       pagesRead: pagesRead.trim() ? parseInt(pagesRead, 10) : undefined,
+                     })
+                     const stats = await getReadingStats()
+                     setTotalSeconds(stats.totalSeconds)
+                     setSessionCount(stats.sessionCount)
+                     setAverageSeconds(stats.averageSeconds)
+                     setRecentSessions(await listReadingSessions(10))
+                   } finally {
+                     setIsSaving(false)
+                     setIsReflectOpen(false)
+                     setReflectionText("")
+                     setPagesRead("")
+                     setSessionTime(0)
+                     setSessionStartedAt(null)
+                   }
+                 }}
+                 style={{ backgroundColor: "#111827", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 }}
+               >
+                 <Text style={{ color: "#fff", fontWeight: "700" }}>{isSaving ? "Saving..." : "Save Session"}</Text>
+               </TouchableOpacity>
+               </View>
+             </View>
+          </KeyboardAvoidingView>
+           </View>
+       </Modal>
 
       {/* Book Picker Modal */}
       <Modal visible={bookPickerOpen} animationType="fade" transparent>

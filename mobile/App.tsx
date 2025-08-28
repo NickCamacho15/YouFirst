@@ -59,8 +59,8 @@ const App: React.FC = () => {
               <Calendar />
               <StreakStats />
               <WonTodayButton />
-              <WeeklyPerformance />
               <DailyRoutines />
+              <WeeklyPerformance />
               <PersonalMasteryDashboard />
             </ScrollView>
           </View>

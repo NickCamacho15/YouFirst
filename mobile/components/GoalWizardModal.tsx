@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Platform,
+  KeyboardAvoidingView,
 } from "react-native"
 import DateTimePicker from "@react-native-community/datetimepicker"
 import { format } from "date-fns"
@@ -244,9 +245,11 @@ const GoalWizardModal: React.FC<GoalWizardModalProps> = ({ visible, onClose, onC
               </View>
             ))}
           </View>
-          <ScrollView contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <ScrollView contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             {contentByStep[stepIndex]}
           </ScrollView>
+          </KeyboardAvoidingView>
 
           <View style={styles.footer}>
             <TouchableOpacity onPress={stepIndex === 0 ? onClose : handleBack} style={[styles.footerBtn, styles.secondaryBtn]}>

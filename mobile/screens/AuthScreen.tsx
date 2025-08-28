@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { login, register } from "../lib/auth"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import {
@@ -13,6 +13,7 @@ import {
   StatusBar,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
 } from "react-native"
 
 interface AuthScreenProps {
@@ -28,6 +29,12 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Refs to control focus order so fields scroll into view automatically
+  const usernameRef = useRef<TextInput | null>(null)
+  const emailRef = useRef<TextInput | null>(null)
+  const passwordRef = useRef<TextInput | null>(null)
+  const confirmRef = useRef<TextInput | null>(null)
 
   const handleSignIn = async () => {
     if (!(email || username) || !password) return
@@ -72,7 +79,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
       <KeyboardAvoidingView style={styles.keyboardAvoidingView} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-        <View style={styles.content}>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {/* Logo Section */}
           <View style={styles.logoSection}>
             <Text style={styles.logo}>.uoY</Text>
@@ -116,6 +123,10 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     onChangeText={setUsername}
                     autoCapitalize="none"
                     autoCorrect={false}
+                    ref={usernameRef}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => emailRef.current?.focus()}
                   />
                 </View>
               ) : (
@@ -138,6 +149,10 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     }}
                     autoCapitalize="none"
                     autoCorrect={false}
+                    ref={emailRef}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => passwordRef.current?.focus()}
                   />
                 </View>
               )}
@@ -155,6 +170,10 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     autoCorrect={false}
                     textContentType="emailAddress"
                     autoComplete="email"
+                    ref={emailRef}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => passwordRef.current?.focus()}
                   />
                 </View>
               )}
@@ -172,6 +191,13 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                   autoCorrect={false}
                   textContentType="oneTimeCode"
                   autoComplete="off"
+                  ref={passwordRef}
+                  returnKeyType={activeTab === "register" ? "next" : "done"}
+                  blurOnSubmit={activeTab !== "register"}
+                  onSubmitEditing={() => {
+                    if (activeTab === "register") confirmRef.current?.focus()
+                    else handleSignIn()
+                  }}
                 />
               </View>
 
@@ -189,6 +215,9 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     autoCorrect={false}
                     textContentType="oneTimeCode"
                     autoComplete="off"
+                    ref={confirmRef}
+                    returnKeyType="done"
+                    onSubmitEditing={handleRegister}
                   />
                 </View>
               )}
@@ -202,7 +231,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   )

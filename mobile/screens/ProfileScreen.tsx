@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useEffect, useState } from "react"
-import { SafeAreaView, StatusBar, ScrollView, View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Image } from "react-native"
+import { SafeAreaView, StatusBar, ScrollView, View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Image, KeyboardAvoidingView, Platform } from "react-native"
 import TopHeader from "../components/TopHeader"
 import { getCurrentUser, updateEmail, updatePassword, updateUsername, uploadProfileImage } from "../lib/auth"
 import * as ImagePicker from 'expo-image-picker'
@@ -92,7 +92,8 @@ const ProfileScreen: React.FC<ScreenProps> = ({ onBack, onLogout }) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
       {/* Header rendered persistently in App */}
-      <ScrollView style={styles.scroll} contentContainerStyle={{ padding: 20 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+      <ScrollView style={styles.scroll} contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>My Profile</Text>
 
         {/* Avatar */}
@@ -148,6 +149,7 @@ const ProfileScreen: React.FC<ScreenProps> = ({ onBack, onLogout }) => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   )
 }

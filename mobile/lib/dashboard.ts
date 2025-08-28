@@ -51,11 +51,28 @@ export async function updateActivityGoals(partial: Partial<ActivityGoals>): Prom
 
 export async function getTodaySummary(): Promise<TodaySummary> {
   const goals = await getActivityGoals()
+
+  // Screen time is tracked in user_distraction_entries as minutes per day/app.
+  // Aggregate to seconds for today.
+  const getScreenTimeSecondsToday = async (): Promise<number> => {
+    const { data: auth } = await supabase.auth.getUser()
+    const uid = auth.user?.id
+    if (!uid) return 0
+    const todayKey = new Date().toISOString().slice(0, 10)
+    const { data, error } = await supabase
+      .from('user_distraction_entries')
+      .select('minutes')
+      .eq('user_id', uid)
+      .eq('usage_date', todayKey)
+    if (error || !data) return 0
+    const totalMinutes = (data as Array<{ minutes: number }>).reduce((acc, r) => acc + (r.minutes || 0), 0)
+    return Math.max(0, totalMinutes) * 60
+  }
+
   const [readingSec, meditationSec, screenSec, workoutSec] = await Promise.all([
-    // adjust table/fields to your schema names
     sumSeconds('user_reading_sessions', 'started_at', 'duration_seconds'),
     sumSeconds('meditation_sessions', 'started_at', 'duration_seconds'),
-    sumSeconds('screen_time_entries', 'started_at', 'duration_seconds'),
+    getScreenTimeSecondsToday(),
     sumSeconds('workout_sessions', 'started_at', 'total_seconds', (q)=> q.eq('status','completed')),
   ])
   const pct = (sec: number, min: number) => min > 0 ? Math.min(999, Math.round((sec / (min*60)) * 100)) : 0

@@ -21,7 +21,7 @@ const daysOfWeek = [
 
 // Morning/Evening now come from DB (user_routines)
 
-type DayTask = { title: string; time?: string; done?: boolean }
+type DayTask = { id: string; title: string; time?: string; done?: boolean }
 type TasksByDay = Record<string, DayTask[]>
 
 const DailyRoutines = () => {
@@ -201,7 +201,7 @@ const DailyRoutines = () => {
               setEveningItems(updatedE.map((i) => ({ ...i, completed: !!map[i.id] })))
             }
             const rows = await listTasksByDate(key)
-            setTasksByDay((prev) => ({ ...prev, [currentDay]: rows.map(r => ({ title: r.title, time: r.time_text || undefined, done: !!r.done })) }))
+            setTasksByDay((prev) => ({ ...prev, [currentDay]: rows.map(r => ({ id: r.id, title: r.title, time: r.time_text || undefined, done: !!r.done })) }))
             setTasksChecks(rows.map(r => !!r.done))
           } catch {}
         })()
@@ -217,7 +217,7 @@ const DailyRoutines = () => {
       const date = getSelectedDate()
       const key = toDateKey(date)
       const rows = await listTasksByDate(key)
-      setTasksByDay((prev) => ({ ...prev, [currentDay]: rows.map(r => ({ title: r.title, time: r.time_text || undefined, done: !!r.done })) }))
+      setTasksByDay((prev) => ({ ...prev, [currentDay]: rows.map(r => ({ id: r.id, title: r.title, time: r.time_text || undefined, done: !!r.done })) }))
       setTasksChecks(rows.map(r => !!r.done))
     }
     load()
@@ -233,17 +233,37 @@ const DailyRoutines = () => {
     const newDone = !item.completed
     const date = getSelectedDate()
     const key = toDateKey(date)
-    await toggleRoutineCompleted(item.id, newDone, key)
-    const stats = await getRoutineStats([item.id], key)
-    const s = stats[item.id]
-    const next = eveningItems.slice()
-    next[index] = { ...item, completed: newDone, percent: s?.weekPercent || 0, streak: s?.streakDays || 0 }
-    setEveningItems(next)
-    Animated.timing(item.anim, { toValue: (s?.weekPercent || 0), duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
-    // Refresh dashboard metrics asynchronously (best effort)
-    try { await getPersonalMasteryMetrics(); emitPersonalMasteryChanged() } catch {}
-    // Always emit so dependent UI (button/calendar/streaks) re-check immediately
-    try { emitWinsChanged() } catch {}
+    // Optimistic UI update (checkbox + weekly percent)
+    const prevCompleted = item.completed
+    const nextOptimistic = eveningItems.slice()
+    const optimisticDelta = (newDone ? 100 : -100) / 7
+    const optimisticPercent = Math.max(0, Math.min(100, (item.percent || 0) + optimisticDelta))
+    nextOptimistic[index] = { ...item, completed: newDone, percent: optimisticPercent }
+    setEveningItems(nextOptimistic)
+    try { Animated.timing(item.anim, { toValue: optimisticPercent, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start() } catch {}
+    ;(async () => {
+      try {
+        await toggleRoutineCompleted(item.id, newDone, key)
+        const stats = await getRoutineStats([item.id], key)
+        const s = stats[item.id]
+        const next = eveningItems.slice()
+        const updated = next[index]
+        const percent = s?.weekPercent || 0
+        const streak = s?.streakDays || 0
+        next[index] = { ...(updated || item), completed: newDone, percent, streak }
+        setEveningItems(next)
+        try { Animated.timing(item.anim, { toValue: percent, duration: 400, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start() } catch {}
+      } catch {
+        // Revert on failure
+        const revert = eveningItems.slice()
+        revert[index] = { ...item, completed: prevCompleted }
+        setEveningItems(revert)
+        try { Animated.timing(item.anim, { toValue: item.percent || 0, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start() } catch {}
+      }
+      // Non-blocking dashboard refresh
+      try { getPersonalMasteryMetrics().then(() => emitPersonalMasteryChanged()).catch(() => {}) } catch {}
+      try { emitWinsChanged() } catch {}
+    })()
   }
   const toggleMorning = async (index: number) => {
     if (isFutureSelectedDay()) { Alert.alert('Not allowed', "You can't complete morning routines for a future day."); return }
@@ -252,33 +272,50 @@ const DailyRoutines = () => {
     const newDone = !item.completed
     const date = getSelectedDate()
     const key = toDateKey(date)
-    await toggleRoutineCompleted(item.id, newDone, key)
-    const stats = await getRoutineStats([item.id], key)
-    const s = stats[item.id]
-    const next = morningItems.slice()
-    next[index] = { ...item, completed: newDone, percent: s?.weekPercent || 0, streak: s?.streakDays || 0 }
-    setMorningItems(next)
-    Animated.timing(item.anim, { toValue: (s?.weekPercent || 0), duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
-    try { await getPersonalMasteryMetrics(); emitPersonalMasteryChanged() } catch {}
-    try { emitWinsChanged() } catch {}
+    // Optimistic UI update (checkbox + weekly percent)
+    const prevCompleted = item.completed
+    const nextOptimistic = morningItems.slice()
+    const optimisticDelta = (newDone ? 100 : -100) / 7
+    const optimisticPercent = Math.max(0, Math.min(100, (item.percent || 0) + optimisticDelta))
+    nextOptimistic[index] = { ...item, completed: newDone, percent: optimisticPercent }
+    setMorningItems(nextOptimistic)
+    try { Animated.timing(item.anim, { toValue: optimisticPercent, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start() } catch {}
+    ;(async () => {
+      try {
+        await toggleRoutineCompleted(item.id, newDone, key)
+        const stats = await getRoutineStats([item.id], key)
+        const s = stats[item.id]
+        const next = morningItems.slice()
+        const updated = next[index]
+        const percent = s?.weekPercent || 0
+        const streak = s?.streakDays || 0
+        next[index] = { ...(updated || item), completed: newDone, percent, streak }
+        setMorningItems(next)
+        try { Animated.timing(item.anim, { toValue: percent, duration: 400, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start() } catch {}
+      } catch {
+        const revert = morningItems.slice()
+        revert[index] = { ...item, completed: prevCompleted }
+        setMorningItems(revert)
+        try { Animated.timing(item.anim, { toValue: item.percent || 0, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start() } catch {}
+      }
+      try { getPersonalMasteryMetrics().then(() => emitPersonalMasteryChanged()).catch(() => {}) } catch {}
+      try { emitWinsChanged() } catch {}
+    })()
   }
   const toggleTask = async (index: number) => {
     const next = tasksChecks.map((v, i) => (i === index ? !v : v))
     setTasksChecks(next)
-    // Persist using setTaskDone; we need the task id, so we refetch for the day by date key and index match
-    const date = getSelectedDate()
-    const key = toDateKey(date)
-    const rows = await listTasksByDate(key)
-    const row = rows[index]
-    if (row) {
-      await setTaskDone(row.id, next[index])
-      // update currentTasks done state to survive rerenders without reload
-      setTasksByDay((prev) => ({
-        ...prev,
-        [currentDay]: (prev[currentDay] || []).map((t, i) => (i === index ? { ...t, done: next[index] } : t)),
-      }))
+    // Persist using setTaskDone with current task id; no refetch needed
+    const current = (tasksByDay[currentDay] || [])[index]
+    if (current && current.id) {
+      try { await setTaskDone(current.id, next[index]) } catch {}
     }
-    try { await getPersonalMasteryMetrics(); emitPersonalMasteryChanged() } catch {}
+    // update currentTasks done state to survive rerenders without reload
+    setTasksByDay((prev) => ({
+      ...prev,
+      [currentDay]: (prev[currentDay] || []).map((t, i) => (i === index ? { ...t, done: next[index] } : t)),
+    }))
+    try { getPersonalMasteryMetrics().then(() => emitPersonalMasteryChanged()).catch(() => {}) } catch {}
     try { emitWinsChanged() } catch {}
   }
   return (
@@ -439,7 +476,7 @@ const DailyRoutines = () => {
                 const key = toDateKey(getSelectedDate())
                 await createTask({ dateKey: key, title: newTaskTitle.trim(), timeText: newTaskTime.trim() || undefined })
                 const rows = await listTasksByDate(key)
-                setTasksByDay((prev) => ({ ...prev, [currentDay]: rows.map(r => ({ title: r.title, time: r.time_text || undefined })) }))
+                setTasksByDay((prev) => ({ ...prev, [currentDay]: rows.map(r => ({ id: r.id, title: r.title, time: r.time_text || undefined })) }))
                 setAdding(false); setNewTaskTitle(''); setNewTaskTime('')
               }} style={{ backgroundColor: '#4A90E2', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8 }}>
                 <Text style={{ color: '#fff', fontWeight: '700' }}>Save</Text>
@@ -604,13 +641,10 @@ const DailyRoutines = () => {
                 setPendingDeleteTaskIndex(null)
                 if (idx === null) return
                 try {
-                  const key = toDateKey(getSelectedDate())
-                  const rows = await listTasksByDate(key)
-                  const row = rows[idx]
-                  if (row) {
-                    await deleteTask(row.id)
-                    const updated = await listTasksByDate(key)
-                    setTasksByDay((prev) => ({ ...prev, [currentDay]: updated.map(r => ({ title: r.title, time: r.time_text || undefined })) }))
+                  const id = (tasksByDay[currentDay] || [])[idx]?.id
+                  if (id) {
+                    await deleteTask(id)
+                    setTasksByDay((prev) => ({ ...prev, [currentDay]: (prev[currentDay] || []).filter((_, i) => i !== idx) }))
                     setTasksChecks((prev) => prev.filter((_, i) => i !== idx))
                   }
                 } catch(e:any) {
@@ -666,13 +700,13 @@ const DailyRoutines = () => {
           onClose={() => setTaskEditor(null)}
           onSubmit={async ({ title, time }) => {
             try {
-              const key = toDateKey(getSelectedDate())
-              const rows = await listTasksByDate(key)
-              const row = rows[taskEditor.index]
-              if (row) {
-                await updateTask(row.id, { title: (title || '').trim(), timeText: (time || '').trim() })
-                const updated = await listTasksByDate(key)
-                setTasksByDay((prev) => ({ ...prev, [currentDay]: updated.map(r => ({ title: r.title, time: r.time_text || undefined, done: !!r.done })) }))
+              const current = (tasksByDay[currentDay] || [])[taskEditor.index]
+              if (current && current.id) {
+                await updateTask(current.id, { title: (title || '').trim(), timeText: (time || '').trim() })
+                setTasksByDay((prev) => ({
+                  ...prev,
+                  [currentDay]: (prev[currentDay] || []).map((t, i) => (i === taskEditor.index ? { ...t, title: (title || '').trim(), time: (time || '').trim() } : t)),
+                }))
               }
             } catch (e: any) {
               Alert.alert('Update failed', e?.message || 'Try again')

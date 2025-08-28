@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react"
-import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator } from "react-native"
+import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform } from "react-native"
 
 type Field = {
   key: string
@@ -60,7 +60,8 @@ const EditEntityModal: React.FC<EditEntityModalProps> = ({ visible, title, accen
           <View style={styles.headerRow}>
             <Text style={styles.title}>{title}</Text>
           </View>
-          <ScrollView contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <ScrollView contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             {fields.map((f) => (
               <View key={f.key} style={{ marginBottom: 10 }}>
                 {!!f.label && <Text style={styles.label}>{f.label}</Text>}
@@ -75,6 +76,7 @@ const EditEntityModal: React.FC<EditEntityModalProps> = ({ visible, title, accen
               </View>
             ))}
           </ScrollView>
+          </KeyboardAvoidingView>
 
           <View style={styles.footer}>
             <TouchableOpacity onPress={onClose} style={[styles.footerBtn, styles.secondaryBtn]}>
