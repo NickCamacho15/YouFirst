@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { getCurrentUserId } from './auth'
 import { listRoutines, listRoutineCompletionsByDate } from './routines'
 import { listTasksByDate } from './tasks'
 
@@ -16,13 +17,13 @@ export function emitWinsChanged(): void { for (const l of Array.from(listeners))
 
 // --------- Queries ---------
 export async function hasWon(dateKey?: string): Promise<boolean> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) throw new Error('Not authenticated')
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error('Not authenticated')
   const key = dateKey || toDateKeyLocal(startOfDay(new Date()))
   const { data, error } = await supabase
     .from<WinsRow>('user_wins')
     .select('win_date')
-    .eq('user_id', auth.user.id)
+    .eq('user_id', uid)
     .eq('win_date', key)
     .maybeSingle()
   if (error) return false
@@ -30,12 +31,12 @@ export async function hasWon(dateKey?: string): Promise<boolean> {
 }
 
 export async function listWinsBetween(startKey: string, endKeyInclusive: string): Promise<Set<string>> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) throw new Error('Not authenticated')
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error('Not authenticated')
   const { data, error } = await supabase
     .from<WinsRow>('user_wins')
     .select('win_date')
-    .eq('user_id', auth.user.id)
+    .eq('user_id', uid)
     .gte('win_date', startKey)
     .lte('win_date', endKeyInclusive)
     .order('win_date')
@@ -46,10 +47,10 @@ export async function listWinsBetween(startKey: string, endKeyInclusive: string)
 }
 
 export async function markWon(dateKey?: string): Promise<void> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) throw new Error('Not authenticated')
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error('Not authenticated')
   const key = dateKey || toDateKeyLocal(startOfDay(new Date()))
-  const payload = { user_id: auth.user.id, win_date: key }
+  const payload = { user_id: uid, win_date: key }
   // Prefer simple insert and ignore duplicates; fall back to alternate upsert if server requires conflict target
   let error: any | null = null
   try {
@@ -72,8 +73,8 @@ export async function markWon(dateKey?: string): Promise<void> {
 }
 
 export async function getStreaks(): Promise<{ current: number; best: number }> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) throw new Error('Not authenticated')
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error('Not authenticated')
   const today = startOfDay(new Date())
   const start = new Date(today); start.setDate(start.getDate() - 365)
   const startKey = toDateKeyLocal(start)
@@ -81,7 +82,7 @@ export async function getStreaks(): Promise<{ current: number; best: number }> {
   const { data, error } = await supabase
     .from<WinsRow>('user_wins')
     .select('win_date')
-    .eq('user_id', auth.user.id)
+    .eq('user_id', uid)
     .gte('win_date', startKey)
     .lte('win_date', todayKey)
     .order('win_date')

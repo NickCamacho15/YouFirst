@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import { getCurrentUserId } from "./auth"
 
 export type AppNotification = {
   id: string
@@ -25,8 +26,7 @@ export function emitNotificationsChanged(): void {
 }
 
 export async function getUnreadCount(): Promise<number> {
-  const { data: auth } = await supabase.auth.getUser()
-  const uid = auth.user?.id
+  const uid = await getCurrentUserId()
   if (!uid) return 0
   const { count } = await supabase
     .from("notifications")
@@ -38,8 +38,7 @@ export async function getUnreadCount(): Promise<number> {
 
 // Weekly unread count (last 7 days, inclusive of today)
 export async function getUnreadCountForPastWeek(): Promise<number> {
-  const { data: auth } = await supabase.auth.getUser()
-  const uid = auth.user?.id
+  const uid = await getCurrentUserId()
   if (!uid) return 0
   const end = new Date(); end.setHours(23,59,59,999)
   const start = new Date(end); start.setDate(end.getDate() - 6); start.setHours(0,0,0,0)
@@ -54,8 +53,7 @@ export async function getUnreadCountForPastWeek(): Promise<number> {
 }
 
 export async function listNotifications(limit = 50): Promise<AppNotification[]> {
-  const { data: auth } = await supabase.auth.getUser()
-  const uid = auth.user?.id
+  const uid = await getCurrentUserId()
   if (!uid) return []
   const { data, error } = await supabase
     .from("notifications")
@@ -68,16 +66,14 @@ export async function listNotifications(limit = 50): Promise<AppNotification[]> 
 }
 
 export async function markAllRead(): Promise<void> {
-  const { data: auth } = await supabase.auth.getUser()
-  const uid = auth.user?.id
+  const uid = await getCurrentUserId()
   if (!uid) return
   await supabase.from("notifications").update({ is_read: true }).eq("user_id", uid)
   emitNotificationsChanged()
 }
 
 export async function createNotification(input: { type: string; title: string; body?: string; data?: any }): Promise<void> {
-  const { data: auth } = await supabase.auth.getUser()
-  const uid = auth.user?.id
+  const uid = await getCurrentUserId()
   if (!uid) return
   await supabase.from("notifications").insert([
     {

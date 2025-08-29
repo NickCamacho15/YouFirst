@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { getCurrentUserId } from './auth'
 
 export type RoutineType = 'morning' | 'evening'
 export type RoutineRow = {
@@ -23,12 +24,12 @@ function parseDateKeyLocal(key: string): Date { const [y,m,d] = key.split('-').m
 
 export async function listRoutines(type: RoutineType): Promise<RoutineRow[]> {
   try {
-    const { data: auth } = await supabase.auth.getUser()
-    if (!auth.user) throw new Error('Not authenticated')
+    const uid = await getCurrentUserId()
+    if (!uid) throw new Error('Not authenticated')
     const { data, error } = await supabase
-      .from<RoutineRow>('user_routines')
+      .from('user_routines')
       .select('id,user_id,routine_type,title,position,created_at')
-      .eq('user_id', auth.user.id)
+      .eq('user_id', uid)
       .eq('routine_type', type)
       .order('position', { ascending: true })
       .order('created_at', { ascending: true })
@@ -40,11 +41,11 @@ export async function listRoutines(type: RoutineType): Promise<RoutineRow[]> {
 }
 
 export async function createRoutine(type: RoutineType, title: string, position?: number): Promise<RoutineRow> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) throw new Error('Not authenticated')
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error('Not authenticated')
   const { data, error } = await supabase
-    .from<RoutineRow>('user_routines')
-    .insert([{ user_id: auth.user.id, routine_type: type, title, position: position ?? 0 }])
+    .from('user_routines')
+    .insert([{ user_id: uid, routine_type: type, title, position: position ?? 0 }])
     .select('id,user_id,routine_type,title,position,created_at')
     .single()
   if (error || !data) throw new Error(error?.message || 'Failed to create routine')
@@ -66,12 +67,12 @@ export async function updateRoutine(id: string, changes: { title?: string; posit
 }
 
 export async function toggleRoutineCompleted(routineId: string, completed: boolean, dateKey?: string): Promise<void> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) throw new Error('Not authenticated')
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error('Not authenticated')
   const today = toDateKeyLocal(startOfDay(new Date()))
   const key = dateKey || today
   if (completed) {
-    const { error } = await supabase.from('user_routine_logs').upsert([{ user_id: auth.user.id, routine_id: routineId, log_date: key, completed: true }], { onConflict: 'routine_id,log_date' })
+    const { error } = await supabase.from('user_routine_logs').upsert([{ user_id: uid, routine_id: routineId, log_date: key, completed: true }], { onConflict: 'routine_id,log_date' })
     if (error) throw new Error(error.message)
   } else {
     const { error } = await supabase.from('user_routine_logs').delete().eq('routine_id', routineId).eq('log_date', key)
@@ -81,8 +82,8 @@ export async function toggleRoutineCompleted(routineId: string, completed: boole
 
 export async function getRoutineStats(routineIds: string[], anchorISO?: string): Promise<Record<string, RoutineStats>> {
   if (!routineIds.length) return {}
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) throw new Error('Not authenticated')
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error('Not authenticated')
   const anchor = startOfDay(anchorISO ? parseDateKeyLocal(anchorISO) : new Date())
   // Define week window containing the anchor (Sunday–Saturday)
   const weekStart = startOfDay(new Date(anchor))
@@ -91,7 +92,7 @@ export async function getRoutineStats(routineIds: string[], anchorISO?: string):
   const { data, error } = await supabase
     .from('user_routine_logs')
     .select('routine_id, log_date, completed')
-    .eq('user_id', auth.user.id)
+    .eq('user_id', uid)
     .in('routine_id', routineIds)
     .lte('log_date', toDateKeyLocal(anchor))
   if (error) throw new Error(error.message)

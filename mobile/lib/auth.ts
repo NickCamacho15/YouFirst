@@ -216,8 +216,8 @@ export async function register(payload: RegisterPayload): Promise<User> {
 }
 
 export async function getCurrentUser(): Promise<User | null> {
-  const { data } = await supabase.auth.getUser()
-  const authUser = data.user
+  const { data: sess } = await supabase.auth.getSession()
+  const authUser = sess.session?.user || null
   if (!authUser) return null
   // Prefer canonical values from public.users, with auth metadata as fallback
   try {
@@ -241,6 +241,17 @@ export async function getCurrentUser(): Promise<User | null> {
       username: authUser.user_metadata?.username || undefined,
       profileImageUrl: authUser.user_metadata?.profile_image_url || null,
     }
+  }
+}
+
+// Lightweight helper to access the current user's id using the local session only.
+// This avoids a network GET /auth/v1/user call on hot paths.
+export async function getCurrentUserId(): Promise<string | null> {
+  try {
+    const { data } = await supabase.auth.getSession()
+    return data.session?.user?.id ?? null
+  } catch {
+    return null
   }
 }
 

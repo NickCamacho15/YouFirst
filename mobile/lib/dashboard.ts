@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { getCurrentUserId } from './auth'
 
 export type Activity = 'reading' | 'meditation' | 'screen_time' | 'workouts'
 export type ActivityGoals = Record<Activity, number>
@@ -30,9 +31,9 @@ async function sumSeconds(table: string, timeField: 'started_at' | 'startedAt' |
 }
 
 export async function getActivityGoals(): Promise<ActivityGoals> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) throw new Error('Not authenticated')
-  const { data, error } = await supabase.from('activity_goals').select('activity, target_minutes').eq('user_id', auth.user.id)
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error('Not authenticated')
+  const { data, error } = await supabase.from('activity_goals').select('activity, target_minutes').eq('user_id', uid)
   if (error) throw new Error(error.message)
   const defaults: ActivityGoals = { reading: 60, meditation: 10, screen_time: 120, workouts: 30 }
   const goals: ActivityGoals = { ...defaults }
@@ -41,9 +42,9 @@ export async function getActivityGoals(): Promise<ActivityGoals> {
 }
 
 export async function updateActivityGoals(partial: Partial<ActivityGoals>): Promise<void> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) throw new Error('Not authenticated')
-  const rows = Object.entries(partial).map(([activity, minutes]) => ({ user_id: auth.user!.id, activity, target_minutes: minutes }))
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error('Not authenticated')
+  const rows = Object.entries(partial).map(([activity, minutes]) => ({ user_id: uid, activity, target_minutes: minutes }))
   if (!rows.length) return
   const { error } = await supabase.from('activity_goals').upsert(rows as any, { onConflict: 'user_id,activity' })
   if (error) throw new Error(error.message)
@@ -55,8 +56,7 @@ export async function getTodaySummary(): Promise<TodaySummary> {
   // Screen time is tracked in user_distraction_entries as minutes per day/app.
   // Aggregate to seconds for today.
   const getScreenTimeSecondsToday = async (): Promise<number> => {
-    const { data: auth } = await supabase.auth.getUser()
-    const uid = auth.user?.id
+    const uid = await getCurrentUserId()
     if (!uid) return 0
     const todayKey = new Date().toISOString().slice(0, 10)
     const { data, error } = await supabase
@@ -98,8 +98,7 @@ function toDateKeyLocal(d: Date): string {
 }
 
 export async function getPersonalMasteryMetrics(): Promise<PersonalMastery> {
-  const { data: auth } = await supabase.auth.getUser()
-  const uid = auth.user?.id
+  const uid = await getCurrentUserId()
   if (!uid) throw new Error('Not authenticated')
 
   // Current week window (Sunday–Saturday)

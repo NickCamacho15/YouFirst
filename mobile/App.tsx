@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image } from "react-native"
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar } from "react-native"
 import { useEffect, useState } from "react"
 import AuthScreen from "./screens/AuthScreen"
 import GoalsScreen from "./screens/GoalsScreen"
@@ -19,7 +19,7 @@ import PersonalMasteryDashboard from "./components/PersonalMasteryDashboard"
 import TopHeader from "./components/TopHeader"
 import { UserProvider } from "./lib/user-context"
 import { supabase } from "./lib/supabase"
-import { ensureNotificationsRealtime, getUnreadCountForPastWeek, listNotifications } from "./lib/notifications"
+// Removed duplicate notifications prefetch; TopHeader handles its own fetching/realtime
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -70,11 +70,9 @@ const App: React.FC = () => {
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" />
         <TopHeader onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-        {/* Prime notifications/light prefetch so header badge has data */}
-        <PrefetchOnce />
-        {/* Keep screens mounted, toggle with display to avoid remount flicker */}
+        {/* Lazy-mount only the active screen to reduce initial API burst */}
         <View style={{ flex: 1 }}>
-          <View style={{ flex: 1, display: currentScreen === "home" ? "flex" : "none" }}>
+          {currentScreen === "home" && (
             <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
               <Calendar />
               <StreakStats />
@@ -83,22 +81,22 @@ const App: React.FC = () => {
               <WeeklyPerformance />
               <PersonalMasteryDashboard />
             </ScrollView>
-          </View>
-          <View style={{ flex: 1, display: currentScreen === "goals" ? "flex" : "none" }}>
+          )}
+          {currentScreen === "goals" && (
             <GoalsScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-          </View>
-          <View style={{ flex: 1, display: currentScreen === "disciplines" ? "flex" : "none" }}>
+          )}
+          {currentScreen === "disciplines" && (
             <DisciplinesScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-          </View>
-          <View style={{ flex: 1, display: currentScreen === "mind" ? "flex" : "none" }}>
+          )}
+          {currentScreen === "mind" && (
             <MindScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-          </View>
-          <View style={{ flex: 1, display: currentScreen === "body" ? "flex" : "none" }}>
+          )}
+          {currentScreen === "body" && (
             <BodyScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-          </View>
-          <View style={{ flex: 1, display: currentScreen === "profile" ? "flex" : "none" }}>
+          )}
+          {currentScreen === "profile" && (
             <ProfileScreen onLogout={handleLogout} />
-          </View>
+          )}
         </View>
         <View style={styles.bottomNavContainer}>
           <View style={styles.bottomNavigation}>
@@ -143,20 +141,6 @@ const App: React.FC = () => {
       </SafeAreaView>
     </UserProvider>
   )
-}
-
-const PrefetchOnce: React.FC = () => {
-  useEffect(() => {
-    let mounted = true
-    ensureNotificationsRealtime()
-    ;(async () => {
-      try {
-        await Promise.all([getUnreadCountForPastWeek(), listNotifications(5)])
-      } catch {}
-    })()
-    return () => { mounted = false }
-  }, [])
-  return null
 }
 
 const styles = StyleSheet.create({
