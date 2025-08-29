@@ -18,6 +18,7 @@ import DailyRoutines from "./components/DailyRoutines"
 import PersonalMasteryDashboard from "./components/PersonalMasteryDashboard"
 import TopHeader from "./components/TopHeader"
 import { UserProvider } from "./lib/user-context"
+import { supabase } from "./lib/supabase"
 import { ensureNotificationsRealtime, getUnreadCountForPastWeek, listNotifications } from "./lib/notifications"
 
 const App: React.FC = () => {
@@ -37,6 +38,25 @@ const App: React.FC = () => {
   }
 
   const [currentScreen, setCurrentScreen] = useState("home")
+
+  // Detect existing session on cold start and respond to auth events
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const { data } = await supabase.auth.getSession()
+        if (mounted) setIsAuthenticated(!!data.session)
+      } catch {}
+    })()
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN") setIsAuthenticated(true)
+      if (event === "SIGNED_OUT") {
+        setIsAuthenticated(false)
+        setCurrentScreen("home")
+      }
+    })
+    return () => { mounted = false; sub.subscription.unsubscribe() }
+  }, [])
   if (!isAuthenticated) {
     return (
       <UserProvider key={`provider-${appEpoch}`}>

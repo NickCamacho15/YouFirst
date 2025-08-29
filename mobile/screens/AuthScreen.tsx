@@ -1,8 +1,7 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { login, register } from "../lib/auth"
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import {
   View,
   Text,
@@ -36,6 +35,18 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
   const passwordRef = useRef<TextInput | null>(null)
   const confirmRef = useRef<TextInput | null>(null)
 
+  // Autofocus the first relevant field when tab changes or on mount
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (activeTab === "register") {
+        usernameRef.current?.focus()
+      } else {
+        emailRef.current?.focus()
+      }
+    }, 250)
+    return () => clearTimeout(t)
+  }, [activeTab])
+
   const handleSignIn = async () => {
     if (!(email || username) || !password) return
     setSubmitting(true)
@@ -54,11 +65,11 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
     }
   }
 
-  // Make this screen behave like a fresh cold start after app logout by clearing volatile UI state
-  // (Auth tokens are already cleared on logout). This resets the form and any previous error.
-  // Using a tiny effect ensures it runs once per mount.
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  ;(() => { setTimeout(() => { setError(null); setSubmitting(false) }, 0) })()
+  // Clear any transient UI state when this screen mounts
+  useEffect(() => {
+    setError(null)
+    setSubmitting(false)
+  }, [])
 
   const handleRegister = async () => {
     if (!email || !username || !password || password !== confirmPassword) return
@@ -78,7 +89,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
-      <KeyboardAvoidingView style={styles.keyboardAvoidingView} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <KeyboardAvoidingView style={styles.keyboardAvoidingView} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {/* Logo Section */}
           <View style={styles.logoSection}>
@@ -124,6 +135,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     autoCapitalize="none"
                     autoCorrect={false}
                     ref={usernameRef}
+                    autoFocus={activeTab === "register"}
                     returnKeyType="next"
                     blurOnSubmit={false}
                     onSubmitEditing={() => emailRef.current?.focus()}
@@ -150,6 +162,9 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     autoCapitalize="none"
                     autoCorrect={false}
                     ref={emailRef}
+                    autoFocus={activeTab === "login"}
+                    textContentType={Platform.OS === "ios" ? "username" : "username"}
+                    autoComplete="username"
                     returnKeyType="next"
                     blurOnSubmit={false}
                     onSubmitEditing={() => passwordRef.current?.focus()}
@@ -168,7 +183,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
-                    textContentType="emailAddress"
+                    textContentType={Platform.OS === "ios" ? "emailAddress" : "email"}
                     autoComplete="email"
                     ref={emailRef}
                     returnKeyType="next"
@@ -189,8 +204,8 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                   secureTextEntry
                   autoCapitalize="none"
                   autoCorrect={false}
-                  textContentType="oneTimeCode"
-                  autoComplete="off"
+                  textContentType={Platform.OS === "ios" ? "password" : "password"}
+                  autoComplete="password"
                   ref={passwordRef}
                   returnKeyType={activeTab === "register" ? "next" : "done"}
                   blurOnSubmit={activeTab !== "register"}
@@ -213,8 +228,8 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     secureTextEntry
                     autoCapitalize="none"
                     autoCorrect={false}
-                    textContentType="oneTimeCode"
-                    autoComplete="off"
+                    textContentType={Platform.OS === "ios" ? "password" : "password"}
+                    autoComplete="password"
                     ref={confirmRef}
                     returnKeyType="done"
                     onSubmitEditing={handleRegister}

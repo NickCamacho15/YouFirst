@@ -75,10 +75,10 @@ const ProfileScreen: React.FC<ScreenProps> = ({ onBack, onLogout }) => {
       const ext = (fileName.split('.').pop() || '').toLowerCase()
       const mime = asset.mimeType || (ext === 'png' ? 'image/png' : 'image/jpeg')
 
-      // Read the file bytes reliably in RN/Expo (avoid 0-byte uploads)
-      const b64 = asset.base64 || await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 })
-      const uint8 = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
-      const { publicUrl } = await uploadProfileImage(uint8, mime, fileName)
+      // Prefer Blob upload to avoid base64 decoding pitfalls and memory spikes
+      const response = await fetch(uri)
+      const blob = await response.blob()
+      const { publicUrl } = await uploadProfileImage(blob as any, mime, fileName)
       setProfileImageUrl(publicUrl || null)
       Alert.alert('Updated', 'Your profile picture has been updated.')
     } catch (e: any) {
