@@ -312,31 +312,36 @@ export async function updatePassword(newPassword: string): Promise<void> {
 
 export async function updateProfileImageUrl(pathInBucket: string | null): Promise<void> {
   const publicUrl = pathInBucket ? getPublicUrlFromStorage("avatars", pathInBucket) : null
-  // Update auth metadata with a timeout to avoid UI hangs
-  const authUpdate = async () => {
-    const { error } = await supabase.auth.updateUser({ data: { profile_image_url: publicUrl } })
-    if (error) throw new Error(error.message)
-  }
-  await withTimeout(authUpdate(), 6000, "Update auth profile image")
-  // Best-effort mirror on public.users with separate timeout
   try {
     const { data: auth } = await supabase.auth.getUser()
     const uid = auth.user?.id
     if (!uid) return
-    await withTimeout(
-      (async () => {
-        const { error: upErr } = await supabase
-          .from("users")
-          .update({ profile_image_url: publicUrl })
-          .eq("id", uid)
-        if (upErr) throw upErr
-      })(),
-      6000,
-      "Mirror users profile image"
-    )
+    // Run both updates in parallel and do not throw if one is slow
+    const tasks: Promise<any>[] = [
+      withTimeout(
+        (async () => {
+          const { error } = await supabase.auth.updateUser({ data: { profile_image_url: publicUrl } })
+          if (error) throw new Error(error.message)
+        })(),
+        6000,
+        "Update auth profile image"
+      ),
+      withTimeout(
+        (async () => {
+          const { error: upErr } = await supabase
+            .from("users")
+            .update({ profile_image_url: publicUrl })
+            .eq("id", uid)
+          if (upErr) throw upErr
+        })(),
+        6000,
+        "Mirror users profile image"
+      ),
+    ]
+    await Promise.allSettled(tasks)
   } catch (e: any) {
     // eslint-disable-next-line no-console
-    console.warn("Profile image mirror warning:", e?.message || String(e))
+    console.warn("Profile image metadata update (non-fatal):", e?.message || String(e))
   }
 }
 
@@ -346,6 +351,14 @@ export async function uploadProfileImage(file: Blob | ArrayBuffer | Uint8Array, 
   if (!userId) throw new Error("Not authenticated")
   const cleanName = fileName.replace(/[^a-zA-Z0-9_.-]/g, "_")
   const storagePath = `${userId}/${Date.now()}_${cleanName}`
+  // Enforce non-empty content to avoid 0-byte objects
+  if (typeof Blob !== 'undefined' && file instanceof Blob) {
+    if ((file as any).size === 0) throw new Error("Selected image is empty. Please choose a different photo.")
+  } else if (file instanceof Uint8Array) {
+    if (file.byteLength === 0) throw new Error("Selected image is empty. Please choose a different photo.")
+  } else if (file instanceof ArrayBuffer) {
+    if ((file as ArrayBuffer).byteLength === 0) throw new Error("Selected image is empty. Please choose a different photo.")
+  }
   // Enforce an upper bound on storage upload time
   const { publicUrl } = await withTimeout(
     uploadToStorage("avatars", storagePath, file as any, contentType, true),

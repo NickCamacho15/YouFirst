@@ -4,7 +4,10 @@ import React, { useEffect, useState } from "react"
 import { SafeAreaView, StatusBar, ScrollView, View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Image, KeyboardAvoidingView, Platform } from "react-native"
 import TopHeader from "../components/TopHeader"
 import { getCurrentUser, updateEmail, updatePassword, updateUsername, uploadProfileImage } from "../lib/auth"
+import { Image as RNImage } from "react-native"
+import { useUser } from "../lib/user-context"
 import * as ImagePicker from 'expo-image-picker'
+import * as ImageManipulator from 'expo-image-manipulator'
 import * as FileSystem from 'expo-file-system'
 
 interface ScreenProps { onBack?: () => void; onLogout?: () => void }
@@ -17,6 +20,8 @@ const ProfileScreen: React.FC<ScreenProps> = ({ onBack, onLogout }) => {
   const [saving, setSaving] = useState(false)
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+
+  const { refresh } = useUser()
 
   useEffect(() => {
     ;(async () => {
@@ -65,21 +70,45 @@ const ProfileScreen: React.FC<ScreenProps> = ({ onBack, onLogout }) => {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
       if (status !== 'granted') {
         Alert.alert('Permission needed', 'Please allow photo library access to upload a profile image.')
+        setUploading(false)
         return
       }
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1,1], quality: 0.9, base64: true })
-      if (result.canceled || !result.assets?.length) return
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1,1], quality: 0.9 })
+      if (result.canceled || !result.assets?.length) { setUploading(false); return }
       const asset = result.assets[0]
-      const uri = asset.uri
-      const fileName = asset.fileName || uri.split('/').pop() || 'avatar.jpg'
-      const ext = (fileName.split('.').pop() || '').toLowerCase()
-      const mime = asset.mimeType || (ext === 'png' ? 'image/png' : 'image/jpeg')
+      const originalUri = asset.uri
+      // Normalize image: resize and convert to JPEG to avoid HEIC/PNG/iCloud edge cases
+      const manip = await ImageManipulator.manipulateAsync(
+        originalUri,
+        [{ resize: { width: 1024 } }],
+        { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
+      )
+      const uri = manip.uri
+      const fileName = (asset.fileName || uri.split('/').pop() || 'avatar').replace(/\.(heic|heif|png)$/i, '') + '.jpg'
+      const mime = 'image/jpeg'
 
-      // Prefer Blob upload to avoid base64 decoding pitfalls and memory spikes
-      const response = await fetch(uri)
-      const blob = await response.blob()
+      // Prefer Blob upload to avoid base64 decoding pitfalls and guard for stalls
+      const response = await Promise.race([
+        fetch(uri),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Local file read timed out')), 12000)),
+      ]) as Response
+      let blob = await response.blob()
+      // Fallback path for iOS/iCloud assets that sometimes yield 0-byte blobs
+      if (!blob || (blob as any).size === 0) {
+        const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 })
+        const binary = atob(b64)
+        const len = binary.length
+        const bytes = new Uint8Array(len)
+        for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i)
+        blob = new Blob([bytes], { type: mime })
+      }
       const { publicUrl } = await uploadProfileImage(blob as any, mime, fileName)
+      if (publicUrl) {
+        try { await RNImage.prefetch(publicUrl) } catch {}
+      }
       setProfileImageUrl(publicUrl || null)
+      // Refresh user context so header picks up new URL immediately
+      try { await refresh() } catch {}
       Alert.alert('Updated', 'Your profile picture has been updated.')
     } catch (e: any) {
       Alert.alert('Upload failed', e?.message || String(e))

@@ -13,7 +13,7 @@ export default (): ExpoConfig => {
   return {
     name,
     slug: "mobile",
-    version: "1.0.2",
+    version: "1.0.3",
     orientation: "portrait",
     icon: "./assets/youlogo.png",
     userInterfaceStyle: "light",
