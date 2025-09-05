@@ -424,3 +424,53 @@ To use this database from your app:
 1. Ensure authentication is set up with Supabase JS client
 2. User registration/login creates necessary user records automatically
 3. All subsequent queries should use the authenticated Supabase client to enforce RLS
+
+### 9. body_metrics (new)
+
+Stores a user's latest body metrics and the app's estimated body fat percentage based on BMI, age, and sex. This table is designed as a simple profile snapshot (one row per user) and is updated whenever the user recalculates their metrics in the app.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| user_id | uuid | Primary key, references users(id) |
+| gender | text | 'male' or 'female' |
+| age_years | int | Age in years |
+| height_inches | int | Height in total inches |
+| weight_lbs | numeric | Weight in pounds |
+| est_body_fat_percent | numeric | Estimated body fat percentage (via Deurenberg) |
+| updated_at | timestamptz | Last update timestamp (default now()) |
+
+Notes:
+- Height is stored as total inches for simplicity; convert to/from feet+inches in the client.
+- The body fat estimate can be recomputed deterministically from stored fields; it is persisted for convenience and analytics.
+
+RLS Policies:
+- `body_metrics_select_own`: select where `user_id = auth.uid()`
+- `body_metrics_upsert_own`: insert/update where `user_id = auth.uid()`
+
+Example SQL:
+
+```sql
+create table if not exists public.body_metrics (
+  user_id uuid primary key references public.users(id) on delete cascade,
+  gender text not null check (gender in ('male','female')),
+  age_years int not null check (age_years between 5 and 120),
+  height_inches int not null check (height_inches between 36 and 96),
+  weight_lbs numeric not null check (weight_lbs > 0 and weight_lbs < 1500),
+  est_body_fat_percent numeric not null check (est_body_fat_percent >= 0 and est_body_fat_percent <= 100),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.body_metrics enable row level security;
+
+drop policy if exists body_metrics_select_own on public.body_metrics;
+create policy body_metrics_select_own on public.body_metrics
+  for select to authenticated using (user_id = auth.uid());
+
+drop policy if exists body_metrics_upsert_own on public.body_metrics;
+create policy body_metrics_upsert_own on public.body_metrics
+  for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+```
+
+Client calculation reference (Deurenberg formula):
+- BMI = weight_kg / (height_m^2)
+- Body fat % = 1.20 × BMI + 0.23 × age − 10.8 × sex − 5.4, where sex = 1 for male, 0 for female.

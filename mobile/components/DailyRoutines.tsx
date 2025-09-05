@@ -387,30 +387,18 @@ const DailyRoutines = () => {
             <View style={styles.habitTopRow}>
               <TouchableOpacity style={styles.checkboxTouchable} onPress={() => toggleMorning(idx)}>
                 <View style={[styles.checkboxBoxBlue, item.completed && styles.checkboxBoxBlueChecked]}>
-                  {item.completed && <Ionicons name="checkmark" size={14} color="#fff" />}
+                  {item.completed && <Ionicons name="checkmark" size={12} color="#fff" />}
                 </View>
               </TouchableOpacity>
               <View style={{ flex: 1 }}>
                 <Text style={styles.habitLabel}>{item.title}</Text>
               </View>
-              <>
-                <TouchableOpacity onPress={() => { setRoutineEditor({ id: item.id, type: 'morning', title: item.title }) }} style={{ padding: 6, marginLeft: 8 }}>
-                  <Ionicons name="create-outline" size={18} color="#3B82F6" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setPendingDeleteMorningId(item.id)} style={{ padding: 6 }}>
-                  <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                </TouchableOpacity>
-              </>
               <View style={[styles.streakBadge, { backgroundColor: "#E6F7F1" }]}>
                 <Text style={[styles.streakText, { color: "#10B981" }]}>{item.streak} day streak</Text>
               </View>
-            </View>
-            <Text style={styles.progressLabel}>Weekly Progress</Text>
-            <View style={styles.progressContainer}>
-              <View style={styles.progressTrackBlue}>
-                <Animated.View style={[styles.progressFillBlue, { width: item.anim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }]} />
-              </View>
-              <Text style={styles.progressPercentageBlue}>{Math.round(item.percent)}%</Text>
+              <TouchableOpacity onPress={() => setPendingDeleteMorningId(item.id)} style={{ padding: 4, marginLeft: 6 }}>
+                <Ionicons name="close" size={14} color="#9ca3af" />
+              </TouchableOpacity>
             </View>
           </LinearGradient>
         ))}
@@ -443,21 +431,16 @@ const DailyRoutines = () => {
             <View style={styles.taskTopRow}>
               <TouchableOpacity style={styles.checkboxTouchable} onPress={() => { if (isFutureSelectedDay()) { Alert.alert('Not allowed', "You can't complete tasks for a future day."); return } toggleTask(idx) }}>
                 <View style={[styles.checkboxBoxGreen, tasksChecks[idx] && styles.checkboxBoxGreenChecked]}>
-                  {tasksChecks[idx] && <Ionicons name="checkmark" size={14} color="#fff" />}
+                  {tasksChecks[idx] && <Ionicons name="checkmark" size={12} color="#fff" />}
                 </View>
               </TouchableOpacity>
               <View style={{ flex: 1 }}>
                 <Text style={styles.taskTitle}>{task.title}</Text>
                 <Text style={styles.taskTime}>{task.time ?? ""}</Text>
               </View>
-              <>
-                <TouchableOpacity onPress={() => { setTaskEditor({ index: idx, title: task.title, time: task.time }) }} style={{ padding: 6, marginLeft: 8 }}>
-                  <Ionicons name="create-outline" size={18} color="#4A90E2" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setPendingDeleteTaskIndex(idx)} style={{ padding: 6 }}>
-                    <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                  </TouchableOpacity>
-              </>
+              <TouchableOpacity onPress={() => setPendingDeleteTaskIndex(idx)} style={{ padding: 4, marginLeft: 6 }}>
+                <Ionicons name="close" size={14} color="#9ca3af" />
+              </TouchableOpacity>
             </View>
           </LinearGradient>
         ))}
@@ -539,30 +522,18 @@ const DailyRoutines = () => {
             <View style={styles.habitTopRow}>
               <TouchableOpacity style={styles.checkboxTouchable} onPress={() => toggleCheck(idx)}>
                 <View style={[styles.checkboxBox, item.completed && styles.checkboxBoxChecked]}> 
-                  {item.completed && <Ionicons name="checkmark" size={14} color="#fff" />}
+                  {item.completed && <Ionicons name="checkmark" size={12} color="#fff" />}
                 </View>
               </TouchableOpacity>
               <View style={{ flex: 1 }}>
                 <Text style={styles.habitLabel}>{item.title}</Text>
               </View>
-              <>
-                <TouchableOpacity onPress={() => { setRoutineEditor({ id: item.id, type: 'evening', title: item.title }) }} style={{ padding: 6, marginLeft: 8 }}>
-                  <Ionicons name="create-outline" size={18} color="#8B5CF6" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setPendingDeleteEveningId(item.id)} style={{ padding: 6 }}>
-                  <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                </TouchableOpacity>
-              </>
               <View style={[styles.streakBadge, { backgroundColor: "#EAF7EE" }]}>
                 <Text style={[styles.streakText, { color: "#16A34A" }]}>{item.streak} day streak</Text>
               </View>
-            </View>
-            <Text style={styles.progressLabel}>Weekly Progress</Text>
-            <View style={styles.progressContainer}>
-              <View style={styles.progressTrackAlt}>
-                <Animated.View style={[styles.progressFillAlt, { width: item.anim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }]} />
-              </View>
-              <Text style={styles.progressPercentage}>{Math.round(item.percent)}%</Text>
+              <TouchableOpacity onPress={() => setPendingDeleteEveningId(item.id)} style={{ padding: 4, marginLeft: 6 }}>
+                <Ionicons name="close" size={14} color="#9ca3af" />
+              </TouchableOpacity>
             </View>
           </LinearGradient>
         ))}
@@ -727,7 +698,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 16,
     borderRadius: 12,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 0,
+    paddingBottom: 16,
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
@@ -767,8 +740,8 @@ const styles = StyleSheet.create({
   sectionCard: {
     backgroundColor: "#fff",
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
+    padding: 12,
+    marginBottom: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -779,10 +752,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 8,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: "700",
     color: "#1f2937",
   },
@@ -791,8 +764,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#C7DBFF",
     borderRadius: 14,
-    marginBottom: 12,
-    padding: 16,
+    marginBottom: 8,
+    padding: 12,
   },
   habitGradient: {
     padding: 16,
@@ -815,8 +788,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#CFC3FF",
     borderRadius: 14,
-    marginBottom: 12,
-    padding: 16,
+    marginBottom: 8,
+    padding: 12,
   },
   habitTopRow: { flexDirection: "row", alignItems: "center" },
   checkbox: {
@@ -828,10 +801,10 @@ const styles = StyleSheet.create({
     marginRight: 10,
     backgroundColor: "#fff",
   },
-  checkboxTouchable: { marginRight: 10 },
+  checkboxTouchable: { marginRight: 8 },
   checkboxBox: {
-    width: 22,
-    height: 22,
+    width: 20,
+    height: 20,
     borderRadius: 6,
     borderWidth: 2,
     borderColor: "#CFC3FF",
@@ -844,8 +817,8 @@ const styles = StyleSheet.create({
     borderColor: "#8B5CF6",
   },
   checkboxBoxBlue: {
-    width: 22,
-    height: 22,
+    width: 20,
+    height: 20,
     borderRadius: 6,
     borderWidth: 2,
     borderColor: "#9DBBFF",
@@ -871,15 +844,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#22C55E",
     borderColor: "#22C55E",
   },
-  habitLabel: { flex: 1, fontSize: 16, color: "#111827", fontWeight: "600" },
+  habitLabel: { flex: 1, fontSize: 14, color: "#111827", fontWeight: "600" },
   streakBadge: {
     backgroundColor: "#E6F7F1",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
     borderRadius: 12,
-    marginLeft: 8,
+    marginLeft: 6,
   },
-  streakText: { color: "#10B981", fontSize: 12, fontWeight: "700" },
+  streakText: { color: "#10B981", fontSize: 11, fontWeight: "700" },
   progressLabel: { fontSize: 12, color: "#6b7280", marginTop: 8 },
   progressTrack: {
     height: 8,
@@ -934,17 +907,17 @@ const styles = StyleSheet.create({
     color: "#3B82F6",
   },
   addIcon: {
-    fontSize: 24,
+    fontSize: 20,
     color: "#8B5CF6",
     fontWeight: "500",
   },
   addIconBlue: {
-    fontSize: 24,
+    fontSize: 20,
     color: "#3B82F6",
     fontWeight: "700",
   },
   addIconGreen: {
-    fontSize: 24,
+    fontSize: 20,
     color: "#22C55E",
     fontWeight: "700",
   },
@@ -969,8 +942,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#CFEBD6",
     borderRadius: 14,
-    marginBottom: 12,
-    padding: 16,
+    marginBottom: 8,
+    padding: 12,
   },
   taskGradient: {
     padding: 16,
@@ -998,8 +971,8 @@ const styles = StyleSheet.create({
     borderColor: "#e5e7eb",
     marginRight: 12,
   },
-  taskTitle: { fontSize: 16, color: "#111827", fontWeight: "600" },
-  taskTime: { fontSize: 12, color: "#6b7280", marginTop: 4 },
+  taskTitle: { fontSize: 15, color: "#111827", fontWeight: "600" },
+  taskTime: { fontSize: 11, color: "#6b7280", marginTop: 2 },
 })
 
 export default DailyRoutines

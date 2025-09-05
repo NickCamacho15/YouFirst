@@ -447,7 +447,7 @@ const RulesTabConnected = () => {
       try {
         const backendRules = await listPersonalRules()
         setRules(backendRules.map((r) => ({ id: r.id, text: r.text, createdAt: r.created_at })))
-        const from = new Date(); from.setDate(from.getDate() - 30)
+        const from = new Date(); from.setDate(from.getDate() - 365)
         const checks = await listPersonalRuleChecks(from.toISOString().slice(0,10), new Date().toISOString().slice(0,10))
         const map: Record<string, Record<string, boolean>> = {}
         checks.forEach((chk) => {
@@ -584,6 +584,20 @@ const RulesTabConnected = () => {
     return rules.length > 0 && completed >= rules.length
   }
 
+  const bestStreak = useMemo(() => {
+    const maxDays = 365
+    const start = new Date(today)
+    start.setDate(start.getDate() - (maxDays - 1))
+    let best = 0
+    let current = 0
+    for (let i = 0; i < maxDays; i++) {
+      const d = new Date(start)
+      d.setDate(start.getDate() + i)
+      if (isDayComplete(d)) { current += 1; if (current > best) best = current } else { current = 0 }
+    }
+    return best
+  }, [today, checksByDate, rules])
+
   // UI copied from original RulesTab, with delete handler and add handler wired
   return (
     <>
@@ -600,8 +614,8 @@ const RulesTabConnected = () => {
             </View>
             <View style={styles.metricDivider} />
             <View style={styles.metricGroup}>
-              <Text style={styles.metricPrimary}>0</Text>
-              <Text style={styles.metricLabel}>AVG STREAK</Text>
+              <Text style={styles.metricPrimary}>{bestStreak}</Text>
+              <Text style={styles.metricLabel}>BEST STREAK</Text>
             </View>
           </View>
         </View>

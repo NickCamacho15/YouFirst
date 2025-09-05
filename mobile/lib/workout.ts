@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import { getCurrentUserId } from "./auth"
 
 export type WorkoutSessionRow = {
   id: string
@@ -83,12 +84,12 @@ function toFloat(v?: string | number | null): number | null {
 }
 
 export async function createSessionFromSnapshot(args: { planId?: string; planDayId?: string; exercises: SnapshotExercise[] }): Promise<{ session: WorkoutSessionRow; exercises: SessionExerciseRow[] }>{
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) throw new Error("Not authenticated")
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error("Not authenticated")
   const { planId, planDayId, exercises } = args
   const { data: session, error: err1 } = await supabase
     .from<WorkoutSessionRow>("workout_sessions")
-    .insert([{ user_id: auth.user.id, plan_id: planId ?? null, plan_day_id: planDayId ?? null }])
+    .insert([{ user_id: uid, plan_id: planId ?? null, plan_day_id: planDayId ?? null }])
     .select("*")
     .single()
   if (err1 || !session) throw new Error(err1?.message || "Failed to create session")
@@ -119,12 +120,12 @@ export async function createSessionFromSnapshot(args: { planId?: string; planDay
 }
 
 export async function getActiveSessionForToday(): Promise<{ session: WorkoutSessionRow; exercises: SessionExerciseRow[]; sets: SetLogRow[] } | null> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) throw new Error("Not authenticated")
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error("Not authenticated")
   const { data: sessions, error } = await supabase
     .from<WorkoutSessionRow>("workout_sessions")
     .select("*")
-    .eq("user_id", auth.user.id)
+    .eq("user_id", uid)
     .eq("status", "in_progress")
     .order("started_at", { ascending: false })
     .limit(1)
@@ -225,14 +226,14 @@ function toISODate(d: Date): string {
 }
 
 export async function getWorkoutStats(): Promise<WorkoutStats> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) throw new Error("Not authenticated")
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error("Not authenticated")
 
   // Pull all sessions for aggregates and streak
   const { data: sessionsAll, error: e1 } = await supabase
     .from<WorkoutSessionRow>("workout_sessions")
     .select("id, started_at, total_seconds, status")
-    .eq("user_id", auth.user.id)
+    .eq("user_id", uid)
   if (e1) throw new Error(e1.message)
 
   const completed = (sessionsAll || []).filter((s) => s.status === "completed")

@@ -1,20 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, Modal, Animated, Easing, LayoutChangeEvent } from "react-native"
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, Modal, Animated, Easing, LayoutChangeEvent, useWindowDimensions } from "react-native"
 import TopHeader from "../components/TopHeader"
 import { Ionicons } from "@expo/vector-icons"
-import { Target, Plus, Trophy, ChevronDown, ChevronUp, CheckCircle, Trash2 } from "lucide-react-native"
+import { Target, Plus, Trophy, ChevronDown, ChevronUp, CheckCircle, Trash2, CalendarDays } from "lucide-react-native"
 import GoalWizardModal from "../components/GoalWizardModal"
-import { createGoal, listGoals, GoalRecord, setGoalStepDone, listAchievements, AchievementRecord, completeGoal, deleteGoal } from "../lib/goals"
+import { createGoal, listGoals, GoalRecord, setGoalStepDone, listAchievements, AchievementRecord, completeGoal, deleteGoal, getCachedGoals, getCachedAchievements, createAchievement } from "../lib/goals"
 import { format } from "date-fns"
+import EditEntityModal from "../components/EditEntityModal"
 
 interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void }
 
 const GoalsScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
   const [wizardOpen, setWizardOpen] = useState(false)
   const [goals, setGoals] = useState<GoalRecord[]>([])
+  const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [achievements, setAchievements] = useState<AchievementRecord[]>([])
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [addAchOpen, setAddAchOpen] = useState(false)
+  const { width } = useWindowDimensions()
+  const isNarrow = width < 380
+  const [selectedAch, setSelectedAch] = useState<AchievementRecord | null>(null)
 
   // Animated progress state
   const trackWidths = useRef<Record<string, number>>({})
@@ -25,15 +31,25 @@ const GoalsScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
   }
 
   useEffect(() => {
+    let mounted = true
+    // Prime from cache first for instant paint
+    const cachedGoals = getCachedGoals()
+    const cachedAch = getCachedAchievements()
+    if (cachedGoals) setGoals(cachedGoals)
+    if (cachedAch) setAchievements(cachedAch)
     ;(async () => {
       try {
         const [g, a] = await Promise.all([listGoals(), listAchievements()])
+        if (!mounted) return
         setGoals(g)
         setAchievements(a)
       } catch (e) {
         console.warn("Failed to load goals/achievements", e)
+      } finally {
+        if (mounted) setLoading(false)
       }
     })()
+    return () => { mounted = false }
   }, [])
 
   // Animate widths when goals or measurements change
@@ -94,7 +110,9 @@ const GoalsScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
           </TouchableOpacity>
         </View>
 
-        {goals.length === 0 ? (
+        {loading ? (
+          <View style={styles.emptyStateCard}><Text style={styles.emptyStateTitle}>Loading…</Text></View>
+        ) : goals.length === 0 ? (
           <View style={styles.emptyStateCard}>
             <View style={styles.emptyStateIcon}>
               <View style={styles.iconBackground}>
@@ -226,13 +244,19 @@ const GoalsScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
         {/* Achievement History Section */}
         <View style={styles.achievementSection}>
           <View style={styles.achievementHeader}>
-            <Trophy width={22} height={22} color="#FFB800" />
-            <Text style={styles.achievementTitle}>Your Achievement History</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+              <Trophy width={22} height={22} color="#FFB800" />
+              <Text style={styles.achievementTitle} numberOfLines={1}>Achievement History</Text>
+            </View>
+            <TouchableOpacity style={styles.addAchButton} onPress={() => setAddAchOpen(true)}>
+              <Plus width={16} height={16} color="#fff" />
+              <Text style={styles.addAchButtonText}>{isNarrow ? "Add" : "Add Achievement"}</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.achievementEmpty}>
             {achievements.map((a) => (
-              <View key={a.id} style={styles.achCard}>
+              <TouchableOpacity key={a.id} style={styles.achCard} activeOpacity={0.8} onPress={() => setSelectedAch(a)}>
                 <View style={[styles.achAccent, { backgroundColor: a.color || "#10B981" }]} />
                 <View style={styles.achCardBody}>
                   <View style={styles.achTitleRow}>
@@ -243,7 +267,7 @@ const GoalsScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
                     <Text style={styles.achCardMeta}>Completed {format(new Date(a.completed_at), "MMM d, yyyy")}</Text>
                   )}
                 </View>
-              </View>
+              </TouchableOpacity>
             ))}
           </View>
         </View>
@@ -288,6 +312,68 @@ const GoalsScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
             setGoals((prev) => [created, ...prev])
           } catch (e) {
             console.warn("Failed to create goal", e)
+          }
+        }}
+      />
+      {/* View details modal */}
+      <Modal transparent visible={!!selectedAch} animationType="fade" onRequestClose={() => setSelectedAch(null)}>
+        <View style={styles.overlay}>
+          <View style={styles.detailCard}>
+            {selectedAch ? (
+              <>
+                <View style={[styles.detailHeader, { backgroundColor: selectedAch.color || "#4A90E2" }]}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <CheckCircle width={18} height={18} color="#fff" />
+                    <Text style={styles.detailHeaderTitle} numberOfLines={2}>{selectedAch.title}</Text>
+                  </View>
+                </View>
+                <View style={styles.detailSection}>
+                  {!!selectedAch.description && (
+                    <Text style={styles.detailDesc}>{selectedAch.description}</Text>
+                  )}
+                  {!!selectedAch.description && <View style={styles.detailDivider} />}
+                  {!!selectedAch.completed_at && (
+                    <View style={styles.detailCompletedRow}>
+                      <CalendarDays width={16} height={16} color="#6B7280" />
+                      <Text style={styles.detailMuted}>Completed</Text>
+                      <Text style={styles.detailDateText}>{format(new Date(selectedAch.completed_at), "MMM d, yyyy")}</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.detailFooter}> 
+                  <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: selectedAch.color || "#4A90E2" }]} onPress={() => setSelectedAch(null)}>
+                    <Text style={{ color: "#fff", fontWeight: "700" }}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+      <EditEntityModal
+        visible={addAchOpen}
+        title="Add Past Achievement"
+        accentColor="#10B981"
+        fields={[
+          { key: "title", label: "Title", placeholder: "What did you achieve?" },
+          { key: "description", label: "Description", placeholder: "Optional details", multiline: true },
+          { key: "date", label: "Date", placeholder: "Select date", type: "date" as any },
+        ]}
+        onClose={() => setAddAchOpen(false)}
+        submitLabel="Save"
+        onSubmit={async (vals) => {
+          const dateStr = (vals.date || "").trim()
+          const iso = dateStr ? new Date(dateStr + "T00:00:00").toISOString() : new Date().toISOString()
+          try {
+            const created = await createAchievement({
+              title: vals.title || "Untitled Achievement",
+              description: vals.description || null,
+              completedAtIso: iso,
+            })
+            setAchievements((prev) => [created, ...prev])
+            setAddAchOpen(false)
+          } catch (e) {
+            console.warn("Failed to create achievement", e)
           }
         }}
       />
@@ -403,7 +489,10 @@ const styles = StyleSheet.create({
 
   achievementSection: { marginTop: 24, marginBottom: 100 },
   achievementHeader: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
-  achievementTitle: { fontSize: 20, fontWeight: "600", color: "#333", marginLeft: 8 },
+  achievementTitle: { fontSize: 18, fontWeight: "700", color: "#333", marginLeft: 8, textTransform: "capitalize" },
+  achievementActions: { flexDirection: "row", justifyContent: "flex-start", marginBottom: 12 },
+  addAchButton: { marginLeft: 12, flexDirection: "row", alignItems: "center", backgroundColor: "#10B981", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10 },
+  addAchButtonText: { color: "#fff", fontSize: 13, fontWeight: "600", marginLeft: 6 },
   achievementEmpty: { minHeight: 80 },
   achCard: { flexDirection: "row", alignItems: "stretch", backgroundColor: "#fff", borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: "#E5E7EB", marginBottom: 10 },
   achAccent: { width: 6 },
@@ -423,6 +512,20 @@ const styles = StyleSheet.create({
   confirmCancelText: { color: "#111827", fontWeight: "600" },
   confirmDanger: { backgroundColor: "#EF4444" },
   confirmDangerText: { color: "#fff", fontWeight: "700" },
+  // Details modal styles
+  detailCard: { width: "100%", maxWidth: 420, backgroundColor: "#fff", borderRadius: 14, padding: 20 },
+  detailTitle: { fontSize: 18, fontWeight: "700", color: "#111827", marginBottom: 8 },
+  detailFieldLabel: { fontSize: 12, color: "#6B7280", fontWeight: "600" },
+  detailFieldValue: { fontSize: 14, color: "#111827", marginTop: 4 },
+  detailDesc: { fontSize: 15, color: "#111827", marginTop: 2, lineHeight: 24, fontWeight: "600" },
+  detailHeader: { borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 12 },
+  detailHeaderTitle: { color: "#fff", fontWeight: "800", fontSize: 16, marginLeft: 8, maxWidth: 320 },
+  detailSection: { backgroundColor: "#F9FAFB", borderRadius: 12, padding: 16, borderWidth: 1, borderColor: "#E5E7EB" },
+  detailCompletedRow: { flexDirection: "row", alignItems: "center", gap: 8 } as any,
+  detailDivider: { height: 1, backgroundColor: "#E5E7EB", marginVertical: 14, borderRadius: 9999 },
+  detailMuted: { fontSize: 13, color: "#6B7280", marginRight: 6 },
+  detailDateText: { fontSize: 14, color: "#111827", fontWeight: "700" },
+  detailFooter: { flexDirection: "row", justifyContent: "flex-end", marginTop: 12 },
 })
 
 export default GoalsScreen

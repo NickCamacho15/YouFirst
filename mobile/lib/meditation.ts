@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import { getCurrentUserId } from "./auth"
 
 export type MeditationSessionRow = {
   id: string
@@ -19,11 +20,11 @@ export async function saveMeditationSession(input: {
   intervalMinutes: number
   meditationMinutes: number
 }): Promise<void> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) throw new Error("Not authenticated")
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error("Not authenticated")
   const { error } = await supabase.from("meditation_sessions").insert([
     {
-      user_id: auth.user.id,
+      user_id: uid,
       started_at: input.startedAt,
       ended_at: input.endedAt,
       duration_seconds: input.durationSeconds,
@@ -38,12 +39,12 @@ export async function saveMeditationSession(input: {
 export type MeditationStats = { totalSeconds: number; sessionCount: number; dayStreak: number; distinctDays: number }
 
 export async function getMeditationStats(): Promise<MeditationStats> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) return { totalSeconds: 0, sessionCount: 0, dayStreak: 0, distinctDays: 0 }
+  const uid = await getCurrentUserId()
+  if (!uid) return { totalSeconds: 0, sessionCount: 0, dayStreak: 0, distinctDays: 0 }
   const { data, error } = await supabase
     .from("meditation_sessions")
     .select("started_at, duration_seconds")
-    .eq("user_id", auth.user.id)
+    .eq("user_id", uid)
     .order("started_at", { ascending: false })
   if (error) return { totalSeconds: 0, sessionCount: 0, dayStreak: 0, distinctDays: 0 }
   const totalSeconds = (data || []).reduce((a: number, r: any) => a + (r.duration_seconds || 0), 0)
@@ -102,12 +103,12 @@ export async function getMilestoneCatalog(): Promise<MeditationMilestone[]> {
 }
 
 export async function getUserMilestoneAwards(): Promise<UserMilestone[]> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) return []
+  const uid = await getCurrentUserId()
+  if (!uid) return []
   const { data, error } = await supabase
     .from("user_meditation_milestones")
     .select("milestone_code, awarded_at")
-    .eq("user_id", auth.user.id)
+    .eq("user_id", uid)
   if (error || !data) return []
   return data as UserMilestone[]
 }
@@ -140,21 +141,21 @@ export async function getMilestonesWithStatus(stats: MeditationStats): Promise<M
 }
 
 export async function awardEligibleMilestones(stats: MeditationStats): Promise<string[]> {
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) return []
+  const uid = await getCurrentUserId()
+  if (!uid) return []
   const [catalog, awards] = await Promise.all([getMilestoneCatalog(), getUserMilestoneAwards()])
   const already = new Set(awards.map((a) => a.milestone_code))
   const newlyUnlocked = catalog.filter((m) => !already.has(m.code) && isCriteriaMet(m.criteria, stats))
   if (newlyUnlocked.length === 0) return []
   try {
     const { error } = await supabase.from("user_meditation_milestones").insert(
-      newlyUnlocked.map((m) => ({ user_id: auth.user!.id, milestone_code: m.code }))
+      newlyUnlocked.map((m) => ({ user_id: uid, milestone_code: m.code }))
     )
     if (error) throw new Error(error.message)
     // create notifications for each new award
     await supabase.from("notifications").insert(
       newlyUnlocked.map((m) => ({
-        user_id: auth.user!.id,
+        user_id: uid,
         type: "milestone",
         title: `${m.title} unlocked`,
         body: m.description || null,

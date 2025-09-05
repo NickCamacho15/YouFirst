@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import { getCurrentUserId } from "./auth"
 
 export type UserBook = {
   id: string
@@ -12,8 +13,7 @@ export type UserBook = {
 }
 
 export async function listBooks(): Promise<UserBook[]> {
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData.user?.id
+  const userId = await getCurrentUserId()
   const query = supabase
     .from("user_books")
     .select("id,user_id,title,author,started_on,completed_on,total_pages,created_at")
@@ -24,8 +24,7 @@ export async function listBooks(): Promise<UserBook[]> {
 }
 
 export async function addBook(payload: { title: string; author?: string; totalPages?: number }): Promise<UserBook> {
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData.user?.id
+  const userId = await getCurrentUserId()
   if (!userId) throw new Error("Not authenticated")
   const { data, error } = await supabase
     .from("user_books")
@@ -68,8 +67,7 @@ export type ReadingInsight = {
 }
 
 export async function listInsights(limit = 50): Promise<ReadingInsight[]> {
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData.user?.id
+  const userId = await getCurrentUserId()
   const query = supabase
     .from("user_reading_insights")
     .select("id,user_id,book_id,insight,created_at")
@@ -81,8 +79,7 @@ export async function listInsights(limit = 50): Promise<ReadingInsight[]> {
 }
 
 export async function addInsight(payload: { insight: string; bookId?: string }): Promise<ReadingInsight> {
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData.user?.id
+  const userId = await getCurrentUserId()
   if (!userId) throw new Error("Not authenticated")
   const { data, error } = await supabase
     .from("user_reading_insights")

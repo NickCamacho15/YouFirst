@@ -3,7 +3,7 @@ import { Ionicons } from "@expo/vector-icons"
 import { useEffect, useRef, useState } from 'react'
 import { getStreaks, subscribeWins } from '../lib/wins'
 
-const StreakStats = () => {
+const StreakStats = ({ embedded }: { embedded?: boolean }) => {
   const [current, setCurrent] = useState(0)
   const [best, setBest] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -34,7 +34,7 @@ const StreakStats = () => {
   }, [])
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, embedded ? { marginHorizontal: 0, marginBottom: 0, shadowOpacity: 0, elevation: 0, borderRadius: 0, paddingHorizontal: 0, paddingVertical: 12, backgroundColor: 'transparent' } : null]}>
       <View style={styles.statItem}>
         <Ionicons name="flame-outline" size={20} color="#FF6B35" />
         <Text style={styles.statLabel}>Current Streak:</Text>
@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     backgroundColor: "#fff",
     marginHorizontal: 20,
-    marginBottom: 16,
+    marginBottom: 8,
     borderRadius: 12,
     shadowColor: "#000",
     shadowOffset: {

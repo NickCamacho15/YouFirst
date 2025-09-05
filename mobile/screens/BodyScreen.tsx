@@ -21,8 +21,9 @@ import ConfettiCannon from 'react-native-confetti-cannon'
 import Svg, { Circle } from "react-native-svg"
 import TopHeader from "../components/TopHeader"
 import { LineChart } from "react-native-chart-kit"
-import { getPersonalRecords, upsertPersonalRecords, addPrEntry, getPrSeries } from "../lib/prs"
+import { getPersonalRecords, upsertPersonalRecords, addPrEntry, getPrSeries, getCachedPersonalRecords, getCachedPrSeries } from "../lib/prs"
 import { createPlanInDb, listPlans, listPlanTree, createWeek as dbCreateWeek, createDay as dbCreateDay, createBlock as dbCreateBlock, createExercise as dbCreateExercise, updateExercise as dbUpdateExercise, deleteExercises as dbDeleteExercises } from "../lib/plans"
+import { getBodyMetrics, upsertBodyMetrics, estimateBodyFatPercentDeurenberg, inchesFromFeetInches } from "../lib/body"
 import { buildSnapshotFromPlanDay, createSessionFromSnapshot, getActiveSessionForToday, endSession, completeSet, markExercisesCompleted, getWorkoutStats, type SessionExerciseRow } from "../lib/workout"
 
 interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void }
@@ -43,6 +44,17 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
   const [saving, setSaving] = useState(false)
   const [myPlans, setMyPlans] = useState<{ id: string; name: string; description?: string | null }[]>([])
   const [trainingStats, setTrainingStats] = useState<{ total: number; avg: number; streak: number; volume: number }>({ total: 0, avg: 0, streak: 0, volume: 0 })
+  // Body metrics
+  const [bodyMetrics, setBodyMetrics] = useState<{ gender: 'male' | 'female'; age: number; heightInches: number; weightLbs: number; bodyFatPct: number } | null>(null)
+  const [metricsModalOpen, setMetricsModalOpen] = useState(false)
+  // Form state
+  const [fmGender, setFmGender] = useState<'male' | 'female'>('male')
+  const [fmAge, setFmAge] = useState<string>("")
+  const [fmHeightFeet, setFmHeightFeet] = useState<string>("")
+  const [fmHeightInches, setFmHeightInches] = useState<string>("")
+  const [fmWeight, setFmWeight] = useState<string>("")
+  const [fmPreviewBf, setFmPreviewBf] = useState<number | null>(null)
+  const [savingMetrics, setSavingMetrics] = useState(false)
 
   const screenWidth = Dimensions.get("window").width
 
@@ -84,6 +96,15 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
 
   useEffect(() => {
     ;(async () => {
+      const cached = getCachedPersonalRecords()
+      if (cached) {
+        setPrs({
+          bench: cached.bench_press_1rm || 0,
+          squat: cached.squat_1rm || 0,
+          deadlift: cached.deadlift_1rm || 0,
+          ohp: cached.overhead_press_1rm || 0,
+        })
+      }
       const data = await getPersonalRecords()
       if (data) {
         setPrs({
@@ -146,15 +167,29 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
         // eslint-disable-next-line no-console
         console.warn('Failed to load workout stats', (e as any)?.message)
       }
+      // Load body metrics
+      try {
+        const bm = await getBodyMetrics()
+        if (bm) {
+          setBodyMetrics({ gender: bm.gender, age: bm.age_years, heightInches: bm.height_inches, weightLbs: Number(bm.weight_lbs), bodyFatPct: Number(bm.est_body_fat_percent) })
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('Failed to load body metrics', (e as any)?.message)
+      }
       // Load PR history series for charts
       try {
+        const fmt = (rows: Array<{ recorded_at: string; value: number }>) => rows.map(r => ({ x: new Date(r.recorded_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), y: Number(r.value) }))
+        const cb = getCachedPrSeries('bench'); if (cb) setBenchSeries(fmt(cb))
+        const cs = getCachedPrSeries('squat'); if (cs) setSquatSeries(fmt(cs))
+        const cd = getCachedPrSeries('deadlift'); if (cd) setDeadliftSeries(fmt(cd))
+        const co = getCachedPrSeries('ohp'); if (co) setOhpSeries(fmt(co))
         const [b, s, d, o] = await Promise.all([
           getPrSeries('bench'),
           getPrSeries('squat'),
           getPrSeries('deadlift'),
           getPrSeries('ohp'),
         ])
-        const fmt = (rows: Array<{ recorded_at: string; value: number }>) => rows.map(r => ({ x: new Date(r.recorded_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), y: Number(r.value) }))
         setBenchSeries(fmt(b))
         setSquatSeries(fmt(s))
         setDeadliftSeries(fmt(d))
@@ -199,12 +234,58 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
     <View style={styles.recordCard}>
       <Text style={styles.recordExercise}>{exercise}</Text>
       <Text style={styles.recordWeight}>{weight}</Text>
-      <View style={styles.recordPercentage}>
-        <Ionicons name="calculator-outline" size={16} color="#666" />
-        <Text style={styles.recordPercentageText}>%</Text>
-      </View>
     </View>
   )
+
+  const openMetricsModal = () => {
+    const cur = bodyMetrics
+    setFmGender(cur?.gender || 'male')
+    setFmAge(cur ? String(cur.age) : "")
+    if (cur) {
+      const feet = Math.floor(cur.heightInches / 12)
+      const inches = cur.heightInches % 12
+      setFmHeightFeet(String(feet))
+      setFmHeightInches(String(inches))
+      setFmWeight(String(cur.weightLbs))
+      setFmPreviewBf(cur.bodyFatPct)
+    } else {
+      setFmHeightFeet("")
+      setFmHeightInches("")
+      setFmWeight("")
+      setFmPreviewBf(null)
+    }
+    setMetricsModalOpen(true)
+  }
+
+  const recalcPreview = () => {
+    const age = Number(fmAge)
+    const feet = Number(fmHeightFeet)
+    const inches = Number(fmHeightInches)
+    const weight = Number(fmWeight)
+    if (!age || !feet || (!Number.isFinite(inches) && inches !== 0) || !weight) { setFmPreviewBf(null); return }
+    const totalInches = inchesFromFeetInches(feet, inches)
+    const bf = estimateBodyFatPercentDeurenberg({ gender: fmGender, ageYears: age, weightLbs: weight, heightInches: totalInches })
+    setFmPreviewBf(bf)
+  }
+
+  useEffect(() => { recalcPreview() }, [fmGender, fmAge, fmHeightFeet, fmHeightInches, fmWeight])
+
+  const saveMetrics = async () => {
+    try {
+      setSavingMetrics(true)
+      const age = Number(fmAge)
+      const feet = Number(fmHeightFeet)
+      const inches = Number(fmHeightInches)
+      const weight = Number(fmWeight)
+      const totalInches = inchesFromFeetInches(feet, inches)
+      const bf = estimateBodyFatPercentDeurenberg({ gender: fmGender, ageYears: age, weightLbs: weight, heightInches: totalInches })
+      await upsertBodyMetrics({ gender: fmGender, age_years: age, height_inches: totalInches, weight_lbs: weight, est_body_fat_percent: bf })
+      setBodyMetrics({ gender: fmGender, age, heightInches: totalInches, weightLbs: weight, bodyFatPct: bf })
+      setMetricsModalOpen(false)
+    } finally {
+      setSavingMetrics(false)
+    }
+  }
 
   const StatRow = ({
     label,
@@ -529,14 +610,6 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
             <Ionicons name="barbell-outline" size={20} color={activeTab === "workout" ? "#333" : "#999"} />
             <Text style={[styles.tabText, activeTab === "workout" && styles.activeTabText]}>Workout</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "plan" && styles.activeTab]}
-            onPress={() => setActiveTab("plan")}
-          >
-            <Ionicons name="calendar-outline" size={20} color={activeTab === "plan" ? "#333" : "#999"} />
-            <Text style={[styles.tabText, activeTab === "plan" && styles.activeTabText]}>Plan</Text>
-          </TouchableOpacity>
         </View>
 
         {/* Tab Content */}
@@ -547,11 +620,11 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
               <View style={styles.sectionHeader}>
                 <View style={styles.sectionTitleContainer}>
                   <Ionicons name="trophy-outline" size={20} color="#4A90E2"/>
-                  <Text style={styles.sectionTitle}>Personal Records (1RM) </Text>
+                  <Text style={styles.sectionTitle} numberOfLines={1} ellipsizeMode="tail">Personal Records (1RM) </Text>
                 </View>
                 <TouchableOpacity style={styles.prActionButton} onPress={() => setPrUpdateOpen(true)}>
-                  <Ionicons name="trophy-outline" size={16} color="#fff" />
-                  <Text style={styles.prActionText}>Update a PR</Text>
+                  <Ionicons name="trending-up-outline" size={16} color="#fff" />
+                  <Text style={styles.prActionText}>Update PR</Text>
                 </TouchableOpacity>
               </View>
 
@@ -586,16 +659,26 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
                   <Ionicons name="body-outline" size={20} color="#4A90E2" />
                   <Text style={styles.sectionTitle}>Body Metrics</Text>
                 </View>
+                <TouchableOpacity style={styles.prActionButton} onPress={openMetricsModal}>
+                  <Ionicons name="create-outline" size={16} color="#fff" />
+                  <Text style={styles.prActionText}>Update metrics</Text>
+                </TouchableOpacity>
               </View>
 
               <View style={styles.metricsContainer}>
                 <View style={styles.metricItem}>
+                  <Text style={styles.metricLabel}>Height</Text>
+                  <Text style={styles.metricValue}>
+                    {bodyMetrics ? `${Math.floor(bodyMetrics.heightInches/12)}' ${bodyMetrics.heightInches%12}\"` : '-'}
+                  </Text>
+                </View>
+                <View style={styles.metricItem}>
                   <Text style={styles.metricLabel}>Weight</Text>
-                  <Text style={styles.metricValue}>0 lbs</Text>
+                  <Text style={styles.metricValue}>{bodyMetrics ? `${bodyMetrics.weightLbs} lbs` : '-'}</Text>
                 </View>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricLabel}>Body Fat</Text>
-                  <Text style={styles.metricValue}>0%</Text>
+                  <Text style={styles.metricValue}>{bodyMetrics ? `${bodyMetrics.bodyFatPct}%` : '-'}</Text>
                 </View>
               </View>
             </View>
@@ -826,7 +909,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
                 const day = plan.weeks[info.weekIndex]?.days[info.dayIndex]
                 if (!day) return null
                 return (
-                  <View style={styles.sectionCard}>
+                  <>
                     {day.blocks.map((b) => {
                       const hasSession = isWorkoutActive && sessionExercises.length > 0
                       const sxRows = (b.exercises || []).map((e) => {
@@ -839,7 +922,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
                         const tr = e.reps ? parseInt(String(e.reps), 10) : null
                         const tw: any = e.weight ?? null
                         const rest = e.rest ? parseInt(String(e.rest), 10) : null
-                        return { id: e.id, name: e.name, target_sets: ts || 0, target_reps: tr, target_weight: tw, target_rest_seconds: rest }
+                        return { id: e.id, name: e.name, type: e.type, target_sets: ts || 0, target_reps: tr, target_weight: tw, target_rest_seconds: rest }
                       }).filter(Boolean) as any[]
                       const total = sxRows.length || 1
                       const completedCount = sxRows.filter((sx) => {
@@ -852,7 +935,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
                       const circumference = 2 * Math.PI * radius
                       const offset = circumference * (1 - pct)
                       return (
-                        <View key={b.id} style={{ marginBottom: 16 }}>
+                        <View key={b.id} style={[styles.sectionCard, { marginTop: 12 }]}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
                             {completedCount === total ? (
                               <Check size={20} color="#10B981" />
@@ -882,9 +965,10 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
                             const isActiveCard = isWorkoutActive && sessionExercises.length > 0 && ex.id === sessionExercises[currentExerciseIdx]?.id
                             const baseBg = atMax ? '#DCFCE7' : (isActiveCard ? '#E0ECFF' : '#FFFFFF')
                             const bgColor = anim.interpolate({ inputRange: [0,1], outputRange: [baseBg, '#BBF7D0'] })
+                            const categoryColor = ex.type === 'Lifting' ? '#4A90E2' : ex.type === 'Cardio' ? '#F59E0B' : ex.type === 'METCON' ? '#8B5CF6' : '#333'
                             return (
                               <Animated.View key={ex.id} style={{ borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 12, marginTop: 8, backgroundColor: bgColor, borderRadius: 8, padding: 8 }}>
-                                <Text style={{ fontSize: 16, fontWeight: '600', color: '#333' }}>{ex.name}</Text>
+                                <Text style={{ fontSize: 16, fontWeight: '600', color: categoryColor }}>{ex.name}</Text>
                                 <Text style={{ color: '#666', marginTop: 4 }}>Sets: {tgtSets || '-'}  {ex.target_reps ? `• ${ex.target_reps} reps` : ''} {ex.target_weight ? `• ${ex.target_weight}` : ''}</Text>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
                                   <Text style={{ color: '#10B981', fontWeight: '700' }}>{done}/{tgtSets} completed</Text>
@@ -930,7 +1014,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
                         </View>
                       )
                     })}
-                  </View>
+                  </>
                 )
               })()
             )}
@@ -1153,6 +1237,77 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
         {/* Add some bottom padding for navigation */}
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Update Metrics Modal */}
+      {metricsModalOpen && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Update Body Metrics</Text>
+              <TouchableOpacity onPress={() => setMetricsModalOpen(false)}>
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingBottom: 8 }}>
+              <View style={styles.modalFieldRow}>
+                <Text style={styles.modalLabel}>Gender</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {(['male','female'] as const).map((g)=> (
+                    <TouchableOpacity key={g} onPress={()=> setFmGender(g)} style={[styles.segment, fmGender===g && styles.segmentActive]}>
+                      <Text style={[styles.segmentText, fmGender===g && styles.segmentTextActive]}>{g==='male'? 'Male':'Female'}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.modalFieldRow}>
+                <Text style={styles.modalLabel}>Age (years)</Text>
+                <TextInput style={styles.modalInput} placeholder="Age" placeholderTextColor="#999" keyboardType="number-pad" value={fmAge} onChangeText={setFmAge} />
+              </View>
+
+              <View style={styles.modalFieldRow}>
+                <Text style={styles.modalLabel}>Height</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={styles.stepper}>
+                    <TouchableOpacity style={styles.stepperBtn} onPress={()=> setFmHeightFeet((v)=> String(Math.max(3,(Number(v||'0')||0)-1)))}>
+                      <Ionicons name="remove" size={18} color="#333" />
+                    </TouchableOpacity>
+                    <Text style={styles.stepperValue}>{fmHeightFeet || '0'}</Text>
+                    <TouchableOpacity style={styles.stepperBtn} onPress={()=> setFmHeightFeet((v)=> String(Math.min(8,(Number(v||'0')||0)+1)))}>
+                      <Ionicons name="add" size={18} color="#333" />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ color:'#666' }}>ft</Text>
+                  <View style={styles.stepper}>
+                    <TouchableOpacity style={styles.stepperBtn} onPress={()=> setFmHeightInches((v)=> String(Math.max(0,(Number(v||'0')||0)-1)))}>
+                      <Ionicons name="remove" size={18} color="#333" />
+                    </TouchableOpacity>
+                    <Text style={styles.stepperValue}>{fmHeightInches || '0'}</Text>
+                    <TouchableOpacity style={styles.stepperBtn} onPress={()=> setFmHeightInches((v)=> String(Math.min(11,(Number(v||'0')||0)+1)))}>
+                      <Ionicons name="add" size={18} color="#333" />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ color:'#666' }}>in</Text>
+                </View>
+              </View>
+
+              <View style={styles.modalFieldRow}>
+                <Text style={styles.modalLabel}>Weight (lbs)</Text>
+                <TextInput style={styles.modalInput} placeholder="Weight" placeholderTextColor="#999" keyboardType="numeric" value={fmWeight} onChangeText={setFmWeight} />
+              </View>
+
+              <View style={{ marginTop: 4, marginBottom: 8 }}>
+                <Text style={{ color:'#666' }}>Estimated Body Fat: <Text style={{ fontWeight: '700', color: '#333' }}>{fmPreviewBf!==null ? `${fmPreviewBf}%` : '-'}</Text></Text>
+              </View>
+            </ScrollView>
+
+            <TouchableOpacity style={styles.modalSaveButton} onPress={saveMetrics} disabled={savingMetrics}>
+              <Text style={styles.modalSaveButtonText}>{savingMetrics ? 'Saving...' : 'Save Metrics'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* Edit PRs Modal */}
       {editOpen && (
@@ -1626,7 +1781,7 @@ const styles = StyleSheet.create({
   },
   bodySection: {
     marginTop: 20,
-    marginBottom: 20,
+    marginBottom: 8,
   },
   bodySectionHeader: {
     flexDirection: "row",
@@ -1645,24 +1800,22 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     flexDirection: "row",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 4,
+    marginTop: 4,
     marginBottom: 20,
   },
   tab: {
-    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginRight: 20,
   },
   activeTab: {
-    backgroundColor: "#f8f9fa",
+    borderBottomWidth: 2,
+    borderBottomColor: "#333",
   },
   tabText: {
-    fontSize: 14,
+    fontSize: 16,
     color: "#999",
     marginLeft: 6,
     fontWeight: "500",
@@ -1694,12 +1847,15 @@ const styles = StyleSheet.create({
   sectionTitleContainer: {
     flexDirection: "row",
     alignItems: "center",
+    flex: 1,
+    minWidth: 0,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
     color: "#333",
     marginLeft: 8,
+    flexShrink: 1,
   },
   editButton: {
     flexDirection: "row",
@@ -2243,6 +2399,44 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  segment: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    backgroundColor: '#f8f9fa',
+  },
+  segmentActive: {
+    borderColor: '#4A90E2',
+    backgroundColor: '#E6F0FF',
+  },
+  segmentText: {
+    color: '#333',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  segmentTextActive: {
+    color: '#1E40AF',
+  },
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    backgroundColor: '#f8f9fa',
+  },
+  stepperBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  stepperValue: {
+    minWidth: 28,
+    textAlign: 'center',
+    fontWeight: '700',
+    color: '#333',
   },
   modalScroll: {
     maxHeight: 420,

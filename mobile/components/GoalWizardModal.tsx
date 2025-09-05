@@ -30,16 +30,7 @@ interface GoalWizardModalProps {
   onCreate?: (goal: GoalWizardData) => void
 }
 
-const ACCENT_COLORS = [
-  "#3B82F6",
-  "#8B5CF6",
-  "#10B981",
-  "#F97316",
-  "#06B6D4",
-  "#F43F5E",
-  "#F59E0B",
-  "#7C3AED",
-]
+// Default accent color for wizard progress and CTA buttons
 
 const GoalWizardModal: React.FC<GoalWizardModalProps> = ({ visible, onClose, onCreate }) => {
   const [stepIndex, setStepIndex] = useState(0)
@@ -48,7 +39,7 @@ const GoalWizardModal: React.FC<GoalWizardModalProps> = ({ visible, onClose, onC
   const [description, setDescription] = useState("")
   const [targetDate, setTargetDate] = useState<Date | null>(null)
   const [showDatePicker, setShowDatePicker] = useState(false)
-  const [accentColor, setAccentColor] = useState(ACCENT_COLORS[0])
+  const [accentColor] = useState("#3B82F6")
 
   const [benefits, setBenefits] = useState<string[]>(["", "", ""])
   const [consequences, setConsequences] = useState<string[]>(["", "", ""])
@@ -133,16 +124,7 @@ const GoalWizardModal: React.FC<GoalWizardModalProps> = ({ visible, onClose, onC
           }}
         />
       )}
-      <Text style={[styles.label, { marginTop: 14 }]}>Choose Accent Color</Text>
-      <View style={styles.colorRow}>
-        {ACCENT_COLORS.map((c) => (
-          <TouchableOpacity
-            key={c}
-            onPress={() => setAccentColor(c)}
-            style={[styles.colorSwatch, { backgroundColor: c }, accentColor === c && styles.colorSwatchActive]}
-          />
-        ))}
-      </View>
+      {/* Accent color picker removed for simplified first step */}
     </View>
   )
 
@@ -347,17 +329,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
-  },
-  colorSwatch: {
-    width: 40,
-    height: 32,
-    borderRadius: 8,
-    marginRight: 10,
-    marginBottom: 10,
-  },
-  colorSwatchActive: {
-    borderWidth: 2,
-    borderColor: "#111827",
   },
   addRowBtn: {
     alignSelf: "flex-start",

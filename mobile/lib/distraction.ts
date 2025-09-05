@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import { getCurrentUserId } from "./auth"
 
 export type TrackedApp = {
   id: string
@@ -20,8 +21,7 @@ export type UsageEntry = {
 }
 
 export async function listTrackedApps(): Promise<TrackedApp[]> {
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData.user?.id
+  const userId = await getCurrentUserId()
   if (!userId) throw new Error("Not authenticated")
   const { data, error } = await supabase
     .from("user_distraction_apps")
@@ -33,8 +33,7 @@ export async function listTrackedApps(): Promise<TrackedApp[]> {
 }
 
 export async function addTrackedApp(payload: { name: string; icon?: string; color?: string }): Promise<TrackedApp> {
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData.user?.id
+  const userId = await getCurrentUserId()
   if (!userId) throw new Error("Not authenticated")
   const { data, error } = await supabase
     .from("user_distraction_apps")
@@ -54,8 +53,7 @@ export async function deleteTrackedApp(id: string): Promise<void> {
 }
 
 export async function saveUsage(minutesByAppIdForDate: { date: string; items: Array<{ appId: string; minutes: number }> }): Promise<void> {
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData.user?.id
+  const userId = await getCurrentUserId()
   if (!userId) throw new Error("Not authenticated")
 
   const rows = minutesByAppIdForDate.items.map((it) => ({
@@ -72,8 +70,7 @@ export async function saveUsage(minutesByAppIdForDate: { date: string; items: Ar
 }
 
 export async function getUsageForRange(startISO: string, endISO: string): Promise<UsageEntry[]> {
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData.user?.id
+  const userId = await getCurrentUserId()
   if (!userId) throw new Error("Not authenticated")
   const { data, error } = await supabase
     .from("user_distraction_entries")

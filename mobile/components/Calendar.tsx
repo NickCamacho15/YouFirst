@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { addMonths, format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay } from 'date-fns';
 import { getWinsForMonth, subscribeWins, toDateKey } from '../lib/wins'
 
-export default function Calendar() {
+export default function Calendar({ embedded }: { embedded?: boolean }) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [wonDays, setWonDays] = useState<Set<string>>(new Set())
@@ -81,7 +81,7 @@ export default function Calendar() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, embedded ? { marginHorizontal: 0, marginTop: 0, marginBottom: 0, shadowOpacity: 0, elevation: 0, borderRadius: 0, padding: 0 } : null]}>
       {/* Header with navigation */}
       <View style={styles.header}>
         <TouchableOpacity onPress={prevMonth} style={styles.navButton}>
@@ -114,7 +114,9 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: 'white',
     borderRadius: 12,
-    margin: 16,
+    marginHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 8,
     padding: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },

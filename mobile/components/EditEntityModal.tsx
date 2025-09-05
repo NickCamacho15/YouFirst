@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react"
 import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform } from "react-native"
+import DateTimePicker from "@react-native-community/datetimepicker"
 
 type Field = {
   key: string
   label?: string
   placeholder?: string
   multiline?: boolean
+  type?: "text" | "date"
 }
 
 interface EditEntityModalProps {
@@ -22,6 +24,22 @@ interface EditEntityModalProps {
 const EditEntityModal: React.FC<EditEntityModalProps> = ({ visible, title, accentColor = "#4A90E2", fields, initialValues, submitLabel = "Save", onClose, onSubmit }) => {
   const [values, setValues] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [openPickers, setOpenPickers] = useState<Record<string, boolean>>({})
+
+  const toDateKey = (d: Date): string => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`
+  }
+
+  const parseDateKey = (s: string | undefined): Date | null => {
+    if (!s) return null
+    const m = /^\d{4}-\d{2}-\d{2}$/.test(s)
+    if (!m) return null
+    const [yy, mm, dd] = s.split("-").map(Number)
+    return new Date(yy, (mm || 1) - 1, dd || 1)
+  }
 
   useEffect(() => {
     const start: Record<string, string> = {}
@@ -62,19 +80,55 @@ const EditEntityModal: React.FC<EditEntityModalProps> = ({ visible, title, accen
           </View>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <ScrollView contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-            {fields.map((f) => (
-              <View key={f.key} style={{ marginBottom: 10 }}>
-                {!!f.label && <Text style={styles.label}>{f.label}</Text>}
-                <TextInput
-                  value={values[f.key] || ""}
-                  onChangeText={(t) => handleChange(f.key, t)}
-                  placeholder={f.placeholder}
-                  placeholderTextColor="#9CA3AF"
-                  multiline={!!f.multiline}
-                  style={[styles.input, f.multiline ? { height: 100, textAlignVertical: "top" } : null]}
-                />
-              </View>
-            ))}
+            {fields.map((f) => {
+              const type = f.type || "text"
+              if (type === "date") {
+                const currentStr = values[f.key] || ""
+                const parsed = parseDateKey(currentStr) || new Date()
+                const open = !!openPickers[f.key]
+                return (
+                  <View key={f.key} style={{ marginBottom: 10 }}>
+                    {!!f.label && <Text style={styles.label}>{f.label}</Text>}
+                    <TouchableOpacity
+                      onPress={() => setOpenPickers((prev) => ({ ...prev, [f.key]: !open }))}
+                      style={[styles.input, { justifyContent: "center" }]}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={{ color: currentStr ? "#111827" : "#9CA3AF" }}>
+                        {currentStr || f.placeholder || "Select date"}
+                      </Text>
+                    </TouchableOpacity>
+                    {open && (
+                      <View style={{ backgroundColor: "#F9FAFB", borderColor: "#E5E7EB", borderWidth: 1, borderRadius: 10, marginTop: 6, overflow: "hidden" }}>
+                        <DateTimePicker
+                          value={parsed}
+                          mode="date"
+                          display={Platform.OS === "ios" ? "inline" : "default"}
+                          onChange={(_, selectedDate) => {
+                            if (Platform.OS !== "ios") setOpenPickers((prev) => ({ ...prev, [f.key]: false }))
+                            const d = selectedDate || parsed
+                            handleChange(f.key, toDateKey(d))
+                          }}
+                        />
+                      </View>
+                    )}
+                  </View>
+                )
+              }
+              return (
+                <View key={f.key} style={{ marginBottom: 10 }}>
+                  {!!f.label && <Text style={styles.label}>{f.label}</Text>}
+                  <TextInput
+                    value={values[f.key] || ""}
+                    onChangeText={(t) => handleChange(f.key, t)}
+                    placeholder={f.placeholder}
+                    placeholderTextColor="#9CA3AF"
+                    multiline={!!f.multiline}
+                    style={[styles.input, f.multiline ? { height: 100, textAlignVertical: "top" } : null]}
+                  />
+                </View>
+              )
+            })}
           </ScrollView>
           </KeyboardAvoidingView>
 

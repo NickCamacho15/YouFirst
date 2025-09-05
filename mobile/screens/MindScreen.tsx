@@ -623,16 +623,14 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
       {/* Header rendered persistently in App */}
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {/* Mind Training Section */}
         <View style={styles.mindTrainingSection}>
           <View style={styles.mindTrainingHeader}>
             <Brain stroke="#4A90E2" width={24} height={24} />
             <Text style={styles.mindTrainingTitle}>Mind Training</Text>
             </View>
-          <Text style={styles.mindTrainingSubtitle}>
-            Optimize your mental well-being through reading,{"\n"}meditation, and mindful technology use
-          </Text>
+          <Text style={styles.mindTrainingSubtitle}>Optimize your mental well-being through reading, meditation, and mindful technology use</Text>
           </View>
 
         {/* Tab Navigation */}
@@ -829,8 +827,6 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
             )}
           </>
         )}
-
-        <View style={{ height: 100 }} />
       </ScrollView>
 
       {/* Add Book Modal */}
@@ -1408,6 +1404,9 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
   },
+  scrollContent: {
+    paddingBottom: 120,
+  },
   mindTrainingSection: {
     marginTop: 20,
     marginBottom: 30,
@@ -1427,6 +1426,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#666",
     lineHeight: 22,
+    flexShrink: 1,
   },
   tabContainer: {
     flexDirection: "row",

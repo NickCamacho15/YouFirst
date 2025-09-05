@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import { getCurrentUserId } from "./auth"
 
 export type ReadingSessionRow = {
   id: string
@@ -23,8 +24,7 @@ export type SaveReadingSessionInput = {
 }
 
 export async function saveReadingSession(input: SaveReadingSessionInput): Promise<ReadingSessionRow> {
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData.user?.id
+  const userId = await getCurrentUserId()
   if (!userId) throw new Error("Not authenticated")
 
   const payload = {
@@ -49,8 +49,7 @@ export async function saveReadingSession(input: SaveReadingSessionInput): Promis
 }
 
 export async function listReadingSessions(limit = 50): Promise<ReadingSessionRow[]> {
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData.user?.id
+  const userId = await getCurrentUserId()
   const query = supabase
     .from("user_reading_sessions")
     .select("id,user_id,started_at,ended_at,duration_seconds,book_title,reflection,pages_read,created_at")
@@ -68,8 +67,7 @@ export type ReadingStats = {
 }
 
 export async function getReadingStats(): Promise<ReadingStats> {
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData.user?.id
+  const userId = await getCurrentUserId()
   if (!userId) return { totalSeconds: 0, sessionCount: 0, averageSeconds: 0 }
 
   const { data, error } = await supabase
