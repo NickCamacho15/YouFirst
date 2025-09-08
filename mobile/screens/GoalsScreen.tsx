@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, Modal, Animated, Easing, LayoutChangeEvent, useWindowDimensions } from "react-native"
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, Modal, Animated, Easing, LayoutChangeEvent } from "react-native"
 import TopHeader from "../components/TopHeader"
 import { Ionicons } from "@expo/vector-icons"
 import { Target, Plus, Trophy, ChevronDown, ChevronUp, CheckCircle, Trash2, CalendarDays } from "lucide-react-native"
@@ -18,8 +18,6 @@ const GoalsScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
   const [achievements, setAchievements] = useState<AchievementRecord[]>([])
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [addAchOpen, setAddAchOpen] = useState(false)
-  const { width } = useWindowDimensions()
-  const isNarrow = width < 380
   const [selectedAch, setSelectedAch] = useState<AchievementRecord | null>(null)
 
   // Animated progress state
@@ -250,7 +248,7 @@ const GoalsScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
             </View>
             <TouchableOpacity style={styles.addAchButton} onPress={() => setAddAchOpen(true)}>
               <Plus width={16} height={16} color="#fff" />
-              <Text style={styles.addAchButtonText}>{isNarrow ? "Add" : "Add Achievement"}</Text>
+              <Text style={styles.addAchButtonText}>Add</Text>
             </TouchableOpacity>
           </View>
 

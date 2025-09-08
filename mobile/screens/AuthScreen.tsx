@@ -34,6 +34,12 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
   const emailRef = useRef<TextInput | null>(null)
   const passwordRef = useRef<TextInput | null>(null)
   const confirmRef = useRef<TextInput | null>(null)
+  const scrollRef = useRef<ScrollView | null>(null)
+
+  // Keep focused fields visible by scrolling as focus changes
+  const scrollToTop = () => scrollRef.current?.scrollTo({ y: 0, animated: true })
+  const scrollToMid = () => scrollRef.current?.scrollTo({ y: 160, animated: true })
+  const scrollToBottom = () => scrollRef.current?.scrollToEnd({ animated: true })
 
   // Autofocus the first relevant field when tab changes or on mount
   useEffect(() => {
@@ -89,8 +95,8 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
-      <KeyboardAvoidingView style={styles.keyboardAvoidingView} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView style={styles.keyboardAvoidingView} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}>
+        <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {/* Logo Section */}
           <View style={styles.logoSection}>
             <Text style={styles.logo}>.uoY</Text>
@@ -139,6 +145,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     returnKeyType="next"
                     blurOnSubmit={false}
                     onSubmitEditing={() => emailRef.current?.focus()}
+                    onFocus={scrollToTop}
                   />
                 </View>
               ) : (
@@ -163,11 +170,12 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     autoCorrect={false}
                     ref={emailRef}
                     autoFocus={activeTab === "login"}
-                    textContentType={Platform.OS === "ios" ? "username" : "username"}
+                    textContentType={Platform.OS === "ios" ? "emailAddress" : "emailAddress"}
                     autoComplete="username"
                     returnKeyType="next"
                     blurOnSubmit={false}
                     onSubmitEditing={() => passwordRef.current?.focus()}
+                    onFocus={scrollToMid}
                   />
                 </View>
               )}
@@ -183,12 +191,13 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
-                    textContentType={Platform.OS === "ios" ? "emailAddress" : "email"}
+                    textContentType={Platform.OS === "ios" ? "emailAddress" : "emailAddress"}
                     autoComplete="email"
                     ref={emailRef}
                     returnKeyType="next"
                     blurOnSubmit={false}
                     onSubmitEditing={() => passwordRef.current?.focus()}
+                    onFocus={scrollToMid}
                   />
                 </View>
               )}
@@ -213,6 +222,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     if (activeTab === "register") confirmRef.current?.focus()
                     else handleSignIn()
                   }}
+                  onFocus={scrollToBottom}
                 />
               </View>
 
@@ -233,6 +243,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     ref={confirmRef}
                     returnKeyType="done"
                     onSubmitEditing={handleRegister}
+                    onFocus={scrollToBottom}
                   />
                 </View>
               )}
@@ -374,6 +385,12 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: "center",
   },
 })
 

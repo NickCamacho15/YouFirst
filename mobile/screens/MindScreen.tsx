@@ -637,15 +637,15 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
         <View style={styles.tabContainer}>
           <TouchableOpacity style={[styles.tab, activeTab === "reading" && styles.activeTab]} onPress={() => setActiveTab("reading")}>
             <Ionicons name="book-outline" size={20} color={activeTab === "reading" ? "#333" : "#999"} />
-            <Text style={[styles.tabText, activeTab === "reading" && styles.activeTabText]}>Reading</Text>
+            <Text numberOfLines={1} style={[styles.tabText, activeTab === "reading" && styles.activeTabText]}>Reading</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.tab, activeTab === "meditation" && styles.activeTab]} onPress={() => setActiveTab("meditation")}>
             <Brain stroke={activeTab === "meditation" ? "#333" : "#999"} width={20} height={20} />
-            <Text style={[styles.tabText, activeTab === "meditation" && styles.activeTabText]}>Meditation</Text>
+            <Text numberOfLines={1} style={[styles.tabText, activeTab === "meditation" && styles.activeTabText]}>Meditation</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.tab, activeTab === "distraction" && styles.activeTab]} onPress={() => setActiveTab("distraction")}>
             <Ionicons name="phone-portrait-outline" size={20} color={activeTab === "distraction" ? "#333" : "#999"} />
-            <Text style={[styles.tabText, activeTab === "distraction" && styles.activeTabText]}>Distraction</Text>
+            <Text numberOfLines={1} style={[styles.tabText, activeTab === "distraction" && styles.activeTabText]}>Distraction</Text>
           </TouchableOpacity>
         </View>
 
@@ -1432,13 +1432,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     marginBottom: 30,
     paddingRight: 0,
-    justifyContent: "space-evenly",
+    justifyContent: "space-between",
+    alignItems: "stretch",
   },
   tab: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
+    justifyContent: "center",
+    paddingHorizontal: 12,
     paddingVertical: 8,
+    flex: 1,
+    minWidth: 0,
   },
   activeTab: {
     borderBottomWidth: 2,
@@ -1449,6 +1453,7 @@ const styles = StyleSheet.create({
     color: "#999",
     marginLeft: 6,
     fontWeight: "500",
+    flexShrink: 1,
   },
   activeTabText: {
     color: "#333",
