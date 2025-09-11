@@ -6,7 +6,7 @@ import EditEntityModal from "./EditEntityModal"
 import { createTask, listTasksByDate, setTaskDone, deleteTask, updateTask, toDateKey } from "../lib/tasks"
 import { listRoutines, createRoutine, getRoutineStats, toggleRoutineCompleted, listRoutineCompletionsByDate, deleteRoutine, updateRoutine } from "../lib/routines"
 import { getPersonalMasteryMetrics, emitPersonalMasteryChanged } from "../lib/dashboard"
-import { emitWinsChanged } from "../lib/wins"
+import { emitWinsChanged, invalidateDailyStatus } from "../lib/wins"
 import { supabase } from "../lib/supabase"
 
 const daysOfWeek = [
@@ -244,6 +244,7 @@ const DailyRoutines = () => {
     ;(async () => {
       try {
         await toggleRoutineCompleted(item.id, newDone, key)
+        try { await invalidateDailyStatus(key); emitWinsChanged() } catch {}
         const stats = await getRoutineStats([item.id], key)
         const s = stats[item.id]
         const next = eveningItems.slice()
@@ -262,7 +263,6 @@ const DailyRoutines = () => {
       }
       // Non-blocking dashboard refresh
       try { getPersonalMasteryMetrics().then(() => emitPersonalMasteryChanged()).catch(() => {}) } catch {}
-      try { emitWinsChanged() } catch {}
     })()
   }
   const toggleMorning = async (index: number) => {
@@ -283,6 +283,7 @@ const DailyRoutines = () => {
     ;(async () => {
       try {
         await toggleRoutineCompleted(item.id, newDone, key)
+        try { await invalidateDailyStatus(key); emitWinsChanged() } catch {}
         const stats = await getRoutineStats([item.id], key)
         const s = stats[item.id]
         const next = morningItems.slice()
@@ -299,7 +300,6 @@ const DailyRoutines = () => {
         try { Animated.timing(item.anim, { toValue: item.percent || 0, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start() } catch {}
       }
       try { getPersonalMasteryMetrics().then(() => emitPersonalMasteryChanged()).catch(() => {}) } catch {}
-      try { emitWinsChanged() } catch {}
     })()
   }
   const toggleTask = async (index: number) => {
@@ -316,7 +316,7 @@ const DailyRoutines = () => {
       [currentDay]: (prev[currentDay] || []).map((t, i) => (i === index ? { ...t, done: next[index] } : t)),
     }))
     try { getPersonalMasteryMetrics().then(() => emitPersonalMasteryChanged()).catch(() => {}) } catch {}
-    try { emitWinsChanged() } catch {}
+    try { const key = toDateKey(getSelectedDate()); await invalidateDailyStatus(key); emitWinsChanged() } catch {}
   }
   return (
     <View style={styles.container}>

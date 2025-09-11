@@ -102,54 +102,56 @@ export async function login(payload: LoginPayload): Promise<User> {
   const isEmail = payload.identifier.includes("@")
   let emailToUse = payload.identifier
   if (!isEmail) {
-    // Resolve email from username with multiple strategies and timeouts to avoid hangs
+    // Resolve email from username using fastest-first approach.
     const username = payload.identifier
-    // 0) Try local cache first for instant resolution
+
+    // 0) Try local cache instantly
     const localEmail = await resolveEmailFromLocalMap(username)
-    if (localEmail) {
-      // Validate local cache against server to avoid stale username logins
-      try {
-        const verify = async () => {
-          const { data, error } = await supabase
-            .from("users")
-            .select("email")
-            .eq("username", username.toLowerCase())
-            .limit(1)
-            .maybeSingle()
-          if (error) throw error
-          return data?.email || null
-        }
-        const serverEmail = await withTimeout(verify(), 1200, "Verify username")
-        if (serverEmail && serverEmail.toLowerCase() === localEmail.toLowerCase()) {
-          emailToUse = localEmail
-        } else {
-          // Stale mapping; fall through to remote resolution paths
-        }
-      } catch {
-        // On verification failure, proceed to remote resolution below rather than trusting cache
-      }
-    }
-    if (emailToUse === payload.identifier) {
-    const resolveViaRpc = async () => {
+
+    // 1) Kick off remote lookups in parallel (do not await yet)
+    const tryRpc = async () => {
       const { data, error } = await supabase.rpc("resolve_email_by_username", { p_username: username })
-      if (error || !data) throw new Error(error?.message || "Invalid credentials")
+      if (error || !data) throw new Error(error?.message || "No match")
       return String(data)
     }
-    const resolveViaPublicTable = async () => {
-      const { data, error } = await supabase.from("users").select("email").eq("username", username).limit(1).maybeSingle()
-      if (error || !data?.email) throw new Error("Invalid credentials")
+    const tryPublicTable = async () => {
+      const { data, error } = await supabase
+        .from("users")
+        .select("email")
+        .eq("username", username.toLowerCase())
+        .limit(1)
+        .maybeSingle()
+      if (error || !data?.email) throw new Error("No match")
       return String(data.email)
     }
-    const resolveWithTimeout = <T,>(p: Promise<T>, ms: number) => Promise.race<T>([
-      p,
-      new Promise<T>((_, reject) => setTimeout(() => reject(new Error("Lookup timed out")), ms)) as any,
-    ])
-    try {
-      emailToUse = await resolveWithTimeout(resolveViaRpc(), 3000)
-    } catch {
-      // Fallback to public users table with a shorter timeout
-      emailToUse = await resolveWithTimeout(resolveViaPublicTable(), 2000)
-    }
+    const remoteLookup = Promise.any([
+      withTimeout(tryRpc(), 9000, "Username lookup (rpc)"),
+      withTimeout(tryPublicTable(), 9000, "Username lookup (table)"),
+    ]).catch(() => null as unknown as string)
+
+    // 2) If we have a cached mapping, try signing in immediately
+    if (localEmail) {
+      const { data: firstData, error: firstErr } = await supabase.auth.signInWithPassword({
+        email: localEmail,
+        password: payload.password,
+      })
+      if (!firstErr && firstData.session && firstData.user) {
+        emailToUse = localEmail
+      } else {
+        // If that failed, wait briefly for a remote resolution and retry once if different
+        const resolved = await withTimeout(remoteLookup, 3000, "Username lookup")
+        if (resolved && resolved.toLowerCase() !== (localEmail || "").toLowerCase()) {
+          emailToUse = resolved
+        } else {
+          // Fall back to local (will proceed to throw from auth below)
+          emailToUse = localEmail
+        }
+      }
+    } else {
+      // 3) No cache: wait for the first successful remote resolution
+      const resolved = await withTimeout(remoteLookup, 9000, "Username lookup")
+      if (!resolved) throw new Error("Invalid username or password")
+      emailToUse = resolved
     }
   }
   const { data, error } = await supabase.auth.signInWithPassword({

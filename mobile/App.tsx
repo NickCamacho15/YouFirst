@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar } from "react-native"
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, ActivityIndicator } from "react-native"
 import { useEffect, useState } from "react"
 import AuthScreen from "./screens/AuthScreen"
 import GoalsScreen from "./screens/GoalsScreen"
@@ -19,16 +19,22 @@ import PersonalMasteryDashboard from "./components/PersonalMasteryDashboard"
 import TopHeader from "./components/TopHeader"
 import { UserProvider } from "./lib/user-context"
 import { supabase } from "./lib/supabase"
+import { getTodaySummary, getActivityGoals } from "./lib/dashboard"
+import { getWinsForMonth } from "./lib/wins"
+import { warmStartupCaches } from './lib/warm-start'
 // Removed duplicate notifications prefetch; TopHeader handles its own fetching/realtime
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [appEpoch, setAppEpoch] = useState(0)
+  const [showStartupOverlay, setShowStartupOverlay] = useState(true)
 
   const handleLogin = () => {
     setIsAuthenticated(true)
     // On a successful login, reset the epoch to establish a clean app context
     setAppEpoch((e) => e + 1)
+    // Warm critical caches in the background to make the home screen snappy
+    setTimeout(() => { try { warmStartupCaches({ timeoutMs: 1800 }) } catch {} }, 0)
   }
 
   const handleLogout = () => {
@@ -38,6 +44,7 @@ const App: React.FC = () => {
   }
 
   const [currentScreen, setCurrentScreen] = useState("home")
+  const [bodyEpoch, setBodyEpoch] = useState(0)
 
   // Detect existing session on cold start and respond to auth events
   useEffect(() => {
@@ -45,7 +52,11 @@ const App: React.FC = () => {
     ;(async () => {
       try {
         const { data } = await supabase.auth.getSession()
-        if (mounted) setIsAuthenticated(!!data.session)
+        if (!mounted) return
+        const hasSession = !!data.session
+        setIsAuthenticated(hasSession)
+        if (hasSession) { try { await warmStartupCaches({ timeoutMs: 1800 }) } catch {} }
+        if (mounted) setShowStartupOverlay(false)
       } catch {}
     })()
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
@@ -53,6 +64,7 @@ const App: React.FC = () => {
       if (event === "SIGNED_OUT") {
         setIsAuthenticated(false)
         setCurrentScreen("home")
+        setShowStartupOverlay(false)
       }
     })
     return () => { mounted = false; sub.subscription.unsubscribe() }
@@ -70,33 +82,35 @@ const App: React.FC = () => {
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" />
         <TopHeader onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-        {/* Lazy-mount only the active screen to reduce initial API burst */}
+        {/* Keep screens mounted to avoid refetch/re-render on tab return; toggle visibility instead */}
         <View style={{ flex: 1 }}>
-          {currentScreen === "home" && (
-            <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-              <Calendar />
-              <StreakStats />
-              <WonTodayButton />
-              <DailyRoutines />
-              <WeeklyPerformance />
-              <PersonalMasteryDashboard />
-            </ScrollView>
-          )}
-          {currentScreen === "goals" && (
+          <ScrollView
+            style={[styles.scrollView, currentScreen === "home" ? undefined : styles.hidden]}
+            showsVerticalScrollIndicator={false}
+          >
+            <Calendar />
+            <StreakStats />
+            <WonTodayButton />
+            <DailyRoutines />
+            <WeeklyPerformance />
+            <PersonalMasteryDashboard />
+          </ScrollView>
+
+          <View style={currentScreen === "goals" ? styles.visible : styles.hidden}>
             <GoalsScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-          )}
-          {currentScreen === "disciplines" && (
+          </View>
+          <View style={currentScreen === "disciplines" ? styles.visible : styles.hidden}>
             <DisciplinesScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-          )}
-          {currentScreen === "mind" && (
+          </View>
+          <View style={currentScreen === "mind" ? styles.visible : styles.hidden}>
             <MindScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-          )}
-          {currentScreen === "body" && (
-            <BodyScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-          )}
-          {currentScreen === "profile" && (
+          </View>
+          <View style={currentScreen === "body" ? styles.visible : styles.hidden}>
+            <BodyScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} activeEpoch={bodyEpoch} />
+          </View>
+          <View style={currentScreen === "profile" ? styles.visible : styles.hidden}>
             <ProfileScreen onLogout={handleLogout} />
-          )}
+          </View>
         </View>
         <View style={styles.bottomNavContainer}>
           <View style={styles.bottomNavigation}>
@@ -123,7 +137,7 @@ const App: React.FC = () => {
               </View>
               <Text style={styles.navLabel}>Mind</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("body")}>
+            <TouchableOpacity style={styles.navItem} onPress={() => { setCurrentScreen("body"); setBodyEpoch((e) => e + 1) }}>
               <View style={styles.navIconContainer}>
                 <Dumbbell stroke="#777" width={24} height={24} />
               </View>
@@ -138,6 +152,12 @@ const App: React.FC = () => {
             {currentScreen === "body" && <View style={[styles.indicatorLine, { left: "80%", width: "20%" }]} />}
           </View>
         </View>
+        {showStartupOverlay && (
+          <View style={styles.startupOverlay}>
+            <Image source={require('./assets/you-icon.png')} style={styles.overlayLogo} resizeMode="contain" />
+            <ActivityIndicator size="small" color="#888" style={{ marginTop: 16 }} />
+          </View>
+        )}
       </SafeAreaView>
     </UserProvider>
   )
@@ -151,6 +171,8 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  hidden: { display: 'none' },
+  visible: { flex: 1 },
   header: {
     paddingVertical: 20,
     paddingHorizontal: 4,
@@ -221,6 +243,20 @@ const styles = StyleSheet.create({
     height: 3,
     backgroundColor: "#000",
     bottom: 0,
+  },
+  startupOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  overlayLogo: {
+    width: 96,
+    height: 96,
   },
 })
 

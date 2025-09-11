@@ -1,5 +1,6 @@
 import { supabase } from "./supabase"
 import { getCurrentUserId } from "./auth"
+import { emitWinsChanged, toDateKey, invalidateDailyStatus } from "./wins"
 
 export type MeditationSessionRow = {
   id: string
@@ -34,6 +35,7 @@ export async function saveMeditationSession(input: {
     },
   ])
   if (error) throw new Error(error.message)
+  try { const key = toDateKey(new Date()); await invalidateDailyStatus(key); emitWinsChanged() } catch {}
 }
 
 export type MeditationStats = { totalSeconds: number; sessionCount: number; dayStreak: number; distinctDays: number }

@@ -19,6 +19,7 @@ import {
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import TopHeader from "../components/TopHeader"
+import { getDailyWinStatus, subscribeWins } from "../lib/wins"
 import { Brain } from "lucide-react-native"
 import { saveReadingSession, getReadingStats, listReadingSessions, type ReadingSessionRow } from "../lib/reading"
 import { listBooks, addBook, listInsights, addInsight, deleteBook, markBookCompleted, type UserBook, type ReadingInsight } from "../lib/books"
@@ -34,6 +35,13 @@ type StatCardProps = {
     icon: string
     iconColor: string
 }
+
+const StatusPill = ({ completed }: { completed: boolean }) => (
+  <View style={{ alignSelf: 'flex-end', marginBottom: 8, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 9999, backgroundColor: completed ? '#DCFCE7' : '#F3F4F6', flexDirection: 'row', alignItems: 'center' }}>
+    <Ionicons name={completed ? (Platform.OS === 'ios' ? 'checkmark' : 'checkmark-circle') as any : (Platform.OS === 'ios' ? 'close' : 'close-circle') as any} size={16} color={completed ? '#22C55E' : '#EF4444'} />
+    <Text style={{ marginLeft: 6, color: completed ? '#065F46' : '#6B7280', fontWeight: '600' }}>{completed ? 'Completed Today' : 'Not completed'}</Text>
+  </View>
+)
 
 const StatCard: React.FC<StatCardProps> = React.memo(({ title, value, subtitle, icon, iconColor }) => (
     <View style={styles.statCard}>
@@ -65,6 +73,7 @@ type ReadingContentProps = {
   openBookPicker: () => void
   activeBooksCount: number
   completedBooksCount: number
+  readingCompletedToday: boolean
 }
 
 const ReadingContent: React.FC<ReadingContentProps> = React.memo(
@@ -87,6 +96,7 @@ const ReadingContent: React.FC<ReadingContentProps> = React.memo(
     openBookPicker,
     activeBooksCount,
     completedBooksCount,
+    readingCompletedToday,
   }) => (
     <>
       <View style={styles.statsGrid}>
@@ -98,6 +108,7 @@ const ReadingContent: React.FC<ReadingContentProps> = React.memo(
 
       <View style={styles.sessionSection}>
         <Text style={styles.sessionTitle}>Reading Session</Text>
+        <StatusPill completed={readingCompletedToday} />
 
         <View style={styles.timerContainer}>
           <Text style={styles.timerText}>{formatTime(sessionTime)}</Text>
@@ -201,7 +212,8 @@ const MeditationContent: React.FC<{
   onStartOrEnd: () => void
   onPauseResume: () => void
   onDoneComplete?: () => void
-}> = ({ medTotalSeconds, medSessionCount, medDayStreak, milestones, prepSeconds, intervalMinutes, meditationMinutes, onDecreasePrep, onIncreasePrep, onDecreaseInterval, onIncreaseInterval, onDecreaseMeditation, onIncreaseMeditation, onSetPrep, onSetInterval, onSetMeditation, medActive, medPhase, medPaused, medElapsed, nextChimeIn, prepRemaining, medRemaining, onStartOrEnd, onPauseResume, onDoneComplete }) => {
+  meditationCompletedToday: boolean
+}> = ({ medTotalSeconds, medSessionCount, medDayStreak, milestones, prepSeconds, intervalMinutes, meditationMinutes, onDecreasePrep, onIncreasePrep, onDecreaseInterval, onIncreaseInterval, onDecreaseMeditation, onIncreaseMeditation, onSetPrep, onSetInterval, onSetMeditation, medActive, medPhase, medPaused, medElapsed, nextChimeIn, prepRemaining, medRemaining, onStartOrEnd, onPauseResume, onDoneComplete, meditationCompletedToday }) => {
   const formatHrs = (s: number) => `${Math.floor(s / 3600)}h`
   const [prepWidth, setPrepWidth] = useState(1)
   const [intWidth, setIntWidth] = useState(1)
@@ -241,6 +253,7 @@ const MeditationContent: React.FC<{
         {/* Meditation Timer */}
         <View style={styles.meditationTimerCard}>
           <Text style={styles.meditationTimerTitle}>Meditation Timer</Text>
+          <StatusPill completed={meditationCompletedToday} />
 
           {medPhase === "prep" || medPhase === "meditating" || medPhase === "complete" ? (
             <View style={{ alignItems: "center", paddingVertical: 8 }}>
@@ -454,6 +467,8 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
   const [medSessionCount, setMedSessionCount] = useState(0)
   const [medDayStreak, setMedDayStreak] = useState(0)
   const [milestones, setMilestones] = useState<MilestoneWithStatus[]>([])
+  const [readingCompletedToday, setReadingCompletedToday] = useState(false)
+  const [meditationCompletedToday, setMeditationCompletedToday] = useState(false)
   // Meditation session UI state
   const [medPhase, setMedPhase] = useState<"idle" | "prep" | "meditating" | "complete">("idle")
   const [medPaused, setMedPaused] = useState(false)
@@ -534,10 +549,28 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
         setMedSessionCount(m.sessionCount)
         setMedDayStreak(m.dayStreak)
         setMilestones(await getMilestonesWithStatus(m))
+        // initial daily completion status
+        try {
+          const status = await getDailyWinStatus()
+          setReadingCompletedToday(!!status.reading)
+          setMeditationCompletedToday(!!status.prayerMeditation)
+        } catch {}
       } catch {
         // ignore for now
       }
     })()
+  }, [])
+
+  // live wins subscription to keep pills in sync
+  useEffect(() => {
+    const unsub = subscribeWins(async () => {
+      try {
+        const status = await getDailyWinStatus()
+        setReadingCompletedToday(!!status.reading)
+        setMeditationCompletedToday(!!status.prayerMeditation)
+      } catch {}
+    })
+    return () => { if (unsub) unsub() }
   }, [])
 
   const formatTime = (seconds: number) => {
@@ -670,6 +703,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
             openBookPicker={() => setBookPickerOpen(true)}
             activeBooksCount={books.filter((b) => !b.completed_on).length}
             completedBooksCount={books.filter((b) => !!b.completed_on).length}
+            readingCompletedToday={readingCompletedToday}
           />
         ) : activeTab === "meditation" ? (
           <>
@@ -723,6 +757,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
             }}
             onPauseResume={() => setMedPaused((p)=>!p)}
             onDoneComplete={() => setMedPhase("idle")}
+            meditationCompletedToday={meditationCompletedToday}
           />
           </>
         ) : (

@@ -59,9 +59,10 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
     setError(null)
     try {
       const identifier = activeTab === "login" ? (email || username) : email
+      // Give login adequate time because username→email resolution may need a network roundtrip
       const result = await Promise.race([
         login({ identifier: identifier || "", password }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Login timed out. Please try again.")), 8000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Login is taking longer than expected. Please try again.")), 15000)),
       ])
       onLogin()
     } catch (e: any) {

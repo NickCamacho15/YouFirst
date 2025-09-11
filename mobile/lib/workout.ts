@@ -1,5 +1,6 @@
 import { supabase } from "./supabase"
 import { getCurrentUserId } from "./auth"
+import { emitWinsChanged, toDateKey, invalidateDailyStatus } from "./wins"
 
 export type WorkoutSessionRow = {
   id: string
@@ -169,6 +170,7 @@ export async function endSession(sessionId: string, totalSeconds?: number): Prom
     .update({ status: "completed", ended_at: new Date().toISOString(), total_seconds: totalSeconds ?? null })
     .eq("id", sessionId)
   if (error) throw new Error(error.message)
+  try { const key = toDateKey(new Date()); await invalidateDailyStatus(key); emitWinsChanged() } catch {}
 }
 
 export async function markExercisesCompleted(sessionExerciseIds: string[]): Promise<void> {

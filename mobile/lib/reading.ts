@@ -1,5 +1,6 @@
 import { supabase } from "./supabase"
 import { getCurrentUserId } from "./auth"
+import { emitWinsChanged, toDateKey, invalidateDailyStatus } from "./wins"
 
 export type ReadingSessionRow = {
   id: string
@@ -45,6 +46,7 @@ export async function saveReadingSession(input: SaveReadingSessionInput): Promis
     .single()
 
   if (error || !data) throw new Error(error?.message || "Failed to save session")
+  try { const key = toDateKey(new Date()); await invalidateDailyStatus(key); emitWinsChanged() } catch {}
   return data as ReadingSessionRow
 }
 

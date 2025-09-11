@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react"
 import { View, Text, StyleSheet, TouchableOpacity, TextInput } from "react-native"
+import WinMeter from "./WinMeter"
+import WonTodayButton from "./WonTodayButton"
 import { getTodaySummary, getActivityGoals, updateActivityGoals, type TodaySummary } from "../lib/dashboard"
 
 type ActivityKey = "reading" | "meditation" | "screen_time" | "workouts"
@@ -65,11 +67,10 @@ const WinTodaySection = () => {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Win Today</Text>
-        <Text style={styles.subtitle}>Morning & Evening • Tasks • Workout • Reading • Rules</Text>
+        <Text style={styles.subtitle}>Morning & Evening • Tasks • Workout • Reading • Center</Text>
       </View>
-      <TouchableOpacity style={styles.winButton}>
-        <Text style={styles.winButtonText}>I Won Today</Text>
-      </TouchableOpacity>
+      <WinMeter />
+      <WonTodayButton />
 
       {/* Metrics */}
       <View style={{ marginTop: 16 }} />

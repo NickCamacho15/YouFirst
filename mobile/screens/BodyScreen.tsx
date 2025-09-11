@@ -25,10 +25,12 @@ import { getPersonalRecords, upsertPersonalRecords, addPrEntry, getPrSeries, get
 import { createPlanInDb, listPlans, listPlanTree, createWeek as dbCreateWeek, createDay as dbCreateDay, createBlock as dbCreateBlock, createExercise as dbCreateExercise, updateExercise as dbUpdateExercise, deleteExercises as dbDeleteExercises } from "../lib/plans"
 import { getBodyMetrics, upsertBodyMetrics, estimateBodyFatPercentDeurenberg, inchesFromFeetInches } from "../lib/body"
 import { buildSnapshotFromPlanDay, createSessionFromSnapshot, getActiveSessionForToday, endSession, completeSet, markExercisesCompleted, getWorkoutStats, type SessionExerciseRow } from "../lib/workout"
+import { supabase } from "../lib/supabase"
+import CompletedTodayPill from "../components/CompletedTodayPill"
 
-interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void }
+interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void; activeEpoch?: number }
 
-const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
+const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoch }) => {
   const [activeTab, setActiveTab] = useState("profile")
   const [prs, setPrs] = useState({ bench: 0, squat: 0, deadlift: 0, ohp: 0 })
   const [editOpen, setEditOpen] = useState(false)
@@ -318,10 +320,20 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
     }
   })
   const [selectedDayIndex, setSelectedDayIndex] = useState<number>(today.getDay())
+
+  // Reset the week slider selection when tab is re-entered
+  useEffect(() => {
+    const now = new Date()
+    const ws = new Date(now)
+    ws.setDate(now.getDate() - now.getDay())
+    setWeekStart(ws)
+    setSelectedDayIndex(now.getDay())
+  }, [activeEpoch])
   const [workoutTime, setWorkoutTime] = useState(0)
   const [isWorkoutActive, setIsWorkoutActive] = useState(false)
   const [isWorkoutPaused, setIsWorkoutPaused] = useState(false)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [completedToday, setCompletedToday] = useState(false)
   const [completedBlocks, setCompletedBlocks] = useState<boolean[]>([false, false, false])
   const [sessionExercises, setSessionExercises] = useState<SessionExerciseRow[]>([])
   const [setCounts, setSetCounts] = useState<Record<string, number>>({})
@@ -346,6 +358,23 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
     }
     return () => clearInterval(interval)
   }, [isWorkoutActive, isWorkoutPaused])
+
+  // Refresh completedToday indicator when selected day changes
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const uid = (await supabase.auth.getUser()).data.user?.id
+        if (!uid) { setCompletedToday(false); return }
+        const target = new Date(weekStart); target.setDate(weekStart.getDate() + selectedDayIndex)
+        target.setHours(0,0,0,0)
+        const startISO = target.toISOString()
+        const endISO = new Date(target.getTime() + 86400000).toISOString()
+        const { count } = await supabase.from('workout_sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('status','completed').gte('started_at', startISO).lt('started_at', endISO)
+        setCompletedToday((count || 0) > 0)
+      } catch { setCompletedToday(false) }
+    }
+    check()
+  }, [selectedDayIndex, weekStart])
 
   const formatWorkoutTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -774,7 +803,15 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
               </View>
             ) : (
               <View style={styles.sectionCard}>
-                <Text style={styles.workoutTimerTitle}>Workout Timer</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={styles.workoutTimerTitle}>Workout Timer</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={[styles.statusBadge, completedToday ? styles.statusOk : styles.statusOff]}>
+                      <Ionicons name={completedToday ? 'checkmark' : 'ellipse-outline'} size={12} color={completedToday ? '#065f46' : '#6b7280'} />
+                      <Text style={[styles.statusText, completedToday ? styles.statusTextOk : styles.statusTextOff]}>{completedToday ? 'Completed Today' : 'Not completed'}</Text>
+                    </View>
+                  </View>
+                </View>
                 <Text style={styles.workoutTimerDisplay}>{formatWorkoutTime(workoutTime)}</Text>
                 {plan ? (
                   <>
@@ -2051,6 +2088,12 @@ const styles = StyleSheet.create({
     fontFamily: "monospace",
     marginBottom: 8,
   },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1 },
+  statusOk: { backgroundColor: '#D1FAE5', borderColor: '#A7F3D0' },
+  statusOff: { backgroundColor: '#F1F5F9', borderColor: '#E5E7EB' },
+  statusText: { marginLeft: 6, fontWeight: '700', fontSize: 12 },
+  statusTextOk: { color: '#065f46' },
+  statusTextOff: { color: '#6b7280' },
   workoutType: {
     fontSize: 16,
     color: "#666",

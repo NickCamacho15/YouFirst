@@ -53,7 +53,10 @@ const WonTodayButton: React.FC = () => {
         if (missing.morning) parts.push("Morning Priming")
         if (missing.tasks) parts.push("Today's Tasks")
         if (missing.evening) parts.push("Evening Reflection")
-        Alert.alert("Finish today's items first", parts.length ? `You need to complete: ${parts.join(", ")}.` : "You need to complete all morning, tasks, and evening items.")
+        if ((missing as any).workout) parts.push("Move")
+        if ((missing as any).reading) parts.push("Read")
+        if ((missing as any).prayerMeditation) parts.push("Center")
+        Alert.alert("Finish today's items first", parts.length ? `You need to complete: ${parts.join(", ")}.` : "You need to complete all required items.")
       } catch {
         Alert.alert("Not ready yet", "Complete all morning, tasks, and evening items first.")
       }

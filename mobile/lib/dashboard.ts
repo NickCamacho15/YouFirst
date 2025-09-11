@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { getCurrentUserId } from './auth'
+import { cacheGet, cacheSet } from './cache'
 
 export type Activity = 'reading' | 'meditation' | 'screen_time' | 'workouts'
 export type ActivityGoals = Record<Activity, number>
@@ -33,11 +34,15 @@ async function sumSeconds(table: string, timeField: 'started_at' | 'startedAt' |
 export async function getActivityGoals(): Promise<ActivityGoals> {
   const uid = await getCurrentUserId()
   if (!uid) throw new Error('Not authenticated')
+  const cacheKey = `goals:${uid}`
+  const cached = cacheGet<ActivityGoals>(cacheKey)
+  if (cached) return cached
   const { data, error } = await supabase.from('activity_goals').select('activity, target_minutes').eq('user_id', uid)
   if (error) throw new Error(error.message)
   const defaults: ActivityGoals = { reading: 60, meditation: 10, screen_time: 120, workouts: 30 }
   const goals: ActivityGoals = { ...defaults }
   ;(data || []).forEach((r: any) => { goals[r.activity as Activity] = r.target_minutes || 0 })
+  cacheSet(cacheKey, goals, 5 * 60 * 1000)
   return goals
 }
 
@@ -51,6 +56,12 @@ export async function updateActivityGoals(partial: Partial<ActivityGoals>): Prom
 }
 
 export async function getTodaySummary(): Promise<TodaySummary> {
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error('Not authenticated')
+  const dayKey = new Date().toISOString().slice(0, 10)
+  const cacheKey = `todaySummary:${uid}:${dayKey}`
+  const cached = cacheGet<TodaySummary>(cacheKey)
+  if (cached) return cached
   const goals = await getActivityGoals()
 
   // Screen time is tracked in user_distraction_entries as minutes per day/app.
@@ -76,12 +87,14 @@ export async function getTodaySummary(): Promise<TodaySummary> {
     sumSeconds('workout_sessions', 'started_at', 'total_seconds', (q)=> q.eq('status','completed')),
   ])
   const pct = (sec: number, min: number) => min > 0 ? Math.min(999, Math.round((sec / (min*60)) * 100)) : 0
-  return {
+  const out: TodaySummary = {
     reading: { seconds: readingSec, targetMinutes: goals.reading, percent: pct(readingSec, goals.reading) },
     meditation: { seconds: meditationSec, targetMinutes: goals.meditation, percent: pct(meditationSec, goals.meditation) },
     screen_time: { seconds: screenSec, targetMinutes: goals.screen_time, percent: pct(screenSec, goals.screen_time) },
     workouts: { seconds: workoutSec, targetMinutes: goals.workouts, percent: pct(workoutSec, goals.workouts) },
   }
+  cacheSet(cacheKey, out, 45 * 1000)
+  return out
 }
 
 // Personal Mastery Dashboard metrics
