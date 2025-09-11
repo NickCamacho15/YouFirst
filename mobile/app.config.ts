@@ -13,7 +13,7 @@ export default (): ExpoConfig => {
   return {
     name,
     slug: "mobile",
-    version: "1.0.4",
+    version: "1.0.5",
     orientation: "portrait",
     icon: "./assets/youlogo.png",
     userInterfaceStyle: "light",
@@ -26,7 +26,7 @@ export default (): ExpoConfig => {
     ios: {
       supportsTablet: true,
       bundleIdentifier: process.env.APP_BUNDLE_ID || "com.you.first",
-      buildNumber: process.env.IOS_BUILD_NUMBER || "1",
+      buildNumber: process.env.IOS_BUILD_NUMBER || "3",
       infoPlist: {
         CFBundleDisplayName: "You.",
         ITSAppUsesNonExemptEncryption: false,
