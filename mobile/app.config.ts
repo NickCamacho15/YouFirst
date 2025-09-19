@@ -13,20 +13,20 @@ export default (): ExpoConfig => {
   return {
     name,
     slug: "mobile",
-    version: "1.0.5",
+    version: "1.0.6",
     orientation: "portrait",
     icon: "./assets/youlogo.png",
     userInterfaceStyle: "light",
     newArchEnabled: true,
     splash: {
-      image: "./assets/youlogo.png",
+      image: "./assets/you-icon.png",
       resizeMode: "contain",
       backgroundColor: "#ffffff",
     },
     ios: {
       supportsTablet: true,
       bundleIdentifier: process.env.APP_BUNDLE_ID || "com.you.first",
-      buildNumber: process.env.IOS_BUILD_NUMBER || "1",
+      buildNumber: process.env.IOS_BUILD_NUMBER || "2",
       infoPlist: {
         CFBundleDisplayName: "You.",
         ITSAppUsesNonExemptEncryption: false,
@@ -34,6 +34,8 @@ export default (): ExpoConfig => {
           "We use your photo library so you can choose a profile picture.",
         NSCameraUsageDescription:
           "We use the camera to let you take a profile picture.",
+        NSFaceIDUsageDescription:
+          "Enable Face ID to quickly and securely sign in.",
       },
     },
     android: {

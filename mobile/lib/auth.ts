@@ -20,6 +20,8 @@ export interface User {
   displayName: string
   username?: string
   profileImageUrl?: string | null
+  role?: 'admin' | 'user'
+  groupId?: string | null
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label?: string): Promise<T> {
@@ -159,12 +161,28 @@ export async function login(payload: LoginPayload): Promise<User> {
     password: payload.password,
   })
   if (error || !data.session || !data.user) throw new Error(error?.message || "Login failed")
+  // Fetch canonical profile fields including role and group_id from public.users
+  let role: 'admin' | 'user' | undefined
+  let groupId: string | null | undefined
+  try {
+    const { data: profile } = await supabase
+      .from("users")
+      .select("email, display_name, username, profile_image_url, role, group_id")
+      .eq("id", data.user.id)
+      .maybeSingle()
+    if (profile) {
+      role = (profile.role as 'admin' | 'user' | null) || undefined
+      groupId = (profile.group_id as string | null | undefined) ?? null
+    }
+  } catch {}
   const user: User = {
     id: data.user.id,
     email: data.user.email || emailToUse,
     displayName: data.user.user_metadata?.display_name || "",
     username: data.user.user_metadata?.username || undefined,
     profileImageUrl: data.user.user_metadata?.profile_image_url || null,
+    role,
+    groupId: groupId ?? null,
   }
   // Update local username→email cache for faster next login
   await mapUsernameToEmailLocally(user.username, user.email)
@@ -225,7 +243,7 @@ export async function getCurrentUser(): Promise<User | null> {
   try {
     const { data: profile } = await supabase
       .from("users")
-      .select("email, display_name, username, profile_image_url")
+      .select("email, display_name, username, profile_image_url, role, group_id")
       .eq("id", authUser.id)
       .maybeSingle()
     return {
@@ -234,6 +252,8 @@ export async function getCurrentUser(): Promise<User | null> {
       displayName: profile?.display_name || authUser.user_metadata?.display_name || "",
       username: profile?.username || authUser.user_metadata?.username || undefined,
       profileImageUrl: profile?.profile_image_url ?? authUser.user_metadata?.profile_image_url ?? null,
+      role: (profile?.role as 'admin' | 'user' | null) || undefined,
+      groupId: (profile?.group_id as string | null | undefined) ?? null,
     }
   } catch {
     return {

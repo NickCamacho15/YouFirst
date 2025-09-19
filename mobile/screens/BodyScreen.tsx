@@ -22,7 +22,7 @@ import Svg, { Circle } from "react-native-svg"
 import TopHeader from "../components/TopHeader"
 import { LineChart } from "react-native-chart-kit"
 import { getPersonalRecords, upsertPersonalRecords, addPrEntry, getPrSeries, getCachedPersonalRecords, getCachedPrSeries } from "../lib/prs"
-import { createPlanInDb, listPlans, listPlanTree, createWeek as dbCreateWeek, createDay as dbCreateDay, createBlock as dbCreateBlock, createExercise as dbCreateExercise, updateExercise as dbUpdateExercise, deleteExercises as dbDeleteExercises } from "../lib/plans"
+import { createPlanInDb, listPlansForCurrentUser, listPlanTree, createWeek as dbCreateWeek, createDay as dbCreateDay, createBlock as dbCreateBlock, createExercise as dbCreateExercise, updateExercise as dbUpdateExercise, deleteExercises as dbDeleteExercises } from "../lib/plans"
 import { getBodyMetrics, upsertBodyMetrics, estimateBodyFatPercentDeurenberg, inchesFromFeetInches } from "../lib/body"
 import { buildSnapshotFromPlanDay, createSessionFromSnapshot, getActiveSessionForToday, endSession, completeSet, markExercisesCompleted, getWorkoutStats, type SessionExerciseRow } from "../lib/workout"
 import { supabase } from "../lib/supabase"
@@ -118,7 +118,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
       }
       // Load existing plans
       try {
-        const plans = await listPlans()
+        const plans = await listPlansForCurrentUser()
         setMyPlans(plans.map(p => ({ id: p.id, name: p.name, description: p.description })))
         const active = plans.find(p => (p as any).is_active)
         if (active) {

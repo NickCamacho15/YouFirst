@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react"
 import { login, register } from "../lib/auth"
+import { supabase } from "../lib/supabase"
+import { isBiometricLoginEnabled, enableBiometricLock, isBiometricHardwareAvailable, biometricSignIn } from "../lib/biometrics"
 import {
   View,
   Text,
@@ -13,6 +15,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Alert,
 } from "react-native"
 
 interface AuthScreenProps {
@@ -29,11 +32,18 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Role + group/access code (registration)
+  const [registerRole, setRegisterRole] = useState<'admin' | 'user'>('user')
+  const [groupName, setGroupName] = useState("")
+  const [accessCode, setAccessCode] = useState("")
+
   // Refs to control focus order so fields scroll into view automatically
   const usernameRef = useRef<TextInput | null>(null)
   const emailRef = useRef<TextInput | null>(null)
   const passwordRef = useRef<TextInput | null>(null)
   const confirmRef = useRef<TextInput | null>(null)
+  const groupNameRef = useRef<TextInput | null>(null)
+  const accessCodeRef = useRef<TextInput | null>(null)
   const scrollRef = useRef<ScrollView | null>(null)
 
   // Keep focused fields visible by scrolling as focus changes
@@ -64,9 +74,51 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
         login({ identifier: identifier || "", password }),
         new Promise((_, reject) => setTimeout(() => reject(new Error("Login is taking longer than expected. Please try again.")), 15000)),
       ])
+      // Offer to enable biometrics after a successful credential login
+      try {
+        const hasHardware = await isBiometricHardwareAvailable()
+        const already = await isBiometricLoginEnabled()
+        if (hasHardware && !already) {
+          Alert.alert(
+            'Enable Face ID?',
+            'Would you like to enable Face ID for quicker sign-ins on this device?',
+            [
+              { text: 'Not now', style: 'cancel' },
+              { text: 'Enable', onPress: async () => { try { await enableBiometricLock() } catch {} } },
+            ]
+          )
+        }
+      } catch {}
       onLogin()
     } catch (e: any) {
       setError(e?.message || "Login failed")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleFaceIdLogin = async () => {
+    setSubmitting(true)
+    setError(null)
+    try {
+      const enabled = await isBiometricLoginEnabled()
+      const ok = await biometricSignIn()
+      if (ok) {
+        onLogin()
+        return
+      }
+      const hasHardware = await isBiometricHardwareAvailable()
+      if (!hasHardware) {
+        setError('Face ID is not available on this device.')
+        return
+      }
+      if (!enabled) {
+        setError('Face ID sign-in is not enabled yet. Please sign in with email first, then enable Face ID when prompted.')
+      } else {
+        setError('Face ID sign-in could not complete. Try again or sign in with email.')
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Face ID sign-in failed')
     } finally {
       setSubmitting(false)
     }
@@ -79,11 +131,51 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
   }, [])
 
   const handleRegister = async () => {
-    if (!email || !username || !password || password !== confirmPassword) return
+    // Basic validation
+    if (!email || !username || !password || password !== confirmPassword) {
+      setError(!email || !username || !password ? "Please fill all fields" : "Passwords do not match")
+      return
+    }
+    // Role-specific validation
+    const normalizedCode = accessCode.trim().toUpperCase()
+    const adminCodeValid = /^[A-Z0-9]{6,12}$/.test(normalizedCode)
+    if (registerRole === 'admin') {
+      if (!groupName.trim()) { setError("Group name is required") ; return }
+      if (!adminCodeValid) { setError("Access code must be 6–12 uppercase letters/numbers") ; return }
+    } else {
+      if (!normalizedCode) { setError("Access code is required") ; return }
+    }
     setSubmitting(true)
     setError(null)
     try {
       await register({ email, username, displayName: email.split("@")[0], password })
+      // Ensure the auth session is definitely available before calling RPCs
+      {
+        let tries = 0
+        while (tries < 10) {
+          const { data: sess } = await supabase.auth.getSession()
+          if (sess.session?.access_token) break
+          await new Promise((r) => setTimeout(r, 150))
+          tries++
+        }
+      }
+      // Post-registration RPC based on role
+      if (registerRole === 'admin') {
+        const { data: grp, error: rpcErr } = await supabase.rpc('create_admin_group', { p_name: groupName.trim(), p_access_code: normalizedCode })
+        if (rpcErr) throw new Error(rpcErr.message)
+        if (!grp) throw new Error('Failed to create group. Please try again.')
+      } else {
+        const { data: grp, error: rpcErr } = await supabase.rpc('redeem_access_code', { p_access_code: normalizedCode })
+        if (rpcErr) throw new Error(rpcErr.message)
+        if (!grp) throw new Error('Invalid access code. Please check and try again.')
+      }
+      try {
+        const hasHardware = await isBiometricHardwareAvailable()
+        const already = await isBiometricLoginEnabled()
+        if (hasHardware && !already) {
+          await enableBiometricLock()
+        }
+      } catch {}
       onLogin()
     } catch (e: any) {
       setError(e?.message || "Registration failed")
@@ -92,12 +184,22 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
     }
   }
 
+  // No auto biometric here; gating will be in app shell
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
-      <KeyboardAvoidingView style={styles.keyboardAvoidingView} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}>
-        <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView style={styles.keyboardAvoidingView} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={0}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+          contentInset={{ bottom: 30 }}
+          scrollIndicatorInsets={{ bottom: 24 }}
+        >
           {/* Logo Section */}
           <View style={styles.logoSection}>
             <Text style={styles.logo}>.uoY</Text>
@@ -171,8 +273,8 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     autoCorrect={false}
                     ref={emailRef}
                     autoFocus={activeTab === "login"}
-                    textContentType={Platform.OS === "ios" ? "emailAddress" : "emailAddress"}
-                    autoComplete="username"
+                    textContentType={Platform.OS === "ios" ? "none" : "none"}
+                    autoComplete="off"
                     returnKeyType="next"
                     blurOnSubmit={false}
                     onSubmitEditing={() => passwordRef.current?.focus()}
@@ -192,8 +294,8 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
-                    textContentType={Platform.OS === "ios" ? "emailAddress" : "emailAddress"}
-                    autoComplete="email"
+                    textContentType={Platform.OS === "ios" ? "none" : "none"}
+                    autoComplete="off"
                     ref={emailRef}
                     returnKeyType="next"
                     blurOnSubmit={false}
@@ -214,8 +316,8 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                   secureTextEntry
                   autoCapitalize="none"
                   autoCorrect={false}
-                  textContentType={Platform.OS === "ios" ? "password" : "password"}
-                  autoComplete="password"
+                  textContentType={Platform.OS === "ios" ? (activeTab === 'register' ? 'oneTimeCode' : 'password') : 'none'}
+                  autoComplete={activeTab === 'register' ? 'off' : 'password'}
                   ref={passwordRef}
                   returnKeyType={activeTab === "register" ? "next" : "done"}
                   blurOnSubmit={activeTab !== "register"}
@@ -239,8 +341,8 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     secureTextEntry
                     autoCapitalize="none"
                     autoCorrect={false}
-                    textContentType={Platform.OS === "ios" ? "password" : "password"}
-                    autoComplete="password"
+                    textContentType={Platform.OS === "ios" ? "none" : "none"}
+                    autoComplete="off"
                     ref={confirmRef}
                     returnKeyType="done"
                     onSubmitEditing={handleRegister}
@@ -249,13 +351,99 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                 </View>
               )}
 
-              {/* Submit Button */}
+              {activeTab === "register" && (
+                <View style={{ gap: 12 }}>
+                  <Text style={styles.inputLabel}>Role</Text>
+                  <View style={styles.tabContainer}>
+                    <TouchableOpacity
+                      style={[styles.tab, registerRole === 'user' && styles.activeTab]}
+                      onPress={() => setRegisterRole('user')}
+                    >
+                      <Text style={[styles.tabText, registerRole === 'user' && styles.activeTabText]}>User</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.tab, registerRole === 'admin' && styles.activeTab]}
+                      onPress={() => setRegisterRole('admin')}
+                    >
+                      <Text style={[styles.tabText, registerRole === 'admin' && styles.activeTabText]}>Admin</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {registerRole === 'admin' && (
+                    <View style={{ gap: 16 }}>
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>Group Name</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="e.g., Alpha Cohort"
+                          placeholderTextColor="#999"
+                          value={groupName}
+                          onChangeText={setGroupName}
+                          autoCapitalize="words"
+                          autoCorrect={false}
+                          ref={groupNameRef}
+                          returnKeyType="next"
+                          blurOnSubmit={false}
+                          onSubmitEditing={() => accessCodeRef.current?.focus()}
+                          onFocus={scrollToBottom}
+                        />
+                      </View>
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>Access Code</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="6–12 letters/numbers (UPPERCASE)"
+                          placeholderTextColor="#999"
+                          value={accessCode}
+                          onChangeText={(v) => setAccessCode(v.toUpperCase())}
+                          autoCapitalize="characters"
+                          autoCorrect={false}
+                          maxLength={12}
+                          ref={accessCodeRef}
+                          returnKeyType="done"
+                          onSubmitEditing={handleRegister}
+                          onFocus={scrollToBottom}
+                        />
+                      </View>
+                    </View>
+                  )}
+
+                  {registerRole === 'user' && (
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Access Code</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="Enter code from your coach"
+                        placeholderTextColor="#999"
+                        value={accessCode}
+                        onChangeText={(v) => setAccessCode(v.toUpperCase())}
+                        autoCapitalize="characters"
+                        autoCorrect={false}
+                        ref={accessCodeRef}
+                        returnKeyType="done"
+                        onSubmitEditing={handleRegister}
+                        onFocus={scrollToBottom}
+                      />
+                    </View>
+                  )}
+                </View>
+              )}
+
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
-              <TouchableOpacity style={[styles.submitButton, submitting && { opacity: 0.6 }]} disabled={submitting} onPress={activeTab === "login" ? handleSignIn : handleRegister}>
-                <Text style={styles.submitButtonText}>
-                  {submitting ? "Please wait…" : activeTab === "login" ? "Sign In" : "Create Account"}
-                </Text>
-              </TouchableOpacity>
+              {/* Action buttons stacked; Face ID hidden on Register tab */}
+              <View style={styles.actionsContainer}>
+                <TouchableOpacity style={[styles.submitButton, submitting && { opacity: 0.6 }]} disabled={submitting} onPress={activeTab === "login" ? handleSignIn : handleRegister}>
+                  <Text style={styles.submitButtonText}>
+                    {submitting ? "Please wait…" : activeTab === "login" ? "Sign In" : "Create Account"}
+                  </Text>
+                </TouchableOpacity>
+                {activeTab === 'login' && (
+                  <TouchableOpacity style={[styles.secondaryButton, submitting && { opacity: 0.6 }]} disabled={submitting} onPress={handleFaceIdLogin}>
+                    <Text style={styles.secondaryButtonText}>Sign in with Face ID</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {/* Biometric gating occurs in app shell when session exists */}
             </View>
           </View>
         </ScrollView>
@@ -273,12 +461,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    flex: 1,
-    justifyContent: "center",
+    // Avoid flex:1 here so ScrollView can grow beyond viewport and remain scrollable
     paddingHorizontal: 20,
+    paddingBottom: 32,
   },
   logoSection: {
     alignItems: "center",
+    marginTop: 24,
     marginBottom: 60,
   },
   logo: {
@@ -387,11 +576,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+  actionsContainer: {
+    marginTop: 8,
+    gap: 12,
+  },
+  secondaryButton: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    borderRadius: 12,
+    paddingVertical: 18,
+    alignItems: "center",
+    marginTop: 0,
+  },
+  secondaryButtonText: {
+    color: "#111",
+    fontSize: 16,
+    fontWeight: "600",
+  },
   errorText: {
     color: "#EF4444",
     fontSize: 14,
     marginTop: 8,
     textAlign: "center",
+  },
+  footerBar: {
+    backgroundColor: "#fff",
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
   },
 })
 

@@ -3,8 +3,10 @@ import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons'
 import { addMonths, format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay } from 'date-fns';
 import { getWinsForMonth, subscribeWins, toDateKey, listDailyStatusesBetween, type DailyWinStatus, getDailyWinStatus, parseDateKey, getDailyWinDetails, type DailyWinDetails } from '../lib/wins'
+import { useUser } from '../lib/user-context'
 
 export default function Calendar({ embedded }: { embedded?: boolean }) {
+  const { user, loading } = useUser()
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [wonDays, setWonDays] = useState<Set<string>>(new Set())
@@ -38,10 +40,13 @@ export default function Calendar({ embedded }: { embedded?: boolean }) {
         setDayStatuses(map)
       } catch { setDayStatuses({}) }
     }
-    load()
-    unsub = subscribeWins(() => { load() })
+    // Only attempt to load once auth/user is ready; prevents empty first paint
+    if (!loading && user) {
+      load()
+      unsub = subscribeWins(() => { load() })
+    }
     return () => { if (unsub) unsub() }
-  }, [currentDate])
+  }, [currentDate, user?.id, loading])
   
   // Render day cells
   const renderDays = () => {

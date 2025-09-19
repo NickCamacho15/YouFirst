@@ -13,7 +13,7 @@ type UserContextValue = {
 
 const UserContext = createContext<UserContextValue | undefined>(undefined)
 
-const CACHE_KEY = "youfirst_cached_user_v1"
+const CACHE_KEY = "youfirst_cached_user_v1" // bump only if shape changes dramatically; added role/groupId is backward compatible
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)

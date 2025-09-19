@@ -17,11 +17,13 @@ import WeeklyPerformance from "./components/WeeklyPerformance"
 import DailyRoutines from "./components/DailyRoutines"
 import PersonalMasteryDashboard from "./components/PersonalMasteryDashboard"
 import TopHeader from "./components/TopHeader"
-import { UserProvider } from "./lib/user-context"
+import { UserProvider, useUser } from "./lib/user-context"
+import AdminScreen from "./screens/AdminScreen"
 import { supabase } from "./lib/supabase"
 import { getTodaySummary, getActivityGoals } from "./lib/dashboard"
 import { getWinsForMonth } from "./lib/wins"
 import { warmStartupCaches } from './lib/warm-start'
+import { biometricUnlock, isBiometricLoginEnabled, enableBiometricLock } from './lib/biometrics'
 // Removed duplicate notifications prefetch; TopHeader handles its own fetching/realtime
 
 const App: React.FC = () => {
@@ -35,6 +37,8 @@ const App: React.FC = () => {
     setAppEpoch((e) => e + 1)
     // Warm critical caches in the background to make the home screen snappy
     setTimeout(() => { try { warmStartupCaches({ timeoutMs: 1800 }) } catch {} }, 0)
+    // Ensure any startup overlay is dismissed immediately after a successful login
+    setShowStartupOverlay(false)
   }
 
   const handleLogout = () => {
@@ -45,6 +49,7 @@ const App: React.FC = () => {
 
   const [currentScreen, setCurrentScreen] = useState("home")
   const [bodyEpoch, setBodyEpoch] = useState(0)
+  const [locked, setLocked] = useState(false)
 
   // Detect existing session on cold start and respond to auth events
   useEffect(() => {
@@ -55,12 +60,17 @@ const App: React.FC = () => {
         if (!mounted) return
         const hasSession = !!data.session
         setIsAuthenticated(hasSession)
-        if (hasSession) { try { await warmStartupCaches({ timeoutMs: 1800 }) } catch {} }
+        if (hasSession) {
+          try { await warmStartupCaches({ timeoutMs: 1800 }) } catch {}
+          // If user opted into biometrics, lock until user authenticates
+          const bioEnabled = await isBiometricLoginEnabled()
+          if (bioEnabled) setLocked(true)
+        }
         if (mounted) setShowStartupOverlay(false)
       } catch {}
     })()
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_IN") setIsAuthenticated(true)
+      if (event === "SIGNED_IN") { setIsAuthenticated(true); setShowStartupOverlay(false) }
       if (event === "SIGNED_OUT") {
         setIsAuthenticated(false)
         setCurrentScreen("home")
@@ -81,9 +91,28 @@ const App: React.FC = () => {
     <UserProvider key={`provider-${appEpoch}`}>
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" />
+        {locked && (
+          <View style={styles.lockOverlay}>
+            <View style={styles.lockCard}>
+              <Text style={styles.lockTitle}>Unlock</Text>
+              <Text style={styles.lockSubtitle}>Use Face ID to continue</Text>
+              <TouchableOpacity style={styles.lockButton} onPress={async () => {
+                const ok = await biometricUnlock('Unlock You.')
+                if (ok) setLocked(false)
+              }}>
+                <Text style={styles.lockButtonText}>Unlock with Face ID</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.lockSecondary} onPress={() => setLocked(false)}>
+                <Text style={styles.lockSecondaryText}>Enter without biometrics</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
         <TopHeader onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
         {/* Keep screens mounted to avoid refetch/re-render on tab return; toggle visibility instead */}
         <View style={{ flex: 1 }}>
+          {/* Consume role from context to gate Admin screen */}
+          {(() => { return null })()}
           <ScrollView
             style={[styles.scrollView, currentScreen === "home" ? undefined : styles.hidden]}
             showsVerticalScrollIndicator={false}
@@ -107,6 +136,10 @@ const App: React.FC = () => {
           </View>
           <View style={currentScreen === "body" ? styles.visible : styles.hidden}>
             <BodyScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} activeEpoch={bodyEpoch} />
+          </View>
+          {/* Admin screen is gated in bottom nav below */}
+          <View style={currentScreen === "admin" ? styles.visible : styles.hidden}>
+            <AdminScreen />
           </View>
           <View style={currentScreen === "profile" ? styles.visible : styles.hidden}>
             <ProfileScreen onLogout={handleLogout} />
@@ -143,6 +176,8 @@ const App: React.FC = () => {
               </View>
               <Text style={styles.navLabel}>Body</Text>
             </TouchableOpacity>
+            {/* Admin tab is conditional */}
+            <MaybeAdminTab currentScreen={currentScreen} setCurrentScreen={setCurrentScreen} />
           </View>
           <View style={styles.navIndicator}>
             {currentScreen === "disciplines" && <View style={[styles.indicatorLine, { left: "0%", width: "20%" }]} />}
@@ -150,6 +185,7 @@ const App: React.FC = () => {
             {currentScreen === "home" && <View style={[styles.indicatorLine, { left: "40%", width: "20%" }]} />}
             {currentScreen === "mind" && <View style={[styles.indicatorLine, { left: "60%", width: "20%" }]} />}
             {currentScreen === "body" && <View style={[styles.indicatorLine, { left: "80%", width: "20%" }]} />}
+            {currentScreen === "admin" && <View style={[styles.indicatorLine, { left: "100%", width: 0 }]} />}
           </View>
         </View>
         {showStartupOverlay && (
@@ -258,6 +294,74 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
   },
+  lockOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  lockCard: {
+    width: '86%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    alignItems: 'center',
+  },
+  lockTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#111',
+    marginBottom: 6,
+  },
+  lockSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 16,
+  },
+  lockButton: {
+    backgroundColor: '#111',
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    width: '100%',
+  },
+  lockButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  lockSecondary: {
+    marginTop: 12,
+  },
+  lockSecondaryText: {
+    color: '#666',
+    fontSize: 13,
+    textDecorationLine: 'underline',
+  },
 })
 
 export default App
+
+// Render an Admin tab entry in the bottom nav if user has admin role
+const MaybeAdminTab: React.FC<{ currentScreen: string; setCurrentScreen: (s: string) => void }> = ({ currentScreen, setCurrentScreen }) => {
+  const { user } = useUser()
+  if (user?.role !== 'admin') return null
+  return (
+    <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("admin")}>
+      <View style={styles.navIconContainer}>
+        <Text style={{ color: '#777', fontSize: 12, fontWeight: '600' }}>ADMIN</Text>
+      </View>
+      <Text style={styles.navLabel}>Admin</Text>
+    </TouchableOpacity>
+  )
+}

@@ -32,6 +32,17 @@ export async function listPlans(): Promise<TrainingPlanRow[]> {
   return data || []
 }
 
+// Lists plans visible to the current user. With RLS in place, a simple
+// select from training_plans returns both owned and assigned plans.
+export async function listPlansForCurrentUser(): Promise<TrainingPlanRow[]> {
+  const { data, error } = await supabase
+    .from<TrainingPlanRow>("training_plans")
+    .select("id, user_id, name, description, start_date, is_active, created_at")
+    .order("created_at", { ascending: false })
+  if (error) throw new Error(error.message)
+  return data || []
+}
+
 export async function setActivePlan(planId: string): Promise<void> {
   const uid = await getCurrentUserId()
   if (!uid) throw new Error("Not authenticated")
@@ -136,6 +147,14 @@ export async function deleteExercises(ids: string[]): Promise<void> {
     .delete()
     .in("id", ids)
   if (error) throw new Error(error.message)
+}
+
+// Assign a plan to a user (admin-only; RLS/RPC checks on server)
+export async function assignPlanToUser(planId: string, userId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("assign_plan_to_user", { p_plan_id: planId, p_user_id: userId })
+  if (error) throw new Error(error.message)
+  // data is the UUID id of plan_assignments row
+  return String(data)
 }
 
 
