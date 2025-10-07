@@ -50,7 +50,7 @@ export default (): ExpoConfig => {
     web: {
       favicon: "./assets/favicon.png",
     },
-    plugins: ["expo-secure-store", "expo-image-picker"],
+    plugins: ["expo-secure-store", "expo-image-picker", "expo-font"],
     extra: {
       // Values read at runtime by lib/api.ts and lib/supabase.ts
       expoPublicApiBaseUrl: apiBaseUrl,

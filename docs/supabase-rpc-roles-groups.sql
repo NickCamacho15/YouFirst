@@ -49,6 +49,9 @@ begin
     select g.id, g.name, g.access_code from public.groups g where g.id = v_group_id;
 end $$;
 
+-- Ensure clients can call
+grant execute on function public.create_admin_group(text, text) to authenticated, anon;
+
 -- =====================
 -- redeem_access_code(p_access_code)
 -- Joins caller into a group by access code (case-insensitive)
@@ -96,6 +99,9 @@ begin
   return query select g.id, g.name from public.groups g where g.id = v_group_id;
 end $$;
 
+-- Ensure clients can call
+grant execute on function public.redeem_access_code(text) to authenticated, anon;
+
 -- =====================
 -- assign_plan_to_user(p_plan_id, p_user_id)
 -- Admin in same group as target user assigns a plan
@@ -139,5 +145,8 @@ begin
 
   return v_assignment_id;
 end $$;
+
+-- Ensure clients can call
+grant execute on function public.assign_plan_to_user(uuid, uuid) to authenticated;
 
 

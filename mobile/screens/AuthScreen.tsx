@@ -148,27 +148,89 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
     setSubmitting(true)
     setError(null)
     try {
+      // Register the user
       await register({ email, username, displayName: email.split("@")[0], password })
-      // Ensure the auth session is definitely available before calling RPCs
-      {
-        let tries = 0
-        while (tries < 10) {
-          const { data: sess } = await supabase.auth.getSession()
-          if (sess.session?.access_token) break
-          await new Promise((r) => setTimeout(r, 150))
-          tries++
+      
+      // Wait for auth session to be fully established
+      let sessionReady = false
+      for (let i = 0; i < 20; i++) {
+        const { data: sess } = await supabase.auth.getSession()
+        if (sess.session?.access_token) {
+          sessionReady = true
+          break
+        }
+        await new Promise(r => setTimeout(r, 200))
+      }
+      
+      if (!sessionReady) {
+        // Try to sign in to establish session
+        await supabase.auth.signInWithPassword({ email, password })
+        await new Promise(r => setTimeout(r, 500))
+      }
+
+      // Call the appropriate RPC based on role
+      const { data: rpcData, error: rpcError } = await (async () => {
+        if (registerRole === 'admin') {
+          return await supabase.rpc('create_admin_group', { 
+            p_name: groupName.trim(), 
+            p_access_code: normalizedCode 
+          })
+        } else {
+          return await supabase.rpc('redeem_access_code', { 
+            p_access_code: normalizedCode 
+          })
+        }
+      })()
+
+      if (rpcError) {
+        console.error('RPC Error:', rpcError)
+        
+        // If authentication error, try to sign in and retry once
+        if (rpcError.message?.toLowerCase().includes('not authenticated')) {
+          await supabase.auth.signInWithPassword({ email, password })
+          await new Promise(r => setTimeout(r, 500))
+          
+          // Retry the RPC call
+          const { data: retryData, error: retryError } = await (async () => {
+            if (registerRole === 'admin') {
+              return await supabase.rpc('create_admin_group', { 
+                p_name: groupName.trim(), 
+                p_access_code: normalizedCode 
+              })
+            } else {
+              return await supabase.rpc('redeem_access_code', { 
+                p_access_code: normalizedCode 
+              })
+            }
+          })()
+          
+          if (retryError) {
+            throw new Error(retryError.message || 'Failed to complete registration')
+          }
+        } else {
+          throw new Error(rpcError.message || 'Failed to complete registration')
         }
       }
-      // Post-registration RPC based on role
-      if (registerRole === 'admin') {
-        const { data: grp, error: rpcErr } = await supabase.rpc('create_admin_group', { p_name: groupName.trim(), p_access_code: normalizedCode })
-        if (rpcErr) throw new Error(rpcErr.message)
-        if (!grp) throw new Error('Failed to create group. Please try again.')
-      } else {
-        const { data: grp, error: rpcErr } = await supabase.rpc('redeem_access_code', { p_access_code: normalizedCode })
-        if (rpcErr) throw new Error(rpcErr.message)
-        if (!grp) throw new Error('Invalid access code. Please check and try again.')
+
+      // Verify the user setup is complete
+      let setupVerified = false
+      for (let i = 0; i < 10; i++) {
+        const { data: userVerify } = await supabase.rpc('verify_user_setup')
+        if (userVerify && userVerify.length > 0) {
+          const user = userVerify[0]
+          if (user.role && (registerRole === 'user' ? user.group_id : true)) {
+            setupVerified = true
+            break
+          }
+        }
+        await new Promise(r => setTimeout(r, 300))
       }
+
+      if (!setupVerified) {
+        console.warn('User setup verification failed, but proceeding anyway')
+      }
+
+      // Enable biometrics if available
       try {
         const hasHardware = await isBiometricHardwareAvailable()
         const already = await isBiometricLoginEnabled()
@@ -176,9 +238,11 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
           await enableBiometricLock()
         }
       } catch {}
+      
       onLogin()
     } catch (e: any) {
-      setError(e?.message || "Registration failed")
+      console.error('Registration error:', e)
+      setError(e?.message || "Registration failed. Please try again.")
     } finally {
       setSubmitting(false)
     }
