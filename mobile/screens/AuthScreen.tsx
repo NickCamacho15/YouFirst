@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react"
 import { login, register } from "../lib/auth"
 import { supabase } from "../lib/supabase"
 import { isBiometricLoginEnabled, enableBiometricLock, isBiometricHardwareAvailable, biometricSignIn } from "../lib/biometrics"
+import AsyncStorage from "@react-native-async-storage/async-storage"
+import { useUser } from "../lib/user-context"
 import {
   View,
   Text,
@@ -22,7 +24,10 @@ interface AuthScreenProps {
   onLogin: () => void
 }
 
+const CACHE_KEY = "youfirst_cached_user_v1" // Same key as UserProvider
+
 const AuthScreen = ({ onLogin }: AuthScreenProps) => {
+  const { refresh } = useUser()
   const [activeTab, setActiveTab] = useState("login")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -214,12 +219,14 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
 
       // Verify the user setup is complete
       let setupVerified = false
+      let verifiedUserData: any = null
       for (let i = 0; i < 10; i++) {
         const { data: userVerify } = await supabase.rpc('verify_user_setup')
         if (userVerify && userVerify.length > 0) {
           const user = userVerify[0]
           if (user.role && (registerRole === 'user' ? user.group_id : true)) {
             setupVerified = true
+            verifiedUserData = user
             break
           }
         }
@@ -230,6 +237,25 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
         console.warn('User setup verification failed, but proceeding anyway')
       }
 
+      // Cache the verified user data so UserProvider loads it immediately
+      // This prevents the "glitch" where the app renders with no data then suddenly loads it
+      if (setupVerified && verifiedUserData) {
+        try {
+          const userToCache = {
+            id: verifiedUserData.user_id,
+            email: verifiedUserData.email,
+            username: verifiedUserData.username,
+            displayName: verifiedUserData.email.split('@')[0],
+            role: verifiedUserData.role,
+            groupId: verifiedUserData.group_id,
+            profileImageUrl: null,
+          }
+          await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(userToCache))
+        } catch (e) {
+          console.warn('Failed to cache user data:', e)
+        }
+      }
+
       // Enable biometrics if available
       try {
         const hasHardware = await isBiometricHardwareAvailable()
@@ -238,6 +264,13 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
           await enableBiometricLock()
         }
       } catch {}
+      
+      // Immediately refresh user context to load the new role
+      try {
+        await refresh()
+      } catch (e) {
+        console.warn('Failed to refresh user context after registration:', e)
+      }
       
       onLogin()
     } catch (e: any) {

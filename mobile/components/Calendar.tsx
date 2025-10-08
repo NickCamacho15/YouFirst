@@ -12,6 +12,9 @@ export default function Calendar({ embedded }: { embedded?: boolean }) {
   const [wonDays, setWonDays] = useState<Set<string>>(new Set())
   const [detail, setDetail] = useState<{ open: boolean; status?: DailyWinStatus; dateKey?: string; loading?: boolean; view?: 'summary' | 'details'; details?: DailyWinDetails; selected?: 'intention' | 'tasks' | 'move' | 'read' | 'center' }>({ open: false })
   const [dayStatuses, setDayStatuses] = useState<Record<string, DailyWinStatus>>({})
+  const hasLoadedRef = React.useRef(false)
+  const prevUserIdRef = React.useRef<string>()
+  const prevMonthRef = React.useRef<string>()
   
   // Get days of current month
   const monthStart = startOfMonth(currentDate);
@@ -28,25 +31,59 @@ export default function Calendar({ embedded }: { embedded?: boolean }) {
 
   // Load wins and per-day statuses for the visible month and refresh on win events
   useEffect(() => {
+    const currentMonth = format(currentDate, 'yyyy-MM')
+    const currentUserId = user?.id
+    
+    // Only reset hasLoadedRef if user or month actually changed (not just object reference)
+    if (prevUserIdRef.current !== currentUserId || prevMonthRef.current !== currentMonth) {
+      hasLoadedRef.current = false
+      prevUserIdRef.current = currentUserId
+      prevMonthRef.current = currentMonth
+    }
+    
     let unsub: (() => void) | undefined
-    const load = async () => {
-      try {
-        setWonDays(await getWinsForMonth(currentDate))
-      } catch { setWonDays(new Set()) }
-      try {
-        const startKey = toDateKey(monthStart)
-        const endKey = toDateKey(monthEnd)
-        const map = await listDailyStatusesBetween(startKey, endKey)
-        setDayStatuses(map)
-      } catch { setDayStatuses({}) }
+    const load = async (force = false) => {
+      // Prevent double-loading on initial mount
+      if (!force && hasLoadedRef.current) return
+      hasLoadedRef.current = true
+      
+      // Load both data sources in PARALLEL for faster rendering
+      const startKey = toDateKey(monthStart)
+      const endKey = toDateKey(monthEnd)
+      
+      const [newWonDays, map] = await Promise.all([
+        getWinsForMonth(currentDate).catch(() => new Set<string>()),
+        listDailyStatusesBetween(startKey, endKey).catch(() => ({}))
+      ])
+      
+      // Update wonDays only if changed
+      setWonDays(prev => {
+        if (prev.size !== newWonDays.size) return newWonDays
+        for (const day of newWonDays) {
+          if (!prev.has(day)) return newWonDays
+        }
+        return prev // Same data, keep same reference
+      })
+      
+      // Update dayStatuses only if changed
+      setDayStatuses(prev => {
+        const prevKeys = Object.keys(prev)
+        const newKeys = Object.keys(map)
+        if (prevKeys.length !== newKeys.length) return map
+        for (const key of newKeys) {
+          if (!prev[key] || JSON.stringify(prev[key]) !== JSON.stringify(map[key])) return map
+        }
+        return prev // Same data, keep same reference
+      })
     }
     // Only attempt to load once auth/user is ready; prevents empty first paint
-    if (!loading && user) {
-      load()
-      unsub = subscribeWins(() => { load() })
+    // Don't depend on 'loading' to avoid double-loads
+    if (user) {
+      load(false) // Initial load
+      unsub = subscribeWins(() => { load(true) }) // Force reload on win events
     }
     return () => { if (unsub) unsub() }
-  }, [currentDate, user?.id, loading])
+  }, [currentDate, user?.id])
   
   // Render day cells
   const renderDays = () => {

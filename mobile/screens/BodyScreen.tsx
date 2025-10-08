@@ -27,12 +27,29 @@ import { getBodyMetrics, upsertBodyMetrics, estimateBodyFatPercentDeurenberg, in
 import { buildSnapshotFromPlanDay, createSessionFromSnapshot, getActiveSessionForToday, endSession, completeSet, markExercisesCompleted, getWorkoutStats, type SessionExerciseRow } from "../lib/workout"
 import { supabase } from "../lib/supabase"
 import CompletedTodayPill from "../components/CompletedTodayPill"
+import { useUser } from "../lib/user-context"
+import { listWorkoutTemplates, createWorkoutTemplate, publishWorkoutTemplate, unpublishWorkoutTemplate, duplicateWorkoutTemplate, deleteWorkoutTemplate, type WorkoutTemplateWithDetails } from "../lib/workout-templates"
+import WorkoutTemplateCard from "../components/workout/WorkoutTemplateCard"
+import WorkoutBuilderModal from "../components/workout/WorkoutBuilderModal"
+import GroupMembersList from "../components/workout/GroupMembersList"
+import WorkoutAssignmentModal from "../components/workout/WorkoutAssignmentModal"
+import AssignedWorkoutsList from "../components/workout/AssignedWorkoutsList"
 
 interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void; activeEpoch?: number }
 
 const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoch }) => {
+  const { user } = useUser()
+  const isAdmin = user?.role === 'admin'
   const [activeTab, setActiveTab] = useState("profile")
   const [prs, setPrs] = useState({ bench: 0, squat: 0, deadlift: 0, ohp: 0 })
+  
+  // Workout templates state
+  const [workoutTemplates, setWorkoutTemplates] = useState<WorkoutTemplateWithDetails[]>([])
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'published' | 'archived'>('all')
+  const [workoutBuilderOpen, setWorkoutBuilderOpen] = useState(false)
+  const [assignmentModalOpen, setAssignmentModalOpen] = useState(false)
+  const [selectedWorkoutForAssignment, setSelectedWorkoutForAssignment] = useState<{ id: string; name: string } | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [prUpdateOpen, setPrUpdateOpen] = useState(false)
   const [prLift, setPrLift] = useState<'Bench Press' | 'Squat' | 'Deadlift' | 'Overhead Press'>('Bench Press')
@@ -329,6 +346,51 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
     setWeekStart(ws)
     setSelectedDayIndex(now.getDay())
   }, [activeEpoch])
+
+  // Load workout templates when Planning tab is active
+  useEffect(() => {
+    if (activeTab === 'planning' && isAdmin) {
+      loadWorkoutTemplates()
+    }
+  }, [activeTab, isAdmin, statusFilter])
+
+  const loadWorkoutTemplates = async () => {
+    setTemplatesLoading(true)
+    try {
+      const templates = await listWorkoutTemplates(statusFilter)
+      setWorkoutTemplates(templates)
+    } catch (error: any) {
+      console.error('Failed to load workout templates:', error)
+    } finally {
+      setTemplatesLoading(false)
+    }
+  }
+
+  const handleCreateWorkout = async (name: string, description: string) => {
+    await createWorkoutTemplate(name, description)
+    await loadWorkoutTemplates()
+  }
+
+  const handlePublishWorkout = async (planId: string) => {
+    await publishWorkoutTemplate(planId)
+    await loadWorkoutTemplates()
+  }
+
+  const handleUnpublishWorkout = async (planId: string) => {
+    await unpublishWorkoutTemplate(planId)
+    await loadWorkoutTemplates()
+  }
+
+  const handleDuplicateWorkout = async (planId: string) => {
+    await duplicateWorkoutTemplate(planId)
+    await loadWorkoutTemplates()
+  }
+
+  const handleDeleteWorkout = async (planId: string) => {
+    await deleteWorkoutTemplate(planId)
+    await loadWorkoutTemplates()
+  }
+
   const [workoutTime, setWorkoutTime] = useState(0)
   const [isWorkoutActive, setIsWorkoutActive] = useState(false)
   const [isWorkoutPaused, setIsWorkoutPaused] = useState(false)
@@ -637,8 +699,18 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
             onPress={() => setActiveTab("workout")}
           >
             <Ionicons name="barbell-outline" size={20} color={activeTab === "workout" ? "#333" : "#999"} />
-            <Text style={[styles.tabText, activeTab === "workout" && styles.activeTabText]}>Workout</Text>
+            <Text style={[styles.tabText, activeTab === "workout" && styles.activeTabText]}>Workouts</Text>
           </TouchableOpacity>
+
+          {isAdmin && (
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "planning" && styles.activeTab]}
+              onPress={() => setActiveTab("planning")}
+            >
+              <Ionicons name="calendar-outline" size={20} color={activeTab === "planning" ? "#333" : "#999"} />
+              <Text style={[styles.tabText, activeTab === "planning" && styles.activeTabText]}>Planning</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Tab Content */}
@@ -761,6 +833,20 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
           </>
         ) : activeTab === "workout" ? (
           <>
+            {/* Assigned Workouts Section */}
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleContainer}>
+                  <Ionicons name="list-outline" size={20} color="#4A90E2"/>
+                  <Text style={styles.sectionTitle}>My Workouts</Text>
+                </View>
+              </View>
+              <AssignedWorkoutsList onWorkoutPress={(workout) => {
+                // TODO: Navigate to workout detail/execution screen
+                console.log('Open workout:', workout)
+              }} />
+            </View>
+
             {/* Weekly Calendar */}
             <View style={styles.sectionCard}>
               <View style={styles.weekCalendarContainer}>
@@ -1060,216 +1146,81 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
 
             {/* Summary now shown inline above when showSummary === true */}
           </>
-        ) : (
-          // Plan tab content
+        ) : activeTab === "planning" && isAdmin ? (
           <>
-            {plan === null ? (
-              <>
-                {/* Training Plan Builder */}
-                <View style={styles.sectionCard}>
-                  <View style={styles.planBuilderHeader}>
-                    <View style={styles.planBuilderInfo}>
-                      <View style={styles.planBuilderTitleContainer}>
-                        <Ionicons name="list-outline" size={24} color="#4A90E2" />
-                        <Text style={styles.planBuilderTitle}>Training Plan Builder</Text>
-                      </View>
-                      <Text style={styles.planBuilderDescription}>Create custom workout programs from scratch</Text>
-                    </View>
-                    <TouchableOpacity style={styles.buildPlanButton} onPress={() => setPlanModalOpen(true)}>
-                      <Ionicons name="add" size={20} color="#fff" />
-                      <Text style={styles.buildPlanButtonText}>Build Plan</Text>
-                    </TouchableOpacity>
-                  </View>
+            {/* Planning Tab - Admin Only */}
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleContainer}>
+                  <Ionicons name="calendar-outline" size={20} color="#8B5CF6"/>
+                  <Text style={styles.sectionTitle}>Workout Library</Text>
                 </View>
-
-                {/* My Plans */}
-                <View style={styles.sectionCard}>
-                  <Text style={styles.myPlansTitle}>My Plans</Text>
-
-                  {myPlans.length === 0 ? (
-                    <View style={styles.emptyPlansContainer}>
-                      <View style={styles.emptyPlansIcon}>
-                        <Ionicons name="radio-button-off-outline" size={60} color="#ccc" />
-                      </View>
-                      <Text style={styles.emptyPlansTitle}>No plans created yet</Text>
-                      <Text style={styles.emptyPlansDescription}>
-                        Click "Build Plan" to create your first workout program
-                      </Text>
-                    </View>
-                  ) : (
-                    <View style={{ gap: 12 }}>
-                      {myPlans.map((p) => (
-                        <TouchableOpacity key={p.id} style={styles.planListItem} onPress={async () => {
-                          const weeks = await listPlanTree(p.id)
-                          const mapped = weeks.map((w) => ({
-                            id: w.id,
-                            name: w.name,
-                            days: (w as any).days.map((d: any) => ({
-                              id: d.id,
-                              name: d.name,
-                              blocks: d.blocks.map((b: any) => ({
-                                id: b.id,
-                                name: b.name,
-                                letter: b.letter || "A",
-                                exercises: (b.exercises || []).map((e: any) => ({
-                                  id: e.id,
-                                  name: e.name,
-                                  type: e.type,
-                                  sets: e.sets,
-                                  reps: e.reps,
-                                  weight: e.weight,
-                                  rest: e.rest,
-                                  time: e.time,
-                                  distance: e.distance,
-                                  pace: e.pace,
-                                  time_cap: e.time_cap,
-                                  score_type: e.score_type,
-                                  target: e.target,
-                                })),
-                              })),
-                            })),
-                          }))
-                          setPlan({ id: p.id, name: p.name, description: p.description || undefined, weeks: mapped })
-                        }}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.planListName}>{p.name}</Text>
-                            {!!p.description && <Text style={styles.planListDesc}>{p.description}</Text>}
-                          </View>
-                          <Ionicons name="chevron-forward" size={18} color="#666" />
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
-
-                {/* 1RM Percentage Calculator */}
-                <View style={styles.sectionCard}>
-                  <View style={styles.calculatorHeader}>
-                    <Ionicons name="calculator-outline" size={20} color="#4A90E2" />
-                    <Text style={styles.calculatorTitle}>1RM Percentage Calculator</Text>
-                  </View>
-
-                  <View style={styles.calculatorInputContainer}>
-                    <TextInput style={styles.calculatorInput} placeholder="Max Weight" placeholderTextColor="#999" />
-                  </View>
-                </View>
-              </>
-            ) : (
-              <>
-                {/* Plan Detail View */}
-                <View style={styles.planDetailHeader}>
-                  <TouchableOpacity style={styles.backButton} onPress={() => setPlan(null)}>
-                    <Ionicons name="chevron-back" size={22} color="#666" />
-                  </TouchableOpacity>
-                  <View style={{ alignItems: "center", flex: 1 }}>
-                    <Text style={styles.planDetailTitle}>{plan.name}</Text>
-                    {!!plan.description && <Text style={styles.planDetailDescription}>{plan.description}</Text>}
-                  </View>
-                  <View style={{ width: 22 }} />
-                </View>
-
-                <TouchableOpacity style={[styles.timePeriodButton, { alignSelf: "flex-start", marginBottom: 12 }]} onPress={() => setWeekModalOpen({ open: true })}>
-                  <Text style={styles.timePeriodButtonText}>+ Add Week</Text>
+                <TouchableOpacity style={styles.sectionAction} onPress={() => setWorkoutBuilderOpen(true)}>
+                  <Ionicons name="add-circle-outline" size={22} color="#8B5CF6" />
+                  <Text style={styles.sectionActionText}>Create</Text>
                 </TouchableOpacity>
+              </View>
 
-                {plan.weeks.map((w, wi) => (
-                  <View key={w.id} style={[styles.sectionCard, { marginTop: 12 }]}> 
-                    <View style={styles.sectionHeader}>
-                      <View style={styles.sectionTitleContainer}>
-                        <Ionicons name="calendar-outline" size={20} color="#4A90E2" />
-                        <Text style={styles.sectionTitle}>{w.name}</Text>
-                      </View>
-                      <TouchableOpacity style={styles.editButton} onPress={() => setDayModalOpen({ open: true, weekIndex: wi })}>
-                        <Ionicons name="add" size={16} color="#666" />
-                        <Text style={styles.editButtonText}>Add Day</Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {w.days.map((d, di) => (
-                      <View key={d.id} style={{ marginBottom: 12 }}>
-                        <View style={[styles.sectionHeader, { marginBottom: 8 }]}>
-                          <View style={styles.sectionTitleContainer}>
-                            <Ionicons name="today-outline" size={18} color="#10B981" />
-                            <Text style={[styles.sectionTitle, { fontSize: 16 }]}>{d.name}</Text>
-                          </View>
-                          <TouchableOpacity style={styles.editButton} onPress={() => setBlockModalOpen({ open: true, weekIndex: wi, dayIndex: di })}>
-                            <Ionicons name="add" size={16} color="#666" />
-                            <Text style={styles.editButtonText}>Add Block</Text>
-                          </TouchableOpacity>
-                        </View>
-
-                        {d.blocks.map((b, bi) => (
-                          <View key={b.id} style={styles.blockContainer}>
-                            <View style={styles.workoutBlockHeader}>
-                              <View style={styles.blockLabel}><Text style={styles.blockId}>{b.letter}</Text></View>
-                              <View style={styles.blockInfo}><Text style={styles.blockName}>{b.name}</Text></View>
-                              <TouchableOpacity
-                                style={styles.blockDropdown}
-                                onPress={() => {
-                                  setOpenTypePicker(null)
-                                  setExerciseFormError("")
-                                  setExerciseForms([
-                                    { name: "", type: "Lifting", sets: "", reps: "", weight: "", rest: "", time: "", distance: "", pace: "", time_cap: "", score_type: "", target: "" },
-                                  ])
-                                  setExerciseModalOpen({ open: true, weekIndex: wi, dayIndex: di, blockIndex: bi })
-                                }}
-                              >
-                                <Ionicons name="add" size={20} color="#666" />
-                              </TouchableOpacity>
-                            </View>
-                            {b.exercises.map((e) => (
-                              <View key={e.id} style={[styles.exerciseRow, { justifyContent: "space-between", paddingVertical: 12 }]}> 
-                                <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-                                  <Text style={styles.exerciseName}>{e.name}</Text>
-                                  {e.type === "Lifting" && (<>
-                                    {!!(e.sets || e.reps) && <Text style={styles.exerciseMeta}>{e.sets}×{e.reps}</Text>}
-                                    {!!e.weight && <Text style={styles.exerciseMeta}>{e.weight}</Text>}
-                                  </>)}
-                                  {e.type === "Cardio" && (<>
-                                    {!!e.time && <Text style={styles.exerciseMeta}>{e.time}</Text>}
-                                    {!!e.distance && <Text style={styles.exerciseMeta}>{e.distance}</Text>}
-                                    {!!e.pace && <Text style={styles.exerciseMeta}>{e.pace}</Text>}
-                                  </>)}
-                                  {e.type === "METCON" && (<>
-                                    {!!e.time_cap && <Text style={styles.exerciseMeta}>{e.time_cap}</Text>}
-                                    {!!(e.sets || e.reps) && <Text style={styles.exerciseMeta}>{e.sets}×{e.reps}</Text>}
-                                  </>)}
-                                  {!!e.rest && <Text style={styles.exerciseMeta}>{e.rest} rest</Text>}
-                                </View>
-                                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingLeft: 8 }}>
-                                  <TouchableOpacity onPress={async () => {
-                                    setEditingExercise({ id: e.id, wi, di, bi })
-                                    setExerciseForms([{ name: e.name, type: e.type as any, sets: e.sets || "", reps: e.reps || "", weight: e.weight || "", rest: e.rest || "", time: e.time || "", distance: e.distance || "", pace: e.pace || "", time_cap: e.time_cap || "", score_type: e.score_type || "", target: e.target || "" }])
-                                    setExerciseModalOpen({ open: true, weekIndex: wi, dayIndex: di, blockIndex: bi })
-                                  }}>
-                                    <Ionicons name="create-outline" size={20} color="#666" />
-                                  </TouchableOpacity>
-                                  <TouchableOpacity onPress={async () => {
-                                    try {
-                                      await dbDeleteExercises([e.id])
-                                      const weeksCopy = [...plan!.weeks]
-                                      weeksCopy[wi].days[di].blocks[bi].exercises = weeksCopy[wi].days[di].blocks[bi].exercises.filter((x) => x.id !== e.id)
-                                      setPlan({ ...plan!, weeks: weeksCopy })
-                                    } catch (err) {
-                                      // eslint-disable-next-line no-console
-                                      console.warn("Delete exercise failed", (err as any)?.message)
-                                    }
-                                  }}>
-                                    <Ionicons name="trash-outline" size={20} color="#EF4444" />
-                                  </TouchableOpacity>
-                                </View>
-                              </View>
-                            ))}
-                          </View>
-                        ))}
-                      </View>
-                    ))}
-                  </View>
+              {/* Filter Tabs */}
+              <View style={styles.filterContainer}>
+                {(['all', 'draft', 'published', 'archived'] as const).map(filter => (
+                  <TouchableOpacity
+                    key={filter}
+                    style={[styles.filterTab, statusFilter === filter && styles.filterTabActive]}
+                    onPress={() => setStatusFilter(filter)}
+                  >
+                    <Text style={[styles.filterTabText, statusFilter === filter && styles.filterTabTextActive]}>
+                      {filter.charAt(0).toUpperCase() + filter.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
                 ))}
-              </>
-            )}
+              </View>
+
+              {/* Template List */}
+              {templatesLoading ? (
+                <Text style={styles.loadingText}>Loading workouts...</Text>
+              ) : workoutTemplates.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Ionicons name="barbell-outline" size={48} color="#ccc" />
+                  <Text style={styles.emptyStateText}>
+                    {statusFilter === 'all' ? 'No workouts yet' : `No ${statusFilter} workouts`}
+                  </Text>
+                  <Text style={styles.emptyStateSubtext}>
+                    Create your first workout to get started
+                  </Text>
+                </View>
+              ) : (
+                workoutTemplates.map(template => (
+                  <WorkoutTemplateCard
+                    key={template.id}
+                    template={template}
+                    onEdit={() => {/* TODO: Edit workout */}}
+                    onPublish={() => handlePublishWorkout(template.id)}
+                    onUnpublish={() => handleUnpublishWorkout(template.id)}
+                    onAssign={() => {
+                      setSelectedWorkoutForAssignment({ id: template.id, name: template.name })
+                      setAssignmentModalOpen(true)
+                    }}
+                    onDuplicate={() => handleDuplicateWorkout(template.id)}
+                    onDelete={() => handleDeleteWorkout(template.id)}
+                  />
+                ))
+              )}
+            </View>
+
+            {/* Group Members Section */}
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleContainer}>
+                  <Ionicons name="people-outline" size={20} color="#8B5CF6"/>
+                  <Text style={styles.sectionTitle}>Group Members</Text>
+                </View>
+              </View>
+
+              <GroupMembersList />
+            </View>
           </>
-        )}
+        ) : null}
 
         {/* Add some bottom padding for navigation */}
         <View style={{ height: 100 }} />
@@ -1787,6 +1738,27 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
             </View>
           </View>
         </View>
+      )}
+
+      {/* Workout Builder Modal */}
+      <WorkoutBuilderModal
+        visible={workoutBuilderOpen}
+        onClose={() => setWorkoutBuilderOpen(false)}
+        onSave={handleCreateWorkout}
+        mode="create"
+      />
+
+      {/* Workout Assignment Modal */}
+      {selectedWorkoutForAssignment && (
+        <WorkoutAssignmentModal
+          visible={assignmentModalOpen}
+          onClose={() => {
+            setAssignmentModalOpen(false)
+            setSelectedWorkoutForAssignment(null)
+          }}
+          workoutId={selectedWorkoutForAssignment.id}
+          workoutName={selectedWorkoutForAssignment.name}
+        />
       )}
     </SafeAreaView>
   )
@@ -2537,6 +2509,68 @@ const styles = StyleSheet.create({
   exerciseDivider: {
     height: 1,
     backgroundColor: "#eee",
+    marginTop: 8,
+  },
+  sectionAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  sectionActionText: {
+    color: "#8B5CF6",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  placeholderText: {
+    color: "#666",
+    fontSize: 16,
+    textAlign: "center",
+    marginTop: 20,
+    paddingHorizontal: 20,
+  },
+  filterContainer: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  filterTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#f0f0f0",
+  },
+  filterTabActive: {
+    backgroundColor: "#8B5CF6",
+  },
+  filterTabText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#666",
+  },
+  filterTabTextActive: {
+    color: "#fff",
+  },
+  loadingText: {
+    fontSize: 16,
+    color: "#666",
+    textAlign: "center",
+    marginTop: 40,
+    marginBottom: 40,
+  },
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: 40,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#333",
+    marginTop: 16,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: "#666",
     marginTop: 8,
   },
 })

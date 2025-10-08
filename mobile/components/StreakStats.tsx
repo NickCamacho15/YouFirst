@@ -6,29 +6,31 @@ import { getStreaks, subscribeWins } from '../lib/wins'
 const StreakStats = ({ embedded }: { embedded?: boolean }) => {
   const [current, setCurrent] = useState(0)
   const [best, setBest] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const firstLoadDoneRef = useRef(false)
+  const [loading, setLoading] = useState(false) // Start as false since cache loads instantly
+  const hasLoadedRef = useRef(false)
 
   useEffect(() => {
     let isActive = true
 
-    async function load(showSpinner: boolean) {
+    async function load(force = false) {
+      // Prevent double-loading on initial mount
+      if (!force && hasLoadedRef.current) return
+      hasLoadedRef.current = true
+      
       try {
-        if (showSpinner) setLoading(true)
         const s = await getStreaks()
         if (!isActive) return
-        setCurrent(s.current)
-        setBest(s.best)
-      } finally {
-        if (showSpinner) setLoading(false)
-      }
+        // Only update state if values actually changed
+        setCurrent(prev => s.current === prev ? prev : s.current)
+        setBest(prev => s.best === prev ? prev : s.best)
+      } catch {}
     }
 
-    // Initial load shows spinner once
-    load(true).then(() => { firstLoadDoneRef.current = true })
+    // Initial load (cache loads instantly)
+    load(false)
 
-    // Subsequent updates from win changes refresh silently to avoid UI flicker
-    const unsub = subscribeWins(() => { load(false) })
+    // Subsequent updates from win changes
+    const unsub = subscribeWins(() => { load(true) })
 
     return () => { isActive = false; if (unsub) unsub() }
   }, [])

@@ -1,8 +1,8 @@
 import { supabase } from './supabase'
 import { getCurrentUserId } from './auth'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { listRoutines, listRoutineCompletionsByDate } from './routines'
 import { listTasksByDate } from './tasks'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { cacheGet, cacheSet, cacheInvalidatePrefix } from './cache'
 
 type WinsRow = { id: string; user_id: string; win_date: string; created_at: string }
@@ -76,8 +76,28 @@ export async function listWinsBetween(startKey: string, endKeyInclusive: string)
   const uid = await getCurrentUserId()
   if (!uid) throw new Error('Not authenticated')
   const cacheKey = `wins:${uid}:${startKey}:${endKeyInclusive}`
-  const cached = cacheGet<Set<string>>(cacheKey)
-  if (cached) return cached
+  
+  // Check in-memory cache first (fastest)
+  const memCached = cacheGet<Set<string>>(cacheKey)
+  if (memCached) return memCached
+  
+  // Check AsyncStorage for persistent cache (instant on app restart)
+  try {
+    const persistentCached = await AsyncStorage.getItem(cacheKey)
+    if (persistentCached) {
+      const dates: string[] = JSON.parse(persistentCached)
+      const set = new Set<string>(dates)
+      cacheSet(cacheKey, set, 5 * 60) // Also set in-memory cache
+      // Don't refresh immediately - warmStartupCaches will handle it
+      return set
+    }
+  } catch {}
+  
+  // No cache, fetch fresh
+  return await refreshWinsBetween(uid, startKey, endKeyInclusive, cacheKey)
+}
+
+async function refreshWinsBetween(uid: string, startKey: string, endKeyInclusive: string, cacheKey: string): Promise<Set<string>> {
   const { data, error } = await supabase
     .from<WinsRow>('user_wins')
     .select('win_date')
@@ -88,7 +108,15 @@ export async function listWinsBetween(startKey: string, endKeyInclusive: string)
   if (error) return new Set<string>()
   const set = new Set<string>()
   for (const row of data || []) set.add(row.win_date)
+  
+  // Cache in memory
   cacheSet(cacheKey, set, 5 * 60 * 1000)
+  
+  // Persist to AsyncStorage for instant load on next app start
+  try {
+    await AsyncStorage.setItem(cacheKey, JSON.stringify(Array.from(set)))
+  } catch {}
+  
   return set
 }
 
@@ -122,9 +150,27 @@ export async function markWon(dateKey?: string): Promise<void> {
   emitWinsChanged()
 }
 
+const STREAKS_CACHE_KEY = 'youfirst_streaks_v1'
+
 export async function getStreaks(): Promise<{ current: number; best: number }> {
   const uid = await getCurrentUserId()
   if (!uid) throw new Error('Not authenticated')
+  
+  // Try cache first for instant load
+  try {
+    const cached = await AsyncStorage.getItem(`${STREAKS_CACHE_KEY}_${uid}`)
+    if (cached) {
+      const parsed = JSON.parse(cached)
+      // Return cached immediately - warmStartupCaches will refresh it
+      return parsed
+    }
+  } catch {}
+  
+  // No cache, fetch fresh
+  return await refreshStreaks(uid)
+}
+
+async function refreshStreaks(uid: string): Promise<{ current: number; best: number }> {
   const today = startOfDay(new Date())
   const start = new Date(today); start.setDate(start.getDate() - 365)
   const startKey = toDateKeyLocal(start)
@@ -146,7 +192,14 @@ export async function getStreaks(): Promise<{ current: number; best: number }> {
     probe.setDate(probe.getDate() + 1)
   }
   best = Math.max(best, current)
-  return { current, best }
+  const result = { current, best }
+  
+  // Cache the result
+  try {
+    await AsyncStorage.setItem(`${STREAKS_CACHE_KEY}_${uid}`, JSON.stringify(result))
+  } catch {}
+  
+  return result
 }
 
 export type Eligibility = {
@@ -264,21 +317,106 @@ export async function listDailyStatusesBetween(startKey: string, endKeyInclusive
       } catch {}
     }))
   }
-  // Fetch any missing statuses with limited concurrency
+  // Fetch any missing statuses - OPTIMIZED with pre-fetched routines
   const missing: string[] = []
   results.forEach((r, i) => { if (!r) missing.push(keys[i]) })
   if (missing.length) {
-    const limit = 4
+    // PRE-FETCH routines once for ALL days (huge optimization!)
+    const [morningRoutines, eveningRoutines] = await Promise.all([
+      listRoutines('morning').catch(() => []),
+      listRoutines('evening').catch(() => [])
+    ])
+    const morningIds = morningRoutines.map(r => r.id)
+    const eveningIds = eveningRoutines.map(r => r.id)
+    
+    const limit = 12 // Increased from 8 to 12 for even faster loading
     let idx = 0
     async function worker() {
       while (idx < missing.length) {
         const k = missing[idx++]
-        try { const s = await getDailyWinStatus(k); const pos = keys.indexOf(k); if (pos >= 0) results[pos] = s } catch {}
+        try { 
+          // Pass pre-fetched routines to avoid redundant queries
+          const s = await getDailyWinStatusOptimized(k, uid!, morningIds, eveningIds)
+          const pos = keys.indexOf(k)
+          if (pos >= 0) results[pos] = s
+        } catch {}
       }
     }
     await Promise.all(Array.from({ length: Math.min(limit, missing.length) }, () => worker()))
   }
   results.forEach((r, i) => { if (r) out[keys[i]] = r })
+  return out
+}
+
+// Optimized version that accepts pre-fetched routine IDs
+async function getDailyWinStatusOptimized(
+  dateKey: string, 
+  uid: string,
+  morningRoutineIds: string[],
+  eveningRoutineIds: string[]
+): Promise<DailyWinStatus> {
+  const key = dateKey
+  
+  // Check if already fetched and cached during this batch
+  const cacheKey = `winStatus:${uid}:${key}`
+  const cached = cacheGet<DailyWinStatus>(cacheKey)
+  if (cached) return cached
+
+  // Fetch routine completions using pre-fetched IDs (saves 2 queries per day!)
+  const morningMap = morningRoutineIds.length ? await listRoutineCompletionsByDate(morningRoutineIds, key) : {}
+  const intentionMorning = morningRoutineIds.length > 0 && morningRoutineIds.every(id => !!morningMap[id])
+
+  const eveningMap = eveningRoutineIds.length ? await listRoutineCompletionsByDate(eveningRoutineIds, key) : {}
+  const intentionEvening = eveningRoutineIds.length > 0 && eveningRoutineIds.every(id => !!eveningMap[id])
+
+  // Tasks
+  const tasks = await listTasksByDate(key)
+  const criticalTasks = tasks.some(t => !!t.done)
+
+  // Sessions (parallel)
+  const { startISO, endISO } = dayBoundsFromDateKeyLocal(key)
+  const [workoutCnt, readingCnt, meditationCnt] = await Promise.all([
+    supabase.from('workout_sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('status', 'completed').gte('started_at', startISO).lt('started_at', endISO),
+    supabase.from('user_reading_sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid).gte('started_at', startISO).lt('started_at', endISO),
+    supabase.from('meditation_sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid).gte('started_at', startISO).lt('started_at', endISO),
+  ])
+  const workout = (workoutCnt.count || 0) > 0
+  const reading = (readingCnt.count || 0) > 0
+  const prayerMeditation = (meditationCnt.count || 0) > 0
+
+  // Overrides
+  const { data: overrides } = await supabase
+    .from('user_daily_overrides')
+    .select('component, completed')
+    .eq('user_id', uid)
+    .eq('day', key)
+
+  let m = intentionMorning
+  let e = intentionEvening
+  let t = criticalTasks
+  let w = workout
+  let r = reading
+  let p = prayerMeditation
+  for (const row of overrides || []) {
+    switch (row.component) {
+      case 'intention_morning': m = !!row.completed; break
+      case 'intention_evening': e = !!row.completed; break
+      case 'tasks': t = !!row.completed; break
+      case 'workout': w = !!row.completed; break
+      case 'reading': r = !!row.completed; break
+      case 'prayer_meditation': p = !!row.completed; break
+    }
+  }
+
+  const allComplete = m && e && t && w && r && p
+  const out: DailyWinStatus = { dateKey: key, intentionMorning: m, intentionEvening: e, criticalTasks: t, workout: w, reading: r, prayerMeditation: p, allComplete }
+  
+  // Cache the result
+  const todayKey = toDateKeyLocal(startOfDay(new Date()))
+  const ttl = key === todayKey ? 5 * 60 * 1000 : 12 * 60 * 60 * 1000
+  cacheSet(cacheKey, out, ttl)
+  try { await AsyncStorage.setItem(cacheKey, JSON.stringify({ exp: Date.now() + ttl, data: out })) } catch {}
+  
   return out
 }
 

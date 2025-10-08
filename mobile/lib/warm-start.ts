@@ -1,5 +1,5 @@
 import { getActivityGoals, getTodaySummary } from './dashboard'
-import { getWinsForMonth } from './wins'
+import { getWinsForMonth, getStreaks } from './wins'
 
 type WarmOptions = {
   timeoutMs?: number
@@ -18,7 +18,12 @@ export async function warmStartupCaches(options?: WarmOptions): Promise<void> {
   const jobs: Promise<unknown>[] = []
   try { jobs.push(getActivityGoals().catch(() => {})) } catch {}
   try { jobs.push(getTodaySummary().catch(() => {})) } catch {}
+  
+  // Pre-cache calendar and streak data for instant component rendering
+  // These functions cache their results in AsyncStorage, so when components mount
+  // they'll load instantly from cache rather than hitting the network
   try { jobs.push(getWinsForMonth(new Date()).catch(() => {})) } catch {}
+  try { jobs.push(getStreaks().catch(() => {})) } catch {}
 
   if (jobs.length === 0) return
 
