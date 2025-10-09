@@ -41,7 +41,7 @@ const ScheduleTypeSelector: React.FC<ScheduleTypeSelectorProps> = ({ value, onCh
           <View style={styles.optionContent}>
             <View style={styles.radio}>
               {value === option.value ? (
-                <Ionicons name="radio-button-on" size={24} color="#8B5CF6" />
+                <Ionicons name="radio-button-on" size={24} color="#4A90E2" />
               ) : (
                 <Ionicons name="radio-button-off" size={24} color="#ccc" />
               )}
@@ -51,7 +51,7 @@ const ScheduleTypeSelector: React.FC<ScheduleTypeSelectorProps> = ({ value, onCh
                 <Ionicons
                   name={option.icon as any}
                   size={18}
-                  color={value === option.value ? '#8B5CF6' : '#666'}
+                  color={value === option.value ? '#4A90E2' : '#666'}
                 />
                 <Text style={[styles.optionLabel, value === option.value && styles.optionLabelSelected]}>
                   {option.label}
@@ -80,8 +80,8 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   optionSelected: {
-    backgroundColor: '#F3E8FF',
-    borderColor: '#8B5CF6',
+    backgroundColor: '#E3F2FD',
+    borderColor: '#4A90E2',
   },
   optionContent: {
     flexDirection: 'row',
@@ -107,14 +107,14 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   optionLabelSelected: {
-    color: '#7C3AED',
+    color: '#2563EB',
   },
   optionDescription: {
     fontSize: 13,
     color: '#666',
   },
   optionDescriptionSelected: {
-    color: '#9333EA',
+    color: '#4A90E2',
   },
 })
 

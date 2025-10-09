@@ -27,7 +27,10 @@ export async function listWorkoutTemplates(statusFilter?: 'all' | 'draft' | 'pub
 
   let query = supabase
     .from("training_plans")
-    .select("*")
+    .select(`
+      *,
+      exercises:plan_exercises(count)
+    `)
     .eq("user_id", uid)
     .order("created_at", { ascending: false })
 
@@ -40,11 +43,27 @@ export async function listWorkoutTemplates(statusFilter?: 'all' | 'draft' | 'pub
 
   if (error) throw new Error(error.message)
 
-  // TODO: Add exercise counts and assignment counts
+  // Get assignment counts for each plan
+  const planIds = (data || []).map(p => p.id)
+  let assignmentCounts: Record<string, number> = {}
+  
+  if (planIds.length > 0) {
+    const { data: assignments } = await supabase
+      .from("plan_assignments")
+      .select("plan_id")
+      .in("plan_id", planIds)
+    
+    if (assignments) {
+      assignments.forEach(a => {
+        assignmentCounts[a.plan_id] = (assignmentCounts[a.plan_id] || 0) + 1
+      })
+    }
+  }
+
   return (data || []).map(plan => ({
     ...plan,
-    exercise_count: 0,
-    assignment_count: 0,
+    exercise_count: plan.exercises?.[0]?.count || 0,
+    assignment_count: assignmentCounts[plan.id] || 0,
   }))
 }
 
@@ -135,10 +154,13 @@ export async function duplicateWorkoutTemplate(planId: string, newName?: string)
   const uid = await getCurrentUserId()
   if (!uid) throw new Error("Not authenticated")
 
-  // Fetch the original plan
+  // Fetch the original plan with exercises
   const { data: originalPlan, error: fetchError } = await supabase
     .from("training_plans")
-    .select("*")
+    .select(`
+      *,
+      exercises:plan_exercises(*)
+    `)
     .eq("id", planId)
     .eq("user_id", uid)
     .single()
@@ -151,9 +173,62 @@ export async function duplicateWorkoutTemplate(planId: string, newName?: string)
     originalPlan.description
   )
 
-  // TODO: Copy weeks, days, blocks, and exercises
-  // For now, just return the new empty plan
+  // Copy exercises (simplified templates only - where block_id is null)
+  if (originalPlan.exercises && originalPlan.exercises.length > 0) {
+    const simplifiedExercises = originalPlan.exercises.filter((ex: any) => ex.block_id === null)
+    
+    if (simplifiedExercises.length > 0) {
+      const exercisesToCopy = simplifiedExercises.map((ex: any) => ({
+        plan_id: newPlan.id,
+        exercise_library_id: ex.exercise_library_id,
+        block_id: null,
+        user_id: uid,
+        name: ex.name,
+        type: ex.type,
+        sets: ex.sets,
+        reps: ex.reps,
+        weight: ex.weight,
+        rest: ex.rest,
+        time: ex.time,
+        distance: ex.distance,
+        pace: ex.pace,
+        time_cap: ex.time_cap,
+        score_type: ex.score_type,
+        target: ex.target,
+        notes: ex.notes,
+        position: ex.position,
+      }))
+
+      await supabase.from("plan_exercises").insert(exercisesToCopy)
+    }
+  }
 
   return newPlan
+}
+
+/**
+ * Get a single template with exercises
+ */
+export async function getTemplateWithExercises(planId: string) {
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error("Not authenticated")
+
+  const { data, error } = await supabase
+    .from("training_plans")
+    .select(`
+      *,
+      exercises:plan_exercises!inner(
+        *,
+        library:exercise_library(*)
+      )
+    `)
+    .eq("id", planId)
+    .eq("user_id", uid)
+    .is("exercises.block_id", null) // Only simplified templates
+    .order("exercises.position", { ascending: true })
+    .single()
+
+  if (error) throw new Error(error.message)
+  return data
 }
 

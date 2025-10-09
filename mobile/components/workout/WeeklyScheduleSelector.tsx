@@ -69,7 +69,7 @@ const WeeklyScheduleSelector: React.FC<WeeklyScheduleSelectorProps> = ({
       </View>
 
       <View style={styles.preview}>
-        <Ionicons name="information-circle-outline" size={16} color="#8B5CF6" />
+        <Ionicons name="information-circle-outline" size={16} color="#4A90E2" />
         <Text style={styles.previewText}>
           Every {getDayNames()} starting {new Date(startDate).toLocaleDateString()}
           {endDate && ` until ${new Date(endDate).toLocaleDateString()}`}
@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
   clearText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#8B5CF6',
+    color: '#4A90E2',
   },
   daysGrid: {
     flexDirection: 'row',
@@ -145,8 +145,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dayButtonSelected: {
-    backgroundColor: '#F3E8FF',
-    borderColor: '#8B5CF6',
+    backgroundColor: '#E3F2FD',
+    borderColor: '#4A90E2',
   },
   dayButtonText: {
     fontSize: 14,
@@ -154,22 +154,22 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   dayButtonTextSelected: {
-    color: '#7C3AED',
+    color: '#2563EB',
   },
   preview: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 8,
-    backgroundColor: '#F3E8FF',
+    backgroundColor: '#E3F2FD',
     padding: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E9D5FF',
+    borderColor: '#BBDEFB',
   },
   previewText: {
     flex: 1,
     fontSize: 13,
-    color: '#7C3AED',
+    color: '#2563EB',
     lineHeight: 18,
   },
   dateInputContainer: {

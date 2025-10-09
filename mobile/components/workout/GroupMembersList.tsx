@@ -33,7 +33,7 @@ const GroupMembersList: React.FC<GroupMembersListProps> = ({ onMemberPress }) =>
   if (loading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="small" color="#8B5CF6" />
+        <ActivityIndicator size="small" color="#4A90E2" />
         <Text style={styles.loadingText}>Loading members...</Text>
       </View>
     )
@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: '#8B5CF6',
+    backgroundColor: '#4A90E2',
     borderRadius: 8,
   },
   retryText: {
@@ -143,7 +143,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#8B5CF6',
+    backgroundColor: '#4A90E2',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,

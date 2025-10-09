@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
   saveButton: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#8B5CF6",
+    color: "#4A90E2",
   },
   saveButtonDisabled: {
     opacity: 0.5,

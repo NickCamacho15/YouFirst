@@ -109,8 +109,8 @@ export default function WorkoutTemplateCard({
 
         {isPublished && (
           <TouchableOpacity style={styles.actionButton} onPress={onAssign}>
-            <Ionicons name="person-add-outline" size={20} color="#8B5CF6" />
-            <Text style={[styles.actionText, { color: "#8B5CF6" }]}>Assign</Text>
+            <Ionicons name="person-add-outline" size={20} color="#4A90E2" />
+            <Text style={[styles.actionText, { color: "#4A90E2" }]}>Assign</Text>
           </TouchableOpacity>
         )}
 

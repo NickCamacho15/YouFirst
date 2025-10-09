@@ -67,11 +67,11 @@ const DatePickerInput: React.FC<DatePickerInputProps> = ({
           style={styles.navButton}
           onPress={() => adjustDate(-1)}
         >
-          <Ionicons name="chevron-back" size={24} color="#8B5CF6" />
+          <Ionicons name="chevron-back" size={24} color="#4A90E2" />
         </TouchableOpacity>
 
         <View style={styles.dateDisplay}>
-          <Ionicons name="calendar" size={20} color="#8B5CF6" />
+          <Ionicons name="calendar" size={20} color="#4A90E2" />
           <View style={styles.dateTextContainer}>
             <Text style={styles.dateMainText}>{getDateLabel(value)}</Text>
             {(isToday(value) || isTomorrow(value)) && (
@@ -84,7 +84,7 @@ const DatePickerInput: React.FC<DatePickerInputProps> = ({
           style={styles.navButton}
           onPress={() => adjustDate(1)}
         >
-          <Ionicons name="chevron-forward" size={24} color="#8B5CF6" />
+          <Ionicons name="chevron-forward" size={24} color="#4A90E2" />
         </TouchableOpacity>
       </View>
 
@@ -137,11 +137,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#F3E8FF',
+    backgroundColor: '#E3F2FD',
     borderRadius: 12,
     padding: 16,
     borderWidth: 2,
-    borderColor: '#E9D5FF',
+    borderColor: '#BBDEFB',
   },
   navButton: {
     padding: 4,
@@ -158,11 +158,11 @@ const styles = StyleSheet.create({
   dateMainText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#7C3AED',
+    color: '#2563EB',
   },
   dateSubText: {
     fontSize: 13,
-    color: '#9333EA',
+    color: '#4A90E2',
     marginTop: 2,
   },
   quickActions: {
@@ -180,8 +180,8 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   quickButtonActive: {
-    backgroundColor: '#F3E8FF',
-    borderColor: '#8B5CF6',
+    backgroundColor: '#E3F2FD',
+    borderColor: '#4A90E2',
   },
   quickButtonText: {
     fontSize: 14,
@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   quickButtonTextActive: {
-    color: '#7C3AED',
+    color: '#2563EB',
   },
 })
 

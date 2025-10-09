@@ -28,9 +28,9 @@ import { buildSnapshotFromPlanDay, createSessionFromSnapshot, getActiveSessionFo
 import { supabase } from "../lib/supabase"
 import CompletedTodayPill from "../components/CompletedTodayPill"
 import { useUser } from "../lib/user-context"
-import { listWorkoutTemplates, createWorkoutTemplate, publishWorkoutTemplate, unpublishWorkoutTemplate, duplicateWorkoutTemplate, deleteWorkoutTemplate, type WorkoutTemplateWithDetails } from "../lib/workout-templates"
+import { listWorkoutTemplates, createWorkoutTemplate, publishWorkoutTemplate, unpublishWorkoutTemplate, duplicateWorkoutTemplate, deleteWorkoutTemplate, type WorkoutTemplateWithDetails, type WorkoutTemplate } from "../lib/workout-templates"
 import WorkoutTemplateCard from "../components/workout/WorkoutTemplateCard"
-import WorkoutBuilderModal from "../components/workout/WorkoutBuilderModal"
+import EnhancedWorkoutBuilderModal from "../components/workout/EnhancedWorkoutBuilderModal"
 import GroupMembersList from "../components/workout/GroupMembersList"
 import WorkoutAssignmentModal from "../components/workout/WorkoutAssignmentModal"
 import AssignedWorkoutsList from "../components/workout/AssignedWorkoutsList"
@@ -48,6 +48,8 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
   const [templatesLoading, setTemplatesLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'published' | 'archived'>('all')
   const [workoutBuilderOpen, setWorkoutBuilderOpen] = useState(false)
+  const [editingTemplateId, setEditingTemplateId] = useState<string | undefined>(undefined)
+  const [builderMode, setBuilderMode] = useState<'create' | 'edit'>('create')
   const [assignmentModalOpen, setAssignmentModalOpen] = useState(false)
   const [selectedWorkoutForAssignment, setSelectedWorkoutForAssignment] = useState<{ id: string; name: string } | null>(null)
   const [editOpen, setEditOpen] = useState(false)
@@ -366,9 +368,24 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
     }
   }
 
-  const handleCreateWorkout = async (name: string, description: string) => {
-    await createWorkoutTemplate(name, description)
+  const handleSaveWorkout = async (template: WorkoutTemplate) => {
+    // Template is already saved by the modal, just refresh the list
     await loadWorkoutTemplates()
+    setWorkoutBuilderOpen(false)
+    setEditingTemplateId(undefined)
+    setBuilderMode('create')
+  }
+
+  const handleOpenBuilder = () => {
+    setBuilderMode('create')
+    setEditingTemplateId(undefined)
+    setWorkoutBuilderOpen(true)
+  }
+
+  const handleEditWorkout = (templateId: string) => {
+    setBuilderMode('edit')
+    setEditingTemplateId(templateId)
+    setWorkoutBuilderOpen(true)
   }
 
   const handlePublishWorkout = async (planId: string) => {
@@ -1152,11 +1169,11 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
             <View style={styles.sectionCard}>
               <View style={styles.sectionHeader}>
                 <View style={styles.sectionTitleContainer}>
-                  <Ionicons name="calendar-outline" size={20} color="#8B5CF6"/>
+                  <Ionicons name="calendar-outline" size={20} color="#4A90E2"/>
                   <Text style={styles.sectionTitle}>Workout Library</Text>
                 </View>
-                <TouchableOpacity style={styles.sectionAction} onPress={() => setWorkoutBuilderOpen(true)}>
-                  <Ionicons name="add-circle-outline" size={22} color="#8B5CF6" />
+                <TouchableOpacity style={styles.sectionAction} onPress={handleOpenBuilder}>
+                  <Ionicons name="add-circle-outline" size={22} color="#4A90E2" />
                   <Text style={styles.sectionActionText}>Create</Text>
                 </TouchableOpacity>
               </View>
@@ -1194,7 +1211,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
                   <WorkoutTemplateCard
                     key={template.id}
                     template={template}
-                    onEdit={() => {/* TODO: Edit workout */}}
+                    onEdit={() => handleEditWorkout(template.id)}
                     onPublish={() => handlePublishWorkout(template.id)}
                     onUnpublish={() => handleUnpublishWorkout(template.id)}
                     onAssign={() => {
@@ -1212,7 +1229,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
             <View style={styles.sectionCard}>
               <View style={styles.sectionHeader}>
                 <View style={styles.sectionTitleContainer}>
-                  <Ionicons name="people-outline" size={20} color="#8B5CF6"/>
+                  <Ionicons name="people-outline" size={20} color="#4A90E2"/>
                   <Text style={styles.sectionTitle}>Group Members</Text>
                 </View>
               </View>
@@ -1740,12 +1757,17 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
         </View>
       )}
 
-      {/* Workout Builder Modal */}
-      <WorkoutBuilderModal
+      {/* Enhanced Workout Builder Modal */}
+      <EnhancedWorkoutBuilderModal
         visible={workoutBuilderOpen}
-        onClose={() => setWorkoutBuilderOpen(false)}
-        onSave={handleCreateWorkout}
-        mode="create"
+        onClose={() => {
+          setWorkoutBuilderOpen(false)
+          setEditingTemplateId(undefined)
+          setBuilderMode('create')
+        }}
+        onSave={handleSaveWorkout}
+        templateId={editingTemplateId}
+        mode={builderMode}
       />
 
       {/* Workout Assignment Modal */}
@@ -2517,7 +2539,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sectionActionText: {
-    color: "#8B5CF6",
+    color: "#4A90E2",
     fontSize: 14,
     fontWeight: "600",
   },
@@ -2541,7 +2563,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#f0f0f0",
   },
   filterTabActive: {
-    backgroundColor: "#8B5CF6",
+    backgroundColor: "#4A90E2",
   },
   filterTabText: {
     fontSize: 14,

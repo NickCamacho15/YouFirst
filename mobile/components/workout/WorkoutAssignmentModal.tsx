@@ -160,7 +160,7 @@ const WorkoutAssignmentModal: React.FC<WorkoutAssignmentModalProps> = ({
     <>
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#8B5CF6" />
+          <ActivityIndicator size="large" color="#4A90E2" />
           <Text style={styles.loadingText}>Loading members...</Text>
         </View>
       ) : members.length === 0 ? (
@@ -175,7 +175,7 @@ const WorkoutAssignmentModal: React.FC<WorkoutAssignmentModalProps> = ({
             <Ionicons
               name={selectedMembers.size === members.length ? "checkbox" : "square-outline"}
               size={20}
-              color="#8B5CF6"
+              color="#4A90E2"
             />
             <Text style={styles.selectAllText}>
               {selectedMembers.size === members.length ? 'Deselect All' : 'Select All'}
@@ -192,7 +192,7 @@ const WorkoutAssignmentModal: React.FC<WorkoutAssignmentModalProps> = ({
                 <Ionicons
                   name={selectedMembers.has(member.id) ? "checkbox" : "square-outline"}
                   size={24}
-                  color={selectedMembers.has(member.id) ? "#8B5CF6" : "#ccc"}
+                  color={selectedMembers.has(member.id) ? "#4A90E2" : "#ccc"}
                 />
               </View>
               <View style={styles.memberAvatar}>
@@ -265,7 +265,7 @@ const WorkoutAssignmentModal: React.FC<WorkoutAssignmentModalProps> = ({
       <View style={styles.reviewContainer}>
         <View style={styles.reviewSection}>
           <View style={styles.reviewHeader}>
-            <Ionicons name="people" size={20} color="#8B5CF6" />
+            <Ionicons name="people" size={20} color="#4A90E2" />
             <Text style={styles.reviewTitle}>Assigning to {selectedMembers.size} {selectedMembers.size === 1 ? 'member' : 'members'}</Text>
           </View>
           <View style={styles.reviewMembersList}>
@@ -282,7 +282,7 @@ const WorkoutAssignmentModal: React.FC<WorkoutAssignmentModalProps> = ({
 
         <View style={styles.reviewSection}>
           <View style={styles.reviewHeader}>
-            <Ionicons name="calendar" size={20} color="#8B5CF6" />
+            <Ionicons name="calendar" size={20} color="#4A90E2" />
             <Text style={styles.reviewTitle}>Schedule</Text>
           </View>
           <Text style={styles.reviewText}>{getScheduleDescription()}</Text>
@@ -445,7 +445,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#E9D5FF',
+    backgroundColor: '#BBDEFB',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
@@ -453,7 +453,7 @@ const styles = StyleSheet.create({
   stepNumber: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#7C3AED',
+    color: '#2563EB',
   },
   stepLabel: {
     fontSize: 11,
@@ -463,7 +463,7 @@ const styles = StyleSheet.create({
   stepLine: {
     width: 40,
     height: 2,
-    backgroundColor: '#E9D5FF',
+    backgroundColor: '#BBDEFB',
     marginHorizontal: 8,
   },
   errorContainer: {
@@ -538,7 +538,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#8B5CF6',
+    backgroundColor: '#4A90E2',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -591,7 +591,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   reviewMemberChip: {
-    backgroundColor: '#F3E8FF',
+    backgroundColor: '#E3F2FD',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
@@ -599,7 +599,7 @@ const styles = StyleSheet.create({
   reviewMemberName: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#7C3AED',
+    color: '#2563EB',
   },
   confirmBox: {
     flexDirection: 'row',
@@ -642,7 +642,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   primaryButton: {
-    backgroundColor: '#8B5CF6',
+    backgroundColor: '#4A90E2',
   },
   primaryButtonText: {
     fontSize: 16,

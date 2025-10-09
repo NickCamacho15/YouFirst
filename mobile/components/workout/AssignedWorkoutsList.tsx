@@ -179,7 +179,7 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
       {/* All Workouts */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Ionicons name="list" size={22} color="#8B5CF6" />
+          <Ionicons name="list" size={22} color="#4A90E2" />
           <Text style={styles.sectionTitle}>All My Workouts</Text>
         </View>
         {allWorkouts.map((workout) => (
