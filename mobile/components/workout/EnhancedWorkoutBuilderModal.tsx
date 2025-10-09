@@ -110,7 +110,23 @@ export default function EnhancedWorkoutBuilderModal({
       if (data) {
         setName(data.name || "")
         setDescription(data.description || "")
-        setExercises(data.exercises || [])
+        
+        // Transform exercises data with proper types
+        const transformedExercises = (data.exercises || []).map((ex: any) => ({
+          ...ex,
+          sets: parseInt(ex.sets) || 0,
+          reps: ex.reps ? parseInt(ex.reps) : null,
+          weight: ex.weight ? parseFloat(ex.weight) : null,
+          rest_seconds: parseInt(ex.rest) || 0,
+          time_seconds: ex.time ? parseInt(ex.time) : null,
+          distance_m: ex.distance ? parseInt(ex.distance) : null,
+          pace_sec_per_km: ex.pace ? parseInt(ex.pace) : null,
+          time_cap_seconds: ex.time_cap ? parseInt(ex.time_cap) : null,
+          target_score: ex.target || null,
+          set_details: ex.set_details || null, // Keep as-is (already JSONB)
+        }))
+        
+        setExercises(transformedExercises)
       }
     } catch (err: any) {
       console.error("Failed to load template:", err)
@@ -156,6 +172,9 @@ export default function EnhancedWorkoutBuilderModal({
   }
 
   const handleEditExercise = (exercise: TemplateExercise) => {
+    // Clear any configuring state to ensure we're in edit mode
+    setConfiguringExercises([])
+    setCurrentConfigIndex(0)
     setEditingExercise(exercise)
   }
 
@@ -174,14 +193,15 @@ export default function EnhancedWorkoutBuilderModal({
       if (nextIndex < configuringExercises.length) {
         setCurrentConfigIndex(nextIndex)
         setEditingExercise(configuringExercises[nextIndex])
+        // Modal stays open for next exercise
       } else {
-        // Done configuring all exercises
+        // Done configuring all exercises - close modal
         setConfiguringExercises([])
         setCurrentConfigIndex(0)
         setEditingExercise(null)
       }
     } else {
-      // Normal edit mode - update existing exercise
+      // Normal edit mode - update existing exercise and close modal
       setExercises(
         exercises.map((ex) =>
           ex.id === editingExercise.id
@@ -275,6 +295,7 @@ export default function EnhancedWorkoutBuilderModal({
         reps: ex.reps?.toString() || null,
         weight: ex.weight?.toString() || null,
         rest: ex.rest_seconds.toString(),
+        set_details: ex.set_details || null, // Per-set configurations
         time: ex.time_seconds?.toString() || null,
         distance: ex.distance_m?.toString() || null,
         pace: ex.pace_sec_per_km?.toString() || null,
@@ -459,6 +480,12 @@ export default function EnhancedWorkoutBuilderModal({
             }
             setEditingExercise(null)
           }}
+          currentExerciseNumber={
+            configuringExercises.length > 0 ? currentConfigIndex + 1 : undefined
+          }
+          totalExercises={
+            configuringExercises.length > 0 ? configuringExercises.length : undefined
+          }
         />
       )}
     </Modal>

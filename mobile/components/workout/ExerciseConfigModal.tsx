@@ -27,13 +27,15 @@ import {
   Alert,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
-import type { TemplateExercise, ExerciseConfig } from "../../types/workout"
+import type { TemplateExercise, ExerciseConfig, SetDetail } from "../../types/workout"
 
 interface ExerciseConfigModalProps {
   visible: boolean
   exercise: TemplateExercise
   onSave: (config: ExerciseConfig) => void
   onClose: () => void
+  currentExerciseNumber?: number  // For multi-exercise flow (e.g., 1, 2, 3)
+  totalExercises?: number          // Total count in multi-exercise flow
 }
 
 const REST_TIME_PRESETS = [0, 60, 90, 120, 150, 180, 240] // in seconds
@@ -43,6 +45,8 @@ export default function ExerciseConfigModal({
   exercise,
   onSave,
   onClose,
+  currentExerciseNumber,
+  totalExercises,
 }: ExerciseConfigModalProps) {
   // State for individual sets
   interface SetData {
@@ -52,7 +56,16 @@ export default function ExerciseConfigModal({
   }
   
   const [sets, setSets] = useState<SetData[]>(() => {
-    // Initialize with the number of sets from exercise
+    // Initialize from set_details if available, otherwise use defaults
+    if (exercise.set_details && exercise.set_details.length > 0) {
+      return exercise.set_details.map((detail, i) => ({
+        id: `set-${i}`,
+        weight: (detail.weight || 0).toString(),
+        reps: (detail.reps || 10).toString(),
+      }))
+    }
+    
+    // Fallback: Initialize with the number of sets from exercise
     const initialSets: SetData[] = []
     for (let i = 0; i < exercise.sets; i++) {
       initialSets.push({
@@ -71,15 +84,26 @@ export default function ExerciseConfigModal({
   // Reset state when modal opens
   useEffect(() => {
     if (visible) {
-      const initialSets: SetData[] = []
-      for (let i = 0; i < exercise.sets; i++) {
-        initialSets.push({
+      // Initialize from set_details if available, otherwise use defaults
+      if (exercise.set_details && exercise.set_details.length > 0) {
+        const loadedSets = exercise.set_details.map((detail, i) => ({
           id: `set-${i}`,
-          weight: (exercise.weight || 0).toString(),
-          reps: (exercise.reps || 10).toString(),
-        })
+          weight: (detail.weight || 0).toString(),
+          reps: (detail.reps || 10).toString(),
+        }))
+        setSets(loadedSets)
+      } else {
+        const initialSets: SetData[] = []
+        for (let i = 0; i < exercise.sets; i++) {
+          initialSets.push({
+            id: `set-${i}`,
+            weight: (exercise.weight || 0).toString(),
+            reps: (exercise.reps || 10).toString(),
+          })
+        }
+        setSets(initialSets)
       }
-      setSets(initialSets)
+      
       setRestSeconds(exercise.rest_seconds)
       setTimeSeconds((exercise.time_seconds || 0).toString())
       setDistanceM((exercise.distance_m || 0).toString())
@@ -100,21 +124,39 @@ export default function ExerciseConfigModal({
 
     // Add type-specific fields
     if (exercise.type === "Lifting" || exercise.type === "Bodyweight") {
-      // Use the first set's values as defaults
-      const firstSet = sets[0]
-      const repsNum = parseInt(firstSet.reps)
-      if (isNaN(repsNum) || repsNum < 1) {
-        Alert.alert("Invalid Reps", "Reps must be at least 1")
-        return
-      }
-      config.reps = repsNum
-
-      if (exercise.type === "Lifting") {
-        const weightNum = parseFloat(firstSet.weight)
-        if (!isNaN(weightNum) && weightNum >= 0) {
-          config.weight = weightNum
+      // Validate and build set_details array
+      const setDetails: SetDetail[] = []
+      
+      for (let i = 0; i < sets.length; i++) {
+        const set = sets[i]
+        const repsNum = parseInt(set.reps)
+        if (isNaN(repsNum) || repsNum < 1) {
+          Alert.alert("Invalid Reps", `Set ${i + 1}: Reps must be at least 1`)
+          return
         }
+        
+        const detail: SetDetail = {
+          set_number: i + 1,
+          reps: repsNum,
+          weight: null,
+        }
+        
+        if (exercise.type === "Lifting") {
+          const weightNum = parseFloat(set.weight)
+          if (!isNaN(weightNum) && weightNum >= 0) {
+            detail.weight = weightNum
+          }
+        }
+        
+        setDetails.push(detail)
       }
+      
+      config.set_details = setDetails
+      
+      // Also set defaults (using first set's values for backward compatibility)
+      config.reps = setDetails[0].reps
+      config.weight = setDetails[0].weight || undefined
+      
     } else if (exercise.type === "Cardio") {
       const timeNum = parseInt(timeSeconds)
       if (!isNaN(timeNum) && timeNum > 0) {
@@ -133,7 +175,7 @@ export default function ExerciseConfigModal({
     }
 
     onSave(config)
-    onClose()
+    // Don't call onClose() here - let parent decide whether to close
   }
   
   const addSet = () => {
@@ -176,10 +218,9 @@ export default function ExerciseConfigModal({
       {/* Header Row */}
       <View style={styles.setHeader}>
         <Text style={styles.setHeaderText}>Set</Text>
-        <Text style={styles.setHeaderText}>Previous</Text>
-        {exercise.type === "Lifting" && <Text style={styles.setHeaderText}>lbs</Text>}
-        <Text style={styles.setHeaderText}>Reps</Text>
-        <View style={{ width: 24 }} />
+        <Text style={[styles.setHeaderText, { flex: 1 }]}>Reps</Text>
+        {exercise.type === "Lifting" && <Text style={[styles.setHeaderText, { flex: 1 }]}>lbs</Text>}
+        <View style={{ width: 32 }} />
       </View>
 
       {/* Set Rows */}
@@ -187,7 +228,14 @@ export default function ExerciseConfigModal({
         <View key={set.id}>
           <View style={styles.setRow}>
             <Text style={styles.setNumber}>{index + 1}</Text>
-            <Text style={styles.setPrevious}>—</Text>
+            <TextInput
+              style={styles.setInput}
+              value={set.reps}
+              onChangeText={(value) => updateSet(set.id, 'reps', value)}
+              keyboardType="number-pad"
+              placeholder="0"
+              placeholderTextColor="#999"
+            />
             {exercise.type === "Lifting" && (
               <TextInput
                 style={styles.setInput}
@@ -198,23 +246,16 @@ export default function ExerciseConfigModal({
                 placeholderTextColor="#999"
               />
             )}
-            <TextInput
-              style={styles.setInput}
-              value={set.reps}
-              onChangeText={(value) => updateSet(set.id, 'reps', value)}
-              keyboardType="number-pad"
-              placeholder="0"
-              placeholderTextColor="#999"
-            />
-            {sets.length > 1 && (
-              <TouchableOpacity
-                onPress={() => removeSet(set.id)}
-                style={styles.removeSetButton}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="close-circle" size={20} color="#EF4444" />
-              </TouchableOpacity>
-            )}
+            <View style={{ width: 32, alignItems: 'center', justifyContent: 'center' }}>
+              {sets.length > 1 && (
+                <TouchableOpacity
+                  onPress={() => removeSet(set.id)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close-circle" size={20} color="#EF4444" />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
           
           {/* Rest Time Indicator */}
@@ -228,7 +269,7 @@ export default function ExerciseConfigModal({
       {/* Add Set Button */}
       <TouchableOpacity style={styles.addSetButton} onPress={addSet}>
         <Ionicons name="add" size={20} color="#4A90E2" />
-        <Text style={styles.addSetText}>Add Set ({formatRestTime(restSeconds)})</Text>
+        <Text style={styles.addSetText}>Add Set</Text>
       </TouchableOpacity>
     </>
   )
@@ -344,9 +385,16 @@ export default function ExerciseConfigModal({
           <TouchableOpacity onPress={onClose}>
             <Ionicons name="close" size={28} color="#333" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {exercise.name}
-          </Text>
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {exercise.name}
+            </Text>
+            {currentExerciseNumber && totalExercises && totalExercises > 1 && (
+              <Text style={styles.progressText}>
+                {currentExerciseNumber} of {totalExercises}
+              </Text>
+            )}
+          </View>
           <TouchableOpacity onPress={handleSave}>
             <Text style={styles.saveButton}>Save</Text>
           </TouchableOpacity>
@@ -360,7 +408,7 @@ export default function ExerciseConfigModal({
           {exercise.type === "Timed" && renderTimedFields()}
 
           {/* Rest Between Sets */}
-          <View style={styles.field}>
+          <View style={[styles.field, { marginTop: 24 }]}>
             <Text style={styles.label}>Rest Between Sets</Text>
             <View style={styles.restChips}>
               {REST_TIME_PRESETS.map((seconds) => (
@@ -415,13 +463,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#e0e0e0",
   },
-  headerTitle: {
+  headerTitleContainer: {
     flex: 1,
+    alignItems: "center",
+    marginHorizontal: 16,
+  },
+  headerTitle: {
     fontSize: 18,
     fontWeight: "600",
     color: "#333",
     textAlign: "center",
-    marginHorizontal: 16,
+  },
+  progressText: {
+    fontSize: 13,
+    color: "#4A90E2",
+    fontWeight: "500",
+    marginTop: 2,
   },
   saveButton: {
     fontSize: 16,
@@ -544,7 +601,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   setHeaderText: {
-    flex: 1,
+    width: 60,
     fontSize: 13,
     fontWeight: "600",
     color: "#666",
@@ -560,14 +617,14 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   setNumber: {
-    flex: 1,
+    width: 60,
     fontSize: 16,
     fontWeight: "600",
     color: "#333",
     textAlign: "center",
   },
   setPrevious: {
-    flex: 1,
+    width: 60,
     fontSize: 16,
     color: "#999",
     textAlign: "center",
@@ -581,7 +638,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F8F9FA",
     borderRadius: 8,
     paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     marginHorizontal: 4,
   },
   removeSetButton: {

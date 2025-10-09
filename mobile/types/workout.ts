@@ -115,6 +115,17 @@ export interface WorkoutTemplate extends WorkoutTemplateRow {
  * Exercise in a template
  * Extends plan_exercises table with library reference
  */
+/**
+ * Individual set configuration
+ */
+export interface SetDetail {
+  set_number: number
+  reps: number | null
+  weight: number | null
+  time_seconds?: number | null
+  distance_m?: number | null
+}
+
 export interface TemplateExercise {
   id: string                           // plan_exercise_id
   plan_id: string
@@ -127,9 +138,10 @@ export interface TemplateExercise {
   
   // Configuration
   sets: number
-  reps: number | null
-  weight: number | null
+  reps: number | null                  // Default/fallback value
+  weight: number | null                // Default/fallback value
   rest_seconds: number
+  set_details?: SetDetail[] | null     // Per-set configurations
   
   // Cardio/METCON specific
   time_seconds: number | null
@@ -154,6 +166,7 @@ export interface ExerciseConfig {
   reps?: number
   weight?: number
   rest_seconds: number
+  set_details?: SetDetail[]            // Per-set configurations
   time_seconds?: number
   distance_m?: number
   pace_sec_per_km?: number

@@ -52,6 +52,48 @@ export default function TemplateExerciseCard({
 
   // Format configuration display
   const getConfigDisplay = () => {
+    // For Lifting/Bodyweight with set_details, show per-set breakdown
+    if ((exercise.type === "Lifting" || exercise.type === "Bodyweight") && 
+        exercise.set_details && exercise.set_details.length > 0) {
+      
+      const setDescriptions = exercise.set_details.map(detail => {
+        if (exercise.type === "Lifting" && detail.weight !== null) {
+          return `${detail.reps} × ${detail.weight} lbs`
+        } else {
+          return `${detail.reps} reps`
+        }
+      })
+      
+      // If all sets are the same, show compact version
+      const allSame = setDescriptions.every(desc => desc === setDescriptions[0])
+      if (allSame) {
+        const parts: string[] = []
+        parts.push(`${exercise.sets} sets × ${setDescriptions[0]}`)
+        if (exercise.rest_seconds > 0) {
+          const mins = Math.floor(exercise.rest_seconds / 60)
+          const secs = exercise.rest_seconds % 60
+          const restTime = mins > 0 
+            ? secs > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : `${mins}:00`
+            : `${secs}s`
+          parts.push(`${restTime} rest`)
+        }
+        return parts.join(" × ")
+      }
+      
+      // Different sets, show breakdown
+      let display = setDescriptions.join(", ")
+      if (exercise.rest_seconds > 0) {
+        const mins = Math.floor(exercise.rest_seconds / 60)
+        const secs = exercise.rest_seconds % 60
+        const restTime = mins > 0 
+          ? secs > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : `${mins}:00`
+          : `${secs}s`
+        display += ` × ${restTime} rest`
+      }
+      return display
+    }
+    
+    // Fallback to original logic for other types or if no set_details
     const parts: string[] = []
 
     // Sets
@@ -74,7 +116,7 @@ export default function TemplateExerciseCard({
         parts.push(`${exercise.time_seconds}s`)
       }
     } else {
-      // Lifting/Bodyweight
+      // Lifting/Bodyweight (fallback for old data without set_details)
       if (exercise.reps) {
         parts.push(`${exercise.reps} reps`)
       }
