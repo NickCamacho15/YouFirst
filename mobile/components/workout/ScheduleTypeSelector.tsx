@@ -1,21 +1,16 @@
 import React from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
-import { ScheduleType } from '../../lib/workout-assignments'
+
+type ScheduleType = 'once' | 'weekly'
 
 interface ScheduleTypeSelectorProps {
-  value: ScheduleType
-  onChange: (type: ScheduleType) => void
+  selectedType: ScheduleType
+  onSelect: (type: ScheduleType) => void
 }
 
-const ScheduleTypeSelector: React.FC<ScheduleTypeSelectorProps> = ({ value, onChange }) => {
+const ScheduleTypeSelector: React.FC<ScheduleTypeSelectorProps> = ({ selectedType, onSelect }) => {
   const options: Array<{ value: ScheduleType; label: string; description: string; icon: string }> = [
-    {
-      value: 'immediate',
-      label: 'Assign Now',
-      description: 'Available immediately',
-      icon: 'flash-outline',
-    },
     {
       value: 'once',
       label: 'Specific Date',
@@ -35,12 +30,12 @@ const ScheduleTypeSelector: React.FC<ScheduleTypeSelectorProps> = ({ value, onCh
       {options.map((option) => (
         <TouchableOpacity
           key={option.value}
-          style={[styles.option, value === option.value && styles.optionSelected]}
-          onPress={() => onChange(option.value)}
+          style={[styles.option, selectedType === option.value && styles.optionSelected]}
+          onPress={() => onSelect(option.value)}
         >
           <View style={styles.optionContent}>
             <View style={styles.radio}>
-              {value === option.value ? (
+              {selectedType === option.value ? (
                 <Ionicons name="radio-button-on" size={24} color="#4A90E2" />
               ) : (
                 <Ionicons name="radio-button-off" size={24} color="#ccc" />
@@ -51,13 +46,13 @@ const ScheduleTypeSelector: React.FC<ScheduleTypeSelectorProps> = ({ value, onCh
                 <Ionicons
                   name={option.icon as any}
                   size={18}
-                  color={value === option.value ? '#4A90E2' : '#666'}
+                  color={selectedType === option.value ? '#4A90E2' : '#666'}
                 />
-                <Text style={[styles.optionLabel, value === option.value && styles.optionLabelSelected]}>
+                <Text style={[styles.optionLabel, selectedType === option.value && styles.optionLabelSelected]}>
                   {option.label}
                 </Text>
               </View>
-              <Text style={[styles.optionDescription, value === option.value && styles.optionDescriptionSelected]}>
+              <Text style={[styles.optionDescription, selectedType === option.value && styles.optionDescriptionSelected]}>
                 {option.description}
               </Text>
             </View>

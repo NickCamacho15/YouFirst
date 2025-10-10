@@ -60,18 +60,18 @@ export default function ExerciseConfigModal({
     if (exercise.set_details && exercise.set_details.length > 0) {
       return exercise.set_details.map((detail, i) => ({
         id: `set-${i}`,
-        weight: (detail.weight || 0).toString(),
-        reps: (detail.reps || 10).toString(),
+        weight: detail.weight !== null ? detail.weight.toString() : "",
+        reps: detail.reps !== null ? detail.reps.toString() : "",
       }))
     }
     
-    // Fallback: Initialize with the number of sets from exercise
+    // Fallback: Initialize with empty values for new exercises
     const initialSets: SetData[] = []
     for (let i = 0; i < exercise.sets; i++) {
       initialSets.push({
         id: `set-${i}`,
-        weight: (exercise.weight || 0).toString(),
-        reps: (exercise.reps || 10).toString(),
+        weight: exercise.weight !== null && exercise.weight !== undefined ? exercise.weight.toString() : "",
+        reps: exercise.reps !== null && exercise.reps !== undefined ? exercise.reps.toString() : "",
       })
     }
     return initialSets
@@ -88,8 +88,8 @@ export default function ExerciseConfigModal({
       if (exercise.set_details && exercise.set_details.length > 0) {
         const loadedSets = exercise.set_details.map((detail, i) => ({
           id: `set-${i}`,
-          weight: (detail.weight || 0).toString(),
-          reps: (detail.reps || 10).toString(),
+          weight: detail.weight !== null ? detail.weight.toString() : "",
+          reps: detail.reps !== null ? detail.reps.toString() : "",
         }))
         setSets(loadedSets)
       } else {
@@ -97,8 +97,8 @@ export default function ExerciseConfigModal({
         for (let i = 0; i < exercise.sets; i++) {
           initialSets.push({
             id: `set-${i}`,
-            weight: (exercise.weight || 0).toString(),
-            reps: (exercise.reps || 10).toString(),
+            weight: exercise.weight !== null && exercise.weight !== undefined ? exercise.weight.toString() : "",
+            reps: exercise.reps !== null && exercise.reps !== undefined ? exercise.reps.toString() : "",
           })
         }
         setSets(initialSets)
@@ -129,6 +129,12 @@ export default function ExerciseConfigModal({
       
       for (let i = 0; i < sets.length; i++) {
         const set = sets[i]
+        
+        // Validate reps (required)
+        if (!set.reps || set.reps.trim() === "") {
+          Alert.alert("Missing Reps", `Set ${i + 1}: Please enter reps`)
+          return
+        }
         const repsNum = parseInt(set.reps)
         if (isNaN(repsNum) || repsNum < 1) {
           Alert.alert("Invalid Reps", `Set ${i + 1}: Reps must be at least 1`)
@@ -142,8 +148,13 @@ export default function ExerciseConfigModal({
         }
         
         if (exercise.type === "Lifting") {
-          const weightNum = parseFloat(set.weight)
-          if (!isNaN(weightNum) && weightNum >= 0) {
+          // Validate weight (optional, but if provided must be valid)
+          if (set.weight && set.weight.trim() !== "") {
+            const weightNum = parseFloat(set.weight)
+            if (isNaN(weightNum) || weightNum < 0) {
+              Alert.alert("Invalid Weight", `Set ${i + 1}: Weight must be 0 or greater`)
+              return
+            }
             detail.weight = weightNum
           }
         }
@@ -184,8 +195,8 @@ export default function ExerciseConfigModal({
       ...sets,
       {
         id: `set-${Date.now()}`,
-        weight: lastSet?.weight || "0",
-        reps: lastSet?.reps || "10",
+        weight: lastSet?.weight || "",
+        reps: lastSet?.reps || "",
       },
     ])
   }
@@ -233,7 +244,7 @@ export default function ExerciseConfigModal({
               value={set.reps}
               onChangeText={(value) => updateSet(set.id, 'reps', value)}
               keyboardType="number-pad"
-              placeholder="0"
+              placeholder="10"
               placeholderTextColor="#999"
             />
             {exercise.type === "Lifting" && (
@@ -242,7 +253,7 @@ export default function ExerciseConfigModal({
                 value={set.weight}
                 onChangeText={(value) => updateSet(set.id, 'weight', value)}
                 keyboardType="decimal-pad"
-                placeholder="0"
+                placeholder="135"
                 placeholderTextColor="#999"
               />
             )}

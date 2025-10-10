@@ -110,11 +110,56 @@ export async function updateWorkoutTemplate(
   if (error) throw new Error(error.message)
 }
 
+export interface WorkoutSchedule {
+  scheduleType: 'once' | 'weekly'
+  scheduledDate?: string
+  recurrenceDays?: number[]
+  startDate?: string
+  endDate?: string
+}
+
 /**
- * Publish a workout template (make it visible to assigned users)
+ * Publish a workout template with schedule settings
  */
-export async function publishWorkoutTemplate(planId: string): Promise<void> {
-  await updateWorkoutTemplate(planId, { status: 'published' })
+export async function publishWorkoutTemplate(
+  planId: string,
+  schedule: WorkoutSchedule
+): Promise<void> {
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error("Not authenticated")
+
+  const updateData: any = {
+    status: 'published',
+    schedule_type: schedule.scheduleType,
+  }
+
+  if (schedule.scheduleType === 'once' && schedule.scheduledDate) {
+    updateData.scheduled_date = schedule.scheduledDate
+  }
+
+  if (schedule.scheduleType === 'weekly') {
+    updateData.recurrence_days = schedule.recurrenceDays || []
+    updateData.start_date = schedule.startDate || new Date().toISOString().split('T')[0]
+    if (schedule.endDate) {
+      updateData.end_date = schedule.endDate
+    }
+  }
+
+  console.log('[publishWorkoutTemplate] Updating plan:', { planId, updateData })
+
+  const { data, error } = await supabase
+    .from("training_plans")
+    .update(updateData)
+    .eq("id", planId)
+    .eq("user_id", uid)
+    .select()
+
+  if (error) {
+    console.error('[publishWorkoutTemplate] Error:', error)
+    throw new Error(error.message)
+  }
+
+  console.log('[publishWorkoutTemplate] Success:', data)
 }
 
 /**
@@ -173,12 +218,9 @@ export async function duplicateWorkoutTemplate(planId: string, newName?: string)
     originalPlan.description
   )
 
-  // Copy exercises (simplified templates only - where block_id is null)
+  // Copy exercises (support both old and new structure)
   if (originalPlan.exercises && originalPlan.exercises.length > 0) {
-    const simplifiedExercises = originalPlan.exercises.filter((ex: any) => ex.block_id === null)
-    
-    if (simplifiedExercises.length > 0) {
-      const exercisesToCopy = simplifiedExercises.map((ex: any) => ({
+    const exercisesToCopy = originalPlan.exercises.map((ex: any) => ({
         plan_id: newPlan.id,
         exercise_library_id: ex.exercise_library_id,
         block_id: null,
@@ -197,10 +239,10 @@ export async function duplicateWorkoutTemplate(planId: string, newName?: string)
         target: ex.target,
         notes: ex.notes,
         position: ex.position,
+        set_details: ex.set_details,
       }))
 
-      await supabase.from("plan_exercises").insert(exercisesToCopy)
-    }
+    await supabase.from("plan_exercises").insert(exercisesToCopy)
   }
 
   return newPlan
@@ -217,14 +259,13 @@ export async function getTemplateWithExercises(planId: string) {
     .from("training_plans")
     .select(`
       *,
-      exercises:plan_exercises!inner(
+      exercises:plan_exercises(
         *,
         library:exercise_library(*)
       )
     `)
     .eq("id", planId)
     .eq("user_id", uid)
-    .is("exercises.block_id", null) // Only simplified templates
     .order("exercises.position", { ascending: true })
     .single()
 

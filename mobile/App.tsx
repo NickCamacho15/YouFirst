@@ -9,6 +9,7 @@ import DisciplinesScreen from "./screens/DisciplinesScreen"
 import MindScreen from "./screens/MindScreen"
 import BodyScreen from "./screens/BodyScreen"
 import ProfileScreen from "./screens/ProfileScreen"
+import ActiveWorkoutScreen from "./screens/ActiveWorkoutScreen"
 import { Mountain, Target, Brain, Dumbbell } from "lucide-react-native"
 import Calendar from "./components/Calendar"
 import StreakStats from "./components/StreakStats"
@@ -134,10 +135,25 @@ const App: React.FC = () => {
             <MindScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
           </View>
           <View style={currentScreen === "body" ? styles.visible : styles.hidden}>
-            <BodyScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} activeEpoch={bodyEpoch} />
+            <BodyScreen 
+              onLogout={handleLogout} 
+              onOpenProfile={() => setCurrentScreen("profile")} 
+              activeEpoch={bodyEpoch}
+              navigation={{
+                navigate: (screen: string) => setCurrentScreen(screen)
+              }}
+            />
           </View>
           <View style={currentScreen === "profile" ? styles.visible : styles.hidden}>
             <ProfileScreen onLogout={handleLogout} />
+          </View>
+          <View style={currentScreen === "ActiveWorkout" ? styles.visible : styles.hidden}>
+            <ActiveWorkoutScreen 
+              navigation={{
+                navigate: (screen: string) => setCurrentScreen(screen),
+                goBack: () => setCurrentScreen("body")
+              }}
+            />
           </View>
         </View>
         <View style={styles.bottomNavContainer}>

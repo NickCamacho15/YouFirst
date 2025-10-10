@@ -95,13 +95,12 @@ export default function EnhancedWorkoutBuilderModal({
         .from("training_plans")
         .select(`
           *,
-          exercises:plan_exercises!inner(
+          exercises:plan_exercises(
             *,
             library:exercise_library(*)
           )
         `)
         .eq("id", templateId)
-        .is("exercises.block_id", null) // Only simplified templates
         .order("exercises.position", { ascending: true })
         .single()
 
@@ -280,7 +279,6 @@ export default function EnhancedWorkoutBuilderModal({
           .from("plan_exercises")
           .delete()
           .eq("plan_id", planId!)
-          .is("block_id", null)
       }
 
       // Insert exercises

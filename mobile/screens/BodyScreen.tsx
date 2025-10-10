@@ -14,6 +14,7 @@ import {
   Dimensions,
   TextInput,
   Animated,
+  Alert,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { Loader2, Check } from "lucide-react-native"
@@ -28,28 +29,33 @@ import { buildSnapshotFromPlanDay, createSessionFromSnapshot, getActiveSessionFo
 import { supabase } from "../lib/supabase"
 import CompletedTodayPill from "../components/CompletedTodayPill"
 import { useUser } from "../lib/user-context"
-import { listWorkoutTemplates, createWorkoutTemplate, publishWorkoutTemplate, unpublishWorkoutTemplate, duplicateWorkoutTemplate, deleteWorkoutTemplate, type WorkoutTemplateWithDetails, type WorkoutTemplate } from "../lib/workout-templates"
+import { listWorkoutTemplates, createWorkoutTemplate, publishWorkoutTemplate, unpublishWorkoutTemplate, deleteWorkoutTemplate, type WorkoutTemplateWithDetails, type WorkoutTemplate } from "../lib/workout-templates"
 import WorkoutTemplateCard from "../components/workout/WorkoutTemplateCard"
 import EnhancedWorkoutBuilderModal from "../components/workout/EnhancedWorkoutBuilderModal"
+import PublishWorkoutModal from "../components/workout/PublishWorkoutModal"
 import GroupMembersList from "../components/workout/GroupMembersList"
 import WorkoutAssignmentModal from "../components/workout/WorkoutAssignmentModal"
 import AssignedWorkoutsList from "../components/workout/AssignedWorkoutsList"
+import { startWorkoutSession, getActiveSession } from "../lib/workout-session"
 
-interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void; activeEpoch?: number }
+interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void; activeEpoch?: number; navigation?: any }
 
-const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoch }) => {
+const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoch, navigation }) => {
   const { user } = useUser()
   const isAdmin = user?.role === 'admin'
   const [activeTab, setActiveTab] = useState("profile")
   const [prs, setPrs] = useState({ bench: 0, squat: 0, deadlift: 0, ohp: 0 })
+  const [groupData, setGroupData] = useState<{ name: string; accessCode: string } | null>(null)
   
   // Workout templates state
   const [workoutTemplates, setWorkoutTemplates] = useState<WorkoutTemplateWithDetails[]>([])
   const [templatesLoading, setTemplatesLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'published' | 'archived'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'published'>('all')
   const [workoutBuilderOpen, setWorkoutBuilderOpen] = useState(false)
   const [editingTemplateId, setEditingTemplateId] = useState<string | undefined>(undefined)
   const [builderMode, setBuilderMode] = useState<'create' | 'edit'>('create')
+  const [publishModalOpen, setPublishModalOpen] = useState(false)
+  const [workoutToPublish, setWorkoutToPublish] = useState<{ id: string; name: string } | null>(null)
   const [assignmentModalOpen, setAssignmentModalOpen] = useState(false)
   const [selectedWorkoutForAssignment, setSelectedWorkoutForAssignment] = useState<{ id: string; name: string } | null>(null)
   const [editOpen, setEditOpen] = useState(false)
@@ -222,6 +228,40 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
     })()
   }, [])
 
+  // Fetch group data when user has a groupId
+  useEffect(() => {
+    const fetchGroupData = async () => {
+      if (!user?.groupId) {
+        setGroupData(null)
+        return
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('groups')
+          .select('name, access_code')
+          .eq('id', user.groupId)
+          .single()
+
+        if (error) {
+          console.error('Failed to fetch group data:', error)
+          return
+        }
+
+        if (data) {
+          setGroupData({
+            name: data.name,
+            accessCode: data.access_code,
+          })
+        }
+      } catch (error) {
+        console.error('Error fetching group data:', error)
+      }
+    }
+
+    fetchGroupData()
+  }, [user?.groupId])
+
   const openEdit = () => {
     setFormBench(prs.bench ? String(prs.bench) : "")
     setFormSquat(prs.squat ? String(prs.squat) : "")
@@ -388,18 +428,72 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
     setWorkoutBuilderOpen(true)
   }
 
-  const handlePublishWorkout = async (planId: string) => {
-    await publishWorkoutTemplate(planId)
-    await loadWorkoutTemplates()
+  const handleStartWorkout = async (workout: { id: string; plan_id: string; name: string }) => {
+    try {
+      console.log('[handleStartWorkout] Starting workout:', workout)
+      
+      // Check if there's already an active session
+      const activeSession = await getActiveSession()
+      
+      if (activeSession) {
+        // Resume existing workout
+        if (navigation) {
+          navigation.navigate('ActiveWorkout')
+        } else {
+          Alert.alert('Active Session', 'Active workout session exists. Please use navigation to resume.')
+        }
+        return
+      }
+
+      // Start new workout session using plan_id
+      console.log('[handleStartWorkout] Calling startWorkoutSession with plan_id:', workout.plan_id)
+      await startWorkoutSession(workout.plan_id)
+      
+      // Navigate to active workout screen
+      if (navigation) {
+        navigation.navigate('ActiveWorkout')
+      } else {
+        Alert.alert('Workout Started', 'Please use navigation to view workout.')
+      }
+    } catch (error: any) {
+      console.error('Failed to start workout:', error)
+      Alert.alert('Error', 'Failed to start workout: ' + error.message)
+    }
+  }
+
+  const handlePublishWorkout = (planId: string, planName: string) => {
+    setWorkoutToPublish({ id: planId, name: planName })
+    setPublishModalOpen(true)
+  }
+
+  const handleConfirmPublish = async (schedule: any) => {
+    if (!workoutToPublish) {
+      console.log('[handleConfirmPublish] No workout to publish')
+      return
+    }
+    
+    console.log('[handleConfirmPublish] Publishing workout:', workoutToPublish.id, 'with schedule:', schedule)
+    
+    try {
+      await publishWorkoutTemplate(workoutToPublish.id, schedule)
+      console.log('[handleConfirmPublish] Reloading templates...')
+      await loadWorkoutTemplates()
+      console.log('[handleConfirmPublish] Success!')
+      Alert.alert('Success', 'Workout published! You can now see it in your Workouts tab.')
+      // Don't close the modal here - let the modal handle its own closing
+    } catch (error: any) {
+      console.error('[handleConfirmPublish] Error publishing:', error)
+      // Re-throw the error so the modal knows it failed
+      throw error
+    } finally {
+      // Clean up state after modal closes itself
+      console.log('[handleConfirmPublish] Cleaning up state')
+      setWorkoutToPublish(null)
+    }
   }
 
   const handleUnpublishWorkout = async (planId: string) => {
     await unpublishWorkoutTemplate(planId)
-    await loadWorkoutTemplates()
-  }
-
-  const handleDuplicateWorkout = async (planId: string) => {
-    await duplicateWorkoutTemplate(planId)
     await loadWorkoutTemplates()
   }
 
@@ -858,187 +952,9 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
                   <Text style={styles.sectionTitle}>My Workouts</Text>
                 </View>
               </View>
-              <AssignedWorkoutsList onWorkoutPress={(workout) => {
-                // TODO: Navigate to workout detail/execution screen
-                console.log('Open workout:', workout)
-              }} />
+              <AssignedWorkoutsList onWorkoutPress={handleStartWorkout} />
             </View>
 
-            {/* Weekly Calendar */}
-            <View style={styles.sectionCard}>
-              <View style={styles.weekCalendarContainer}>
-                <TouchableOpacity style={styles.calendarArrowBox} onPress={() => setWeekStart(new Date(weekStart.getTime() - 7 * 86400000))}>
-                  <Ionicons name="chevron-back" size={24} color="#666" />
-                </TouchableOpacity>
-
-                <View style={styles.weekDaysContainer}>
-                  {weekDays.map((day, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={[styles.weekDayButton, selectedDayIndex === index && styles.selectedWeekDayButton]}
-                      onPress={() => setSelectedDayIndex(index)}
-                    >
-                      <Text style={[styles.weekDayName, selectedDayIndex === index && styles.selectedWeekDayName]}>
-                        {day.day}
-                      </Text>
-                      <Text style={[styles.weekDayDate, selectedDayIndex === index && styles.selectedWeekDayDate]}>
-                        {day.date}
-                      </Text>
-                      {day.label && <Text style={styles.weekDayLabel}>{day.label}</Text>}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <TouchableOpacity style={styles.calendarArrowBox} onPress={() => setWeekStart(new Date(weekStart.getTime() + 7 * 86400000))}>
-                  <Ionicons name="chevron-forward" size={24} color="#666" />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Workout Timer / Summary (conditional) */}
-            {showSummary ? (
-              <View style={styles.sectionCard}>
-                <Text style={{ fontSize: 18, fontWeight: "700", color: "#333", textAlign: "center", marginBottom: 8 }}>Workout Complete</Text>
-                <Text style={{ fontSize: 32, fontWeight: "800", color: "#111827", textAlign: "center", fontFamily: "monospace", marginBottom: 12 }}>{formatWorkoutTime(summarySeconds)}</Text>
-                <TouchableOpacity style={styles.startWorkoutButton} onPress={() => setShowSummary(false)}>
-                  <Text style={styles.startWorkoutButtonText}>Done</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={styles.sectionCard}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={styles.workoutTimerTitle}>Workout Timer</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={[styles.statusBadge, completedToday ? styles.statusOk : styles.statusOff]}>
-                      <Ionicons name={completedToday ? 'checkmark' : 'ellipse-outline'} size={12} color={completedToday ? '#065f46' : '#6b7280'} />
-                      <Text style={[styles.statusText, completedToday ? styles.statusTextOk : styles.statusTextOff]}>{completedToday ? 'Completed Today' : 'Not completed'}</Text>
-                    </View>
-                  </View>
-                </View>
-                <Text style={styles.workoutTimerDisplay}>{formatWorkoutTime(workoutTime)}</Text>
-                {plan ? (
-                  <>
-                    {showPlanName && <Text style={styles.planNameUnderTimer}>{plan.name}</Text>}
-                    <Text style={styles.workoutType}>{todayPlanLabel ? todayPlanLabel : 'No plan scheduled today'}</Text>
-                  </>
-                ) : (
-                  <Text style={styles.workoutType}>No plan scheduled today</Text>
-                )}
-
-                <TouchableOpacity
-                  style={styles.startWorkoutButton}
-                  onPress={async () => {
-                    // Toggle pause/resume if active
-                    if (isWorkoutActive) {
-                      setIsWorkoutPaused((p)=> !p)
-                      return
-                    }
-                    // start new workout without resetting if already counting
-                    setIsWorkoutActive(true)
-                    setIsWorkoutPaused(false)
-                    if (!workoutStartedAt) setWorkoutStartedAt(new Date())
-                    // Attempt resume
-                    try {
-                      const resumed = await getActiveSessionForToday()
-                      if (resumed) {
-                        setActiveSessionId(resumed.session.id)
-                        setSessionExercises(resumed.exercises)
-                        const counts: Record<string, number> = {}
-                        for (const s of (resumed.sets || [])) {
-                          counts[s.session_exercise_id] = Math.max(counts[s.session_exercise_id] || 0, s.set_index)
-                        }
-                        setSetCounts(counts)
-                        // Build order and mapping for guided completion
-                        const order = (resumed.exercises || [])
-                          .map((sx: any) => sx.plan_exercise_id as string | null)
-                          .filter((id: any): id is string => !!id)
-                        setExerciseOrder(order)
-                        const map: Record<string, string> = {}
-                        ;(resumed.exercises || []).forEach((sx: any) => {
-                          if (sx.plan_exercise_id) map[sx.plan_exercise_id as string] = sx.id
-                        })
-                        setPlanToSessionMap(map)
-                        // Mark already completed exercises
-                        const completed: Record<string, boolean> = {}
-                        ;(resumed.exercises || []).forEach((sx: any) => {
-                          const target = sx.target_sets || 0
-                          const doneBySets = target > 0 && (counts[sx.id] || 0) >= target
-                          const done = !!sx.completed_at || doneBySets
-                          if (sx.plan_exercise_id && done) completed[sx.plan_exercise_id as string] = true
-                        })
-                        setCompletedExercises(completed)
-                        // Pointer to first incomplete
-                        let ptr = 0
-                        for (let i = 0; i < order.length; i += 1) {
-                          if (!completed[order[i]]) { ptr = i; break }
-                          if (i === order.length - 1) ptr = i
-                        }
-                        setCurrentExerciseIdx(ptr)
-                        return
-                      }
-                    } catch {}
-                    // Start from selected plan day if available
-                    if (plan && plan.weeks.length) {
-                      // map from selected calendar day
-                      const target = new Date(weekStart); target.setDate(weekStart.getDate() + selectedDayIndex)
-                      const info = computePlanForDate(plan, activePlanStart, target)
-                      const day = info && info.weekIndex >= 0 ? plan.weeks[info.weekIndex]?.days[info.dayIndex] : undefined
-                      if (day) {
-                        // Optimistically set guided order so first checkbox is active immediately
-                        try {
-                          const orderFromPlan: string[] = ([] as string[]).concat(
-                            ...((day.blocks || []).map((b: any) => (b.exercises || []).map((e: any) => e.id)))
-                          )
-                          if (orderFromPlan.length) {
-                            setExerciseOrder(orderFromPlan)
-                            setCurrentExerciseIdx(0)
-                            setCompletedExercises({})
-                          }
-                        } catch {}
-                        const snapshot = buildSnapshotFromPlanDay(day as any)
-                        try {
-                          const created = await createSessionFromSnapshot({ planId: plan.id, planDayId: day.id, exercises: snapshot })
-                          setActiveSessionId(created.session.id)
-                          setSessionExercises(created.exercises)
-                          setSetCounts({})
-                          // Build order and mapping for guided completion
-                          const order = snapshot.map((s) => s.plan_exercise_id as string).filter(Boolean)
-                          setExerciseOrder(order)
-                          setCurrentExerciseIdx(0)
-                          const map: Record<string, string> = {}
-                          created.exercises.forEach((sx) => {
-                            if ((sx as any).plan_exercise_id) map[(sx as any).plan_exercise_id as string] = sx.id
-                          })
-                          setPlanToSessionMap(map)
-                          setCompletedExercises({})
-                        } catch {}
-                        return
-                      }
-                    }
-                    // Fallback: free session
-                    try {
-                      const created = await createSessionFromSnapshot({ exercises: [] })
-                      setActiveSessionId(created.session.id)
-                      setSessionExercises(created.exercises)
-                      setSetCounts({})
-                      setExerciseOrder([])
-                      setCurrentExerciseIdx(0)
-                      setCompletedExercises({})
-                    } catch {}
-                  }}
-                >
-                  <Ionicons name={isWorkoutActive && !isWorkoutPaused ? "pause" : "play"} size={20} color="#fff" />
-                  <Text style={styles.startWorkoutButtonText}>{isWorkoutActive ? (isWorkoutPaused ? "Resume Workout" : "Pause Workout") : "Start Workout"}</Text>
-                </TouchableOpacity>
-
-                {isWorkoutActive && (
-                <TouchableOpacity style={styles.endSessionButton} onPress={() => setEndConfirmOpen(true)}>
-                  <Ionicons name="square-outline" size={20} color="#EF4444" />
-                  <Text style={styles.endSessionButtonText}>End Session</Text>
-                </TouchableOpacity>
-                )}
-              </View>
-            )}
 
             {/* Block-grouped workout view with progress ring (shown before start; actions hidden until started) */}
             {plan && activePlanStart && (
@@ -1180,7 +1096,7 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
 
               {/* Filter Tabs */}
               <View style={styles.filterContainer}>
-                {(['all', 'draft', 'published', 'archived'] as const).map(filter => (
+                {(['all', 'draft', 'published'] as const).map(filter => (
                   <TouchableOpacity
                     key={filter}
                     style={[styles.filterTab, statusFilter === filter && styles.filterTabActive]}
@@ -1212,13 +1128,12 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
                     key={template.id}
                     template={template}
                     onEdit={() => handleEditWorkout(template.id)}
-                    onPublish={() => handlePublishWorkout(template.id)}
+                    onPublish={() => handlePublishWorkout(template.id, template.name)}
                     onUnpublish={() => handleUnpublishWorkout(template.id)}
                     onAssign={() => {
                       setSelectedWorkoutForAssignment({ id: template.id, name: template.name })
                       setAssignmentModalOpen(true)
                     }}
-                    onDuplicate={() => handleDuplicateWorkout(template.id)}
                     onDelete={() => handleDeleteWorkout(template.id)}
                   />
                 ))
@@ -1230,7 +1145,16 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
               <View style={styles.sectionHeader}>
                 <View style={styles.sectionTitleContainer}>
                   <Ionicons name="people-outline" size={20} color="#4A90E2"/>
-                  <Text style={styles.sectionTitle}>Group Members</Text>
+                  <View>
+                    <Text style={styles.sectionTitle}>
+                      {groupData?.name ? `${groupData.name} Members` : 'Members'}
+                    </Text>
+                    {groupData?.accessCode && (
+                      <Text style={styles.accessCodeSubtitle}>
+                        Access Code: {groupData.accessCode}
+                      </Text>
+                    )}
+                  </View>
                 </View>
               </View>
 
@@ -1770,6 +1694,19 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
         mode={builderMode}
       />
 
+      {/* Publish Workout Modal */}
+      {workoutToPublish && (
+        <PublishWorkoutModal
+          visible={publishModalOpen}
+          onClose={() => {
+            setPublishModalOpen(false)
+            setWorkoutToPublish(null)
+          }}
+          workoutName={workoutToPublish.name}
+          onPublish={handleConfirmPublish}
+        />
+      )}
+
       {/* Workout Assignment Modal */}
       {selectedWorkoutForAssignment && (
         <WorkoutAssignmentModal
@@ -1887,6 +1824,12 @@ const styles = StyleSheet.create({
     color: "#333",
     marginLeft: 8,
     flexShrink: 1,
+  },
+  accessCodeSubtitle: {
+    fontSize: 13,
+    color: "#666",
+    marginLeft: 8,
+    marginTop: 2,
   },
   editButton: {
     flexDirection: "row",

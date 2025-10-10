@@ -1,6 +1,7 @@
 import React from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
+import DatePickerInput from './DatePickerInput'
 
 interface WeeklyScheduleSelectorProps {
   selectedDays: number[]  // 0=Sun, 1=Mon, ..., 6=Sat
@@ -43,6 +44,29 @@ const WeeklyScheduleSelector: React.FC<WeeklyScheduleSelectorProps> = ({
     return selectedDays.map(d => days[d].label).join(', ')
   }
 
+  const parseDateLocal = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number)
+    return new Date(year, month - 1, day)
+  }
+
+  const getTodayLocal = () => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  const formatDateDisplay = (dateStr: string | undefined) => {
+    if (!dateStr || dateStr === 'Invalid Date') return 'Today'
+    if (dateStr === getTodayLocal()) return 'Today'
+    return parseDateLocal(dateStr).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    })
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.section}>
@@ -68,21 +92,23 @@ const WeeklyScheduleSelector: React.FC<WeeklyScheduleSelectorProps> = ({
         </View>
       </View>
 
-      <View style={styles.preview}>
-        <Ionicons name="information-circle-outline" size={16} color="#4A90E2" />
-        <Text style={styles.previewText}>
-          Every {getDayNames()} starting {new Date(startDate).toLocaleDateString()}
-          {endDate && ` until ${new Date(endDate).toLocaleDateString()}`}
-        </Text>
-      </View>
+      {selectedDays.length > 0 && (
+        <View style={styles.preview}>
+          <Ionicons name="information-circle-outline" size={16} color="#4A90E2" />
+          <Text style={styles.previewText}>
+            Repeats every {getDayNames()} starting {formatDateDisplay(startDate)}
+            {endDate && ` until ${formatDateDisplay(endDate)}`}
+          </Text>
+        </View>
+      )}
 
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Start Date</Text>
-        <View style={styles.dateInputContainer}>
-          <Ionicons name="calendar-outline" size={18} color="#666" />
-          <Text style={styles.dateText}>{new Date(startDate).toLocaleDateString()}</Text>
-          <Text style={styles.dateHint}>(Starts from today)</Text>
-        </View>
+        <DatePickerInput
+          value={startDate}
+          onChange={onStartDateChange}
+          label=""
+        />
       </View>
 
       <View style={styles.section}>
@@ -94,14 +120,11 @@ const WeeklyScheduleSelector: React.FC<WeeklyScheduleSelectorProps> = ({
             </TouchableOpacity>
           )}
         </View>
-        {endDate ? (
-          <View style={styles.dateInputContainer}>
-            <Ionicons name="calendar-outline" size={18} color="#666" />
-            <Text style={styles.dateText}>{new Date(endDate).toLocaleDateString()}</Text>
-          </View>
-        ) : (
-          <Text style={styles.noEndDateText}>No end date (ongoing)</Text>
-        )}
+        <DatePickerInput
+          value={endDate || ''}
+          onChange={(date) => onEndDateChange(date || undefined)}
+          label=""
+        />
       </View>
     </View>
   )
@@ -171,29 +194,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#2563EB',
     lineHeight: 18,
-  },
-  dateInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#f8f9fa',
-    padding: 14,
-    borderRadius: 8,
-  },
-  dateText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#333',
-  },
-  dateHint: {
-    fontSize: 12,
-    color: '#999',
-    marginLeft: 'auto',
-  },
-  noEndDateText: {
-    fontSize: 14,
-    color: '#666',
-    fontStyle: 'italic',
   },
 })
 

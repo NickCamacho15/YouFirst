@@ -1,7 +1,7 @@
 import { supabase } from "./supabase"
 import { getCurrentUserId } from "./auth"
 
-export type ScheduleType = 'immediate' | 'once' | 'weekly'
+export type ScheduleType = 'once' | 'weekly'
 
 export type PlanAssignment = {
   id: string
@@ -32,7 +32,8 @@ export type GroupMemberWithAssignments = GroupMember & {
 }
 
 export type AssignedWorkout = {
-  id: string
+  id: string  // The plan ID
+  plan_id: string  // The plan ID (for consistency)
   name: string
   description: string | null
   status: string
@@ -240,12 +241,13 @@ export async function getAssignedWorkouts(userId?: string): Promise<AssignedWork
 
       return {
         ...assignment.training_plans,
+        plan_id: assignment.plan_id,  // Explicitly set plan_id
         assignment_id: assignment.id,
         assigned_at: assignment.created_at,
         assigned_by: assignment.assigned_by,
         assigned_by_username,
         weeks_count,
-        schedule_type: assignment.schedule_type || 'immediate',
+        schedule_type: assignment.schedule_type || 'once',
         scheduled_date: assignment.scheduled_date,
         recurrence_days: assignment.recurrence_days,
         start_date: assignment.start_date,
@@ -258,16 +260,22 @@ export async function getAssignedWorkouts(userId?: string): Promise<AssignedWork
 }
 
 /**
+ * Get local date string in YYYY-MM-DD format
+ */
+function getLocalDateString(date: Date = new Date()): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+/**
  * Check if a workout is scheduled for today
  */
 function isScheduledForToday(workout: AssignedWorkout): boolean {
   const today = new Date()
   const todayDay = today.getDay()  // 0=Sun, 1=Mon, ..., 6=Sat
-  const todayStr = today.toISOString().split('T')[0]
-
-  if (workout.schedule_type === 'immediate') {
-    return true  // Always available
-  }
+  const todayStr = getLocalDateString(today)
 
   if (workout.schedule_type === 'once') {
     return workout.scheduled_date === todayStr
@@ -316,10 +324,6 @@ export async function getThisWeeksWorkouts(): Promise<Array<AssignedWorkout & { 
   const weekWorkouts: Array<AssignedWorkout & { displayDate: string }> = []
 
   for (const workout of allWorkouts) {
-    if (workout.schedule_type === 'immediate') {
-      continue  // Don't show in weekly view
-    }
-
     if (workout.schedule_type === 'once') {
       if (workout.scheduled_date) {
         const workoutDate = new Date(workout.scheduled_date)
@@ -335,7 +339,7 @@ export async function getThisWeeksWorkouts(): Promise<Array<AssignedWorkout & { 
         const date = new Date(startOfWeek)
         date.setDate(startOfWeek.getDate() + dayOffset)
         const dayOfWeek = date.getDay()
-        const dateStr = date.toISOString().split('T')[0]
+        const dateStr = getLocalDateString(date)
 
         if (workout.recurrence_days.includes(dayOfWeek)) {
           // Check date range
@@ -380,6 +384,49 @@ export async function getUsersAssignedToWorkout(planId: string): Promise<GroupMe
   if (error) throw new Error(error.message)
 
   return (data || []).map((assignment: any) => assignment.users).filter(Boolean)
+}
+
+/**
+ * Get admin's own published workouts with schedule filtering
+ * This shows workouts the admin published with a schedule in their own Workouts tab
+ */
+export async function getAdminScheduledWorkouts(): Promise<AssignedWorkout[]> {
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error("Not authenticated")
+
+  const { data, error } = await supabase
+    .from("training_plans")
+    .select("*")
+    .eq("user_id", uid)
+    .eq("status", "published")
+    .not("schedule_type", "is", null)
+
+  if (error) throw new Error(error.message)
+
+  // Transform to AssignedWorkout format
+  return (data || []).map((plan: any) => ({
+    id: plan.id,
+    plan_id: plan.id,
+    user_id: uid,
+    assigned_by: uid,
+    created_at: plan.created_at,
+    schedule_type: plan.schedule_type,
+    scheduled_date: plan.scheduled_date,
+    recurrence_days: plan.recurrence_days,
+    start_date: plan.start_date,
+    end_date: plan.end_date,
+    training_plans: {
+      id: plan.id,
+      name: plan.name,
+      description: plan.description,
+      status: plan.status,
+      created_at: plan.created_at,
+    },
+    name: plan.name,
+    description: plan.description,
+    assigned_by_username: 'You',
+    weeks_count: 0,
+  }))
 }
 
 // Export aliases for component compatibility

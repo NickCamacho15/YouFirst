@@ -1,5 +1,6 @@
-import React from 'react'
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
+import React, { useState } from 'react'
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native'
+import DateTimePicker from '@react-native-community/datetimepicker'
 import { Ionicons } from '@expo/vector-icons'
 
 interface DatePickerInputProps {
@@ -15,24 +16,25 @@ const DatePickerInput: React.FC<DatePickerInputProps> = ({
   label = 'Select Date',
   minDate,
 }) => {
-  // For now, show a simple date display with navigation
-  // In a production app, you'd use @react-native-community/datetimepicker
-  
-  const adjustDate = (days: number) => {
-    const currentDate = new Date(value)
-    currentDate.setDate(currentDate.getDate() + days)
-    const newDateStr = currentDate.toISOString().split('T')[0]
-    
-    // Check min date
-    if (minDate && newDateStr < minDate) {
-      return
-    }
-    
-    onChange(newDateStr)
+  const [showPicker, setShowPicker] = useState(false)
+
+  // Parse date string in local timezone to avoid UTC conversion issues
+  const parseDateLocal = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number)
+    return new Date(year, month - 1, day)
+  }
+
+  const getTodayLocal = () => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
   }
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr)
+    if (!dateStr) return 'No date selected'
+    const date = parseDateLocal(dateStr)
     return date.toLocaleDateString('en-US', { 
       weekday: 'long', 
       year: 'numeric', 
@@ -42,84 +44,92 @@ const DatePickerInput: React.FC<DatePickerInputProps> = ({
   }
 
   const isToday = (dateStr: string) => {
-    const today = new Date().toISOString().split('T')[0]
-    return dateStr === today
+    if (!dateStr) return false
+    return dateStr === getTodayLocal()
   }
 
   const isTomorrow = (dateStr: string) => {
+    if (!dateStr) return false
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
-    return dateStr === tomorrow.toISOString().split('T')[0]
+    const year = tomorrow.getFullYear()
+    const month = String(tomorrow.getMonth() + 1).padStart(2, '0')
+    const day = String(tomorrow.getDate()).padStart(2, '0')
+    return dateStr === `${year}-${month}-${day}`
   }
 
   const getDateLabel = (dateStr: string) => {
+    if (!dateStr) return 'No date selected'
     if (isToday(dateStr)) return 'Today'
     if (isTomorrow(dateStr)) return 'Tomorrow'
     return formatDate(dateStr)
   }
 
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowPicker(false)
+    }
+    
+    if (selectedDate) {
+      const year = selectedDate.getFullYear()
+      const month = String(selectedDate.getMonth() + 1).padStart(2, '0')
+      const day = String(selectedDate.getDate()).padStart(2, '0')
+      const dateStr = `${year}-${month}-${day}`
+      
+      // Check min date
+      if (minDate && dateStr < minDate) {
+        return
+      }
+      
+      onChange(dateStr)
+    }
+  }
+
+  // If no value, default to today for the picker
+  const dateValue = value ? parseDateLocal(value) : new Date()
+  const minimumDate = minDate ? parseDateLocal(minDate) : undefined
+
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>{label}</Text>
+      {label && <Text style={styles.label}>{label}</Text>}
       
-      <View style={styles.dateContainer}>
-        <TouchableOpacity 
-          style={styles.navButton}
-          onPress={() => adjustDate(-1)}
-        >
-          <Ionicons name="chevron-back" size={24} color="#4A90E2" />
-        </TouchableOpacity>
-
-        <View style={styles.dateDisplay}>
-          <Ionicons name="calendar" size={20} color="#4A90E2" />
-          <View style={styles.dateTextContainer}>
-            <Text style={styles.dateMainText}>{getDateLabel(value)}</Text>
-            {(isToday(value) || isTomorrow(value)) && (
-              <Text style={styles.dateSubText}>{formatDate(value)}</Text>
-            )}
-          </View>
+      <TouchableOpacity 
+        style={styles.dateContainer}
+        onPress={() => setShowPicker(!showPicker)}
+      >
+        <Ionicons name="calendar" size={24} color="#4A90E2" />
+        <View style={styles.dateTextContainer}>
+          <Text style={[styles.dateMainText, !value && styles.placeholderText]}>
+            {getDateLabel(value)}
+          </Text>
+          {value && (isToday(value) || isTomorrow(value)) && (
+            <Text style={styles.dateSubText}>{formatDate(value)}</Text>
+          )}
         </View>
+        <Ionicons name={showPicker ? "chevron-up" : "chevron-down"} size={20} color="#4A90E2" />
+      </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.navButton}
-          onPress={() => adjustDate(1)}
-        >
-          <Ionicons name="chevron-forward" size={24} color="#4A90E2" />
-        </TouchableOpacity>
-      </View>
+      {showPicker && (
+        <DateTimePicker
+          value={dateValue}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handleDateChange}
+          minimumDate={minimumDate}
+          textColor="#333"
+        />
+      )}
 
-      <View style={styles.quickActions}>
-        <TouchableOpacity 
-          style={[styles.quickButton, isToday(value) && styles.quickButtonActive]}
-          onPress={() => onChange(new Date().toISOString().split('T')[0])}
-        >
-          <Text style={[styles.quickButtonText, isToday(value) && styles.quickButtonTextActive]}>
-            Today
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.quickButton, isTomorrow(value) && styles.quickButtonActive]}
-          onPress={() => {
-            const tomorrow = new Date()
-            tomorrow.setDate(tomorrow.getDate() + 1)
-            onChange(tomorrow.toISOString().split('T')[0])
-          }}
-        >
-          <Text style={[styles.quickButtonText, isTomorrow(value) && styles.quickButtonTextActive]}>
-            Tomorrow
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.quickButton}
-          onPress={() => {
-            const nextWeek = new Date()
-            nextWeek.setDate(nextWeek.getDate() + 7)
-            onChange(nextWeek.toISOString().split('T')[0])
-          }}
-        >
-          <Text style={styles.quickButtonText}>Next Week</Text>
-        </TouchableOpacity>
-      </View>
+      {Platform.OS === 'ios' && showPicker && (
+        <View style={styles.pickerActions}>
+          <TouchableOpacity 
+            style={styles.pickerButton}
+            onPress={() => setShowPicker(false)}
+          >
+            <Text style={styles.pickerButtonText}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   )
 }
@@ -143,15 +153,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#BBDEFB',
   },
-  navButton: {
-    padding: 4,
-  },
-  dateDisplay: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
   dateTextContainer: {
     flex: 1,
   },
@@ -160,36 +161,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#2563EB',
   },
+  placeholderText: {
+    color: '#999',
+    fontWeight: '500',
+  },
   dateSubText: {
     fontSize: 13,
     color: '#4A90E2',
     marginTop: 2,
   },
-  quickActions: {
-    flexDirection: 'row',
-    gap: 8,
+  pickerActions: {
+    alignItems: 'flex-end',
+    marginTop: 8,
   },
-  quickButton: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#f8f9fa',
+  pickerButton: {
+    backgroundColor: '#4A90E2',
+    paddingVertical: 8,
+    paddingHorizontal: 20,
     borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'transparent',
   },
-  quickButtonActive: {
-    backgroundColor: '#E3F2FD',
-    borderColor: '#4A90E2',
-  },
-  quickButtonText: {
-    fontSize: 14,
+  pickerButtonText: {
+    color: '#fff',
+    fontSize: 15,
     fontWeight: '600',
-    color: '#666',
-  },
-  quickButtonTextActive: {
-    color: '#2563EB',
   },
 })
 

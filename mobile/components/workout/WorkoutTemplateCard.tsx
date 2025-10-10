@@ -9,7 +9,6 @@ interface WorkoutTemplateCardProps {
   onPublish: () => void
   onUnpublish?: () => void
   onAssign: () => void
-  onDuplicate: () => void
   onDelete: () => void
 }
 
@@ -19,7 +18,6 @@ export default function WorkoutTemplateCard({
   onPublish,
   onUnpublish,
   onAssign,
-  onDuplicate,
   onDelete,
 }: WorkoutTemplateCardProps) {
   const isDraft = template.status === 'draft'
@@ -113,11 +111,6 @@ export default function WorkoutTemplateCard({
             <Text style={[styles.actionText, { color: "#4A90E2" }]}>Assign</Text>
           </TouchableOpacity>
         )}
-
-        <TouchableOpacity style={styles.actionButton} onPress={onDuplicate}>
-          <Ionicons name="copy-outline" size={20} color="#666" />
-          <Text style={styles.actionText}>Copy</Text>
-        </TouchableOpacity>
 
         <TouchableOpacity style={styles.actionButton} onPress={handleDelete}>
           <Ionicons name="trash-outline" size={20} color="#EF4444" />

@@ -1,15 +1,24 @@
 import React, { useEffect, useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
-import { getTodaysWorkouts, getThisWeeksWorkouts, listAssignedWorkoutsForUser, type AssignedWorkout } from '../../lib/workout-assignments'
+import { getTodaysWorkouts, getThisWeeksWorkouts, listAssignedWorkoutsForUser, getAdminScheduledWorkouts, type AssignedWorkout } from '../../lib/workout-assignments'
+import { useUser } from '../../lib/user-context'
+import { isWorkoutCompletedOnDate } from '../../lib/workout-session'
 
 interface AssignedWorkoutsListProps {
   onWorkoutPress?: (workout: AssignedWorkout) => void
 }
 
+type WorkoutWithStatus = AssignedWorkout & { 
+  displayDate: string
+  completionStatus?: 'completed' | 'incomplete' | 'upcoming'
+}
+
 const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPress }) => {
+  const { user } = useUser()
+  const isAdmin = user?.role === 'admin'
   const [todaysWorkouts, setTodaysWorkouts] = useState<AssignedWorkout[]>([])
-  const [weekWorkouts, setWeekWorkouts] = useState<Array<AssignedWorkout & { displayDate: string }>>([])
+  const [weekWorkouts, setWeekWorkouts] = useState<WorkoutWithStatus[]>([])
   const [allWorkouts, setAllWorkouts] = useState<AssignedWorkout[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -22,14 +31,79 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
     setLoading(true)
     setError(null)
     try {
-      const [today, week, all] = await Promise.all([
+      // Fetch both assigned workouts and admin's own scheduled workouts
+      const [today, week, all, adminWorkouts] = await Promise.all([
         getTodaysWorkouts(),
         getThisWeeksWorkouts(),
         listAssignedWorkoutsForUser(),
+        isAdmin ? getAdminScheduledWorkouts() : Promise.resolve([]),
       ])
-      setTodaysWorkouts(today)
-      setWeekWorkouts(week)
-      setAllWorkouts(all)
+
+      // Helper function to get local date string
+      const getLocalDateString = (date: Date = new Date()): string => {
+        const year = date.getFullYear()
+        const month = String(date.getMonth() + 1).padStart(2, '0')
+        const day = String(date.getDate()).padStart(2, '0')
+        return `${year}-${month}-${day}`
+      }
+
+      // Helper function to filter workouts by schedule
+      const filterBySchedule = (workouts: AssignedWorkout[], dateStr: string) => {
+        return workouts.filter(w => {
+          if (w.schedule_type === 'once' && w.scheduled_date === dateStr) return true
+          if (w.schedule_type === 'weekly' && w.recurrence_days) {
+            const [year, month, day] = dateStr.split('-').map(Number)
+            const date = new Date(year, month - 1, day)
+            const dayOfWeek = date.getDay()
+            return w.recurrence_days.includes(dayOfWeek)
+          }
+          return false
+        })
+      }
+
+      // Merge admin workouts with assigned workouts
+      const todayStr = getLocalDateString()
+      const todayAdminWorkouts = filterBySchedule(adminWorkouts, todayStr)
+      const allMerged = [...all, ...adminWorkouts]
+
+      // For week workouts, we need to check each day
+      const weekMerged = [...week]
+      if (isAdmin && adminWorkouts.length > 0) {
+        const today = new Date()
+        const startOfWeek = new Date(today)
+        startOfWeek.setDate(today.getDate() - today.getDay())
+
+        for (let i = 0; i < 7; i++) {
+          const checkDate = new Date(startOfWeek)
+          checkDate.setDate(startOfWeek.getDate() + i)
+          const dateStr = getLocalDateString(checkDate)
+          
+          const adminForThisDay = filterBySchedule(adminWorkouts, dateStr)
+          adminForThisDay.forEach(workout => {
+            weekMerged.push({
+              ...workout,
+              displayDate: dateStr,
+            })
+          })
+        }
+      }
+
+      setTodaysWorkouts([...today, ...todayAdminWorkouts])
+      
+      // Add completion status to week workouts
+      const sortedWeekWorkouts = weekMerged.sort((a, b) => a.displayDate.localeCompare(b.displayDate))
+      const weekWorkoutsWithStatus = await Promise.all(
+        sortedWeekWorkouts.map(async (workout) => {
+          const status = await getWorkoutStatus(workout.id, workout.displayDate)
+          return {
+            ...workout,
+            completionStatus: status,
+          }
+        })
+      )
+      
+      setWeekWorkouts(weekWorkoutsWithStatus)
+      setAllWorkouts(allMerged)
     } catch (err: any) {
       console.error('Failed to load workouts:', err)
       setError(err.message || 'Failed to load workouts')
@@ -38,12 +112,41 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
     }
   }
 
-  const getScheduleLabel = (workout: AssignedWorkout) => {
-    if (workout.schedule_type === 'immediate') {
-      return 'Available now'
+  const getWorkoutStatus = async (
+    planId: string,
+    dateStr: string
+  ): Promise<'completed' | 'incomplete' | 'upcoming'> => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    const todayStr = `${year}-${month}-${day}`
+
+    // If the workout is in the future, it's upcoming
+    if (dateStr > todayStr) {
+      return 'upcoming'
     }
+
+    // If the workout is in the past or today, check if it was completed
+    try {
+      const isCompleted = await isWorkoutCompletedOnDate(planId, dateStr)
+      return isCompleted ? 'completed' : 'incomplete'
+    } catch (error) {
+      console.error('Error checking workout status:', error)
+      return 'incomplete'
+    }
+  }
+
+  // Parse date string in local timezone to avoid UTC conversion issues
+  const parseDateLocal = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number)
+    return new Date(year, month - 1, day)
+  }
+
+  const getScheduleLabel = (workout: AssignedWorkout) => {
     if (workout.schedule_type === 'once' && workout.scheduled_date) {
-      return `Scheduled for ${new Date(workout.scheduled_date).toLocaleDateString()}`
+      const date = parseDateLocal(workout.scheduled_date)
+      return `Scheduled for ${date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })}`
     }
     if (workout.schedule_type === 'weekly' && workout.recurrence_days) {
       const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -54,16 +157,25 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
   }
 
   const getDayName = (dateStr: string) => {
-    const date = new Date(dateStr)
+    // Parse date in local timezone
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const date = new Date(year, month - 1, day)
+    
     const today = new Date()
+    const todayYear = today.getFullYear()
+    const todayMonth = String(today.getMonth() + 1).padStart(2, '0')
+    const todayDay = String(today.getDate()).padStart(2, '0')
+    const todayStr = `${todayYear}-${todayMonth}-${todayDay}`
+    
     const tomorrow = new Date(today)
     tomorrow.setDate(today.getDate() + 1)
+    const tomorrowYear = tomorrow.getFullYear()
+    const tomorrowMonth = String(tomorrow.getMonth() + 1).padStart(2, '0')
+    const tomorrowDay = String(tomorrow.getDate()).padStart(2, '0')
+    const tomorrowStr = `${tomorrowYear}-${tomorrowMonth}-${tomorrowDay}`
     
-    const isToday = dateStr === today.toISOString().split('T')[0]
-    const isTomorrow = dateStr === tomorrow.toISOString().split('T')[0]
-    
-    if (isToday) return 'Today'
-    if (isTomorrow) return 'Tomorrow'
+    if (dateStr === todayStr) return 'Today'
+    if (dateStr === tomorrowStr) return 'Tomorrow'
     return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
   }
 
@@ -149,32 +261,71 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
       )}
 
       {/* This Week */}
-      {weekWorkouts.length > 0 && (
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="calendar" size={22} color="#4A90E2" />
-            <Text style={styles.sectionTitle}>This Week</Text>
-          </View>
-          {weekWorkouts.map((workout, idx) => (
-            <TouchableOpacity
-              key={`week-${workout.id}-${workout.displayDate}-${idx}`}
-              style={styles.weekWorkoutCard}
-              onPress={() => onWorkoutPress?.(workout)}
-            >
-              <View style={styles.weekDayIndicator}>
-                <Text style={styles.weekDayText}>{getDayName(workout.displayDate)}</Text>
-              </View>
-              <View style={styles.weekWorkoutInfo}>
-                <Text style={styles.weekWorkoutName} numberOfLines={1}>{workout.name}</Text>
-                {workout.assigned_by_username && (
-                  <Text style={styles.weekWorkoutMeta}>by {workout.assigned_by_username}</Text>
+      {(() => {
+        const now = new Date()
+        const year = now.getFullYear()
+        const month = String(now.getMonth() + 1).padStart(2, '0')
+        const day = String(now.getDate()).padStart(2, '0')
+        const todayStr = `${year}-${month}-${day}`
+        
+        const weekWorkoutsExcludingToday = weekWorkouts.filter(w => w.displayDate !== todayStr)
+        
+        if (weekWorkoutsExcludingToday.length === 0) return null
+        
+        return (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="calendar" size={22} color="#4A90E2" />
+              <Text style={styles.sectionTitle}>This Week</Text>
+            </View>
+            {weekWorkoutsExcludingToday.map((workout, idx) => (
+              <TouchableOpacity
+                key={`week-${workout.id}-${workout.displayDate}-${idx}`}
+                style={styles.weekWorkoutCard}
+                onPress={() => onWorkoutPress?.(workout)}
+              >
+                <View style={styles.weekDayIndicator}>
+                  <Text style={styles.weekDayText}>{getDayName(workout.displayDate)}</Text>
+                </View>
+                <View style={styles.weekWorkoutInfo}>
+                  <Text style={styles.weekWorkoutName} numberOfLines={1}>{workout.name}</Text>
+                  {workout.assigned_by_username && (
+                    <Text style={styles.weekWorkoutMeta}>by {workout.assigned_by_username}</Text>
+                  )}
+                </View>
+                {workout.completionStatus && (
+                  <View style={[
+                    styles.statusBadge,
+                    workout.completionStatus === 'completed' && styles.statusBadgeCompleted,
+                    workout.completionStatus === 'incomplete' && styles.statusBadgeIncomplete,
+                    workout.completionStatus === 'upcoming' && styles.statusBadgeUpcoming,
+                  ]}>
+                    {workout.completionStatus === 'completed' && (
+                      <Ionicons name="checkmark-circle" size={12} color="#10B981" />
+                    )}
+                    {workout.completionStatus === 'incomplete' && (
+                      <Ionicons name="close-circle" size={12} color="#EF4444" />
+                    )}
+                    {workout.completionStatus === 'upcoming' && (
+                      <Ionicons name="time-outline" size={12} color="#F59E0B" />
+                    )}
+                    <Text style={[
+                      styles.statusBadgeText,
+                      workout.completionStatus === 'completed' && styles.statusBadgeTextCompleted,
+                      workout.completionStatus === 'incomplete' && styles.statusBadgeTextIncomplete,
+                      workout.completionStatus === 'upcoming' && styles.statusBadgeTextUpcoming,
+                    ]}>
+                      {workout.completionStatus === 'completed' ? 'Completed' : 
+                       workout.completionStatus === 'incomplete' ? 'Incomplete' : 'Upcoming'}
+                    </Text>
+                  </View>
                 )}
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#999" />
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
+                <Ionicons name="chevron-forward" size={18} color="#999" />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )
+      })()}
 
       {/* All Workouts */}
       <View style={styles.section}>
@@ -407,6 +558,43 @@ const styles = StyleSheet.create({
   weekWorkoutMeta: {
     fontSize: 12,
     color: '#666',
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 8,
+  },
+  statusBadgeCompleted: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#10B981',
+  },
+  statusBadgeIncomplete: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#EF4444',
+  },
+  statusBadgeUpcoming: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  statusBadgeTextCompleted: {
+    color: '#10B981',
+  },
+  statusBadgeTextIncomplete: {
+    color: '#EF4444',
+  },
+  statusBadgeTextUpcoming: {
+    color: '#F59E0B',
   },
 })
 
