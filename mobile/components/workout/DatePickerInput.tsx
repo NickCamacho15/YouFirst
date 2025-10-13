@@ -110,14 +110,16 @@ const DatePickerInput: React.FC<DatePickerInputProps> = ({
       </TouchableOpacity>
 
       {showPicker && (
-        <DateTimePicker
-          value={dateValue}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={handleDateChange}
-          minimumDate={minimumDate}
-          textColor="#333"
-        />
+        <View style={styles.pickerContainer}>
+          <DateTimePicker
+            value={dateValue}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={handleDateChange}
+            minimumDate={minimumDate}
+            textColor="#333"
+          />
+        </View>
       )}
 
       {Platform.OS === 'ios' && showPicker && (
@@ -170,9 +172,14 @@ const styles = StyleSheet.create({
     color: '#4A90E2',
     marginTop: 2,
   },
+  pickerContainer: {
+    marginTop: 6,
+    marginBottom: 16,
+  },
   pickerActions: {
     alignItems: 'flex-end',
-    marginTop: 8,
+    marginTop: 4,
+    marginBottom: 8,
   },
   pickerButton: {
     backgroundColor: '#4A90E2',

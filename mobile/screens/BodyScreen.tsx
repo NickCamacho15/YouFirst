@@ -36,7 +36,7 @@ import PublishWorkoutModal from "../components/workout/PublishWorkoutModal"
 import GroupMembersList from "../components/workout/GroupMembersList"
 import WorkoutAssignmentModal from "../components/workout/WorkoutAssignmentModal"
 import AssignedWorkoutsList from "../components/workout/AssignedWorkoutsList"
-import { startWorkoutSession, getActiveSession } from "../lib/workout-session"
+import { startWorkoutSession, getActiveSession, abortSession } from "../lib/workout-session"
 
 interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void; activeEpoch?: number; navigation?: any }
 
@@ -436,13 +436,25 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
       const activeSession = await getActiveSession()
       
       if (activeSession) {
-        // Resume existing workout
-        if (navigation) {
-          navigation.navigate('ActiveWorkout')
+        // If the active session somehow has no exercises, treat it as invalid and reset
+        const hasNoExercises = !activeSession.exercises || activeSession.exercises.length === 0
+        const hasNoSetLogs = (activeSession.setLogs || []).length === 0
+        if (hasNoExercises || hasNoSetLogs) {
+          try {
+            console.warn('[handleStartWorkout] Found stale active session (no exercises or sets). Aborting and starting fresh...')
+            await abortSession(activeSession.session.id)
+          } catch (e) {
+            console.error('[handleStartWorkout] Failed to abort stale session:', e)
+          }
         } else {
-          Alert.alert('Active Session', 'Active workout session exists. Please use navigation to resume.')
+          // Resume existing workout
+          if (navigation) {
+            navigation.navigate('ActiveWorkout')
+          } else {
+            Alert.alert('Active Session', 'Active workout session exists. Please use navigation to resume.')
+          }
+          return
         }
-        return
       }
 
       // Start new workout session using plan_id

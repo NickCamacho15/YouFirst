@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react"
 import { login, register } from "../lib/auth"
-import { supabase } from "../lib/supabase"
-import { isBiometricLoginEnabled, enableBiometricLock, isBiometricHardwareAvailable, biometricSignIn } from "../lib/biometrics"
+import { supabase, REMEMBER_ME_KEY } from "../lib/supabase"
+// Biometrics removed
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useUser } from "../lib/user-context"
 import {
@@ -17,7 +17,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from "react-native"
 
 interface AuthScreenProps {
@@ -35,6 +34,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
   const [confirmPassword, setConfirmPassword] = useState("")
 
   const [submitting, setSubmitting] = useState(false)
+  const [rememberMe, setRememberMe] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   // Role + group/access code (registration)
@@ -79,21 +79,9 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
         login({ identifier: identifier || "", password }),
         new Promise((_, reject) => setTimeout(() => reject(new Error("Login is taking longer than expected. Please try again.")), 15000)),
       ])
-      // Offer to enable biometrics after a successful credential login
-      try {
-        const hasHardware = await isBiometricHardwareAvailable()
-        const already = await isBiometricLoginEnabled()
-        if (hasHardware && !already) {
-          Alert.alert(
-            'Enable Face ID?',
-            'Would you like to enable Face ID for quicker sign-ins on this device?',
-            [
-              { text: 'Not now', style: 'cancel' },
-              { text: 'Enable', onPress: async () => { try { await enableBiometricLock() } catch {} } },
-            ]
-          )
-        }
-      } catch {}
+      // Biometrics disabled: do not prompt to enable
+      // Persist remember-me preference
+      try { await AsyncStorage.setItem(REMEMBER_ME_KEY, rememberMe ? '1' : '0') } catch {}
       onLogin()
     } catch (e: any) {
       setError(e?.message || "Login failed")
@@ -102,32 +90,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
     }
   }
 
-  const handleFaceIdLogin = async () => {
-    setSubmitting(true)
-    setError(null)
-    try {
-      const enabled = await isBiometricLoginEnabled()
-      const ok = await biometricSignIn()
-      if (ok) {
-        onLogin()
-        return
-      }
-      const hasHardware = await isBiometricHardwareAvailable()
-      if (!hasHardware) {
-        setError('Face ID is not available on this device.')
-        return
-      }
-      if (!enabled) {
-        setError('Face ID sign-in is not enabled yet. Please sign in with email first, then enable Face ID when prompted.')
-      } else {
-        setError('Face ID sign-in could not complete. Try again or sign in with email.')
-      }
-    } catch (e: any) {
-      setError(e?.message || 'Face ID sign-in failed')
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  const handleFaceIdLogin = undefined as unknown as () => Promise<void>
 
   // Clear any transient UI state when this screen mounts
   useEffect(() => {
@@ -237,6 +200,9 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
         console.warn('User setup verification failed, but proceeding anyway')
       }
 
+      // Persist remember-me preference after successful registration
+      try { await AsyncStorage.setItem(REMEMBER_ME_KEY, rememberMe ? '1' : '0') } catch {}
+
       // Cache the verified user data so UserProvider loads it immediately
       // This prevents the "glitch" where the app renders with no data then suddenly loads it
       if (setupVerified && verifiedUserData) {
@@ -256,14 +222,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
         }
       }
 
-      // Enable biometrics if available
-      try {
-        const hasHardware = await isBiometricHardwareAvailable()
-        const already = await isBiometricLoginEnabled()
-        if (hasHardware && !already) {
-          await enableBiometricLock()
-        }
-      } catch {}
+      // Biometrics disabled
       
       // Immediately refresh user context to load the new role
       try {
@@ -527,20 +486,43 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
               )}
 
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
-              {/* Action buttons stacked; Face ID hidden on Register tab */}
+              {/* Remember Me toggle (applies to both login and register) */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ color: '#333', fontSize: 14, fontWeight: '500' }}>Remember Me</Text>
+                <TouchableOpacity
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: rememberMe }}
+                  onPress={() => setRememberMe((v) => !v)}
+                  style={{
+                    width: 48,
+                    height: 28,
+                    borderRadius: 16,
+                    backgroundColor: rememberMe ? '#111' : '#ddd',
+                    padding: 3,
+                    justifyContent: 'center',
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: 11,
+                      backgroundColor: '#fff',
+                      alignSelf: rememberMe ? 'flex-end' : 'flex-start',
+                    }}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Action buttons stacked */}
               <View style={styles.actionsContainer}>
                 <TouchableOpacity style={[styles.submitButton, submitting && { opacity: 0.6 }]} disabled={submitting} onPress={activeTab === "login" ? handleSignIn : handleRegister}>
                   <Text style={styles.submitButtonText}>
                     {submitting ? "Please wait…" : activeTab === "login" ? "Sign In" : "Create Account"}
                   </Text>
                 </TouchableOpacity>
-                {activeTab === 'login' && (
-                  <TouchableOpacity style={[styles.secondaryButton, submitting && { opacity: 0.6 }]} disabled={submitting} onPress={handleFaceIdLogin}>
-                    <Text style={styles.secondaryButtonText}>Sign in with Face ID</Text>
-                  </TouchableOpacity>
-                )}
               </View>
-              {/* Biometric gating occurs in app shell when session exists */}
+              {/* Biometrics removed */}
             </View>
           </View>
         </ScrollView>

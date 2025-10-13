@@ -13,8 +13,8 @@ export default function Calendar({ embedded }: { embedded?: boolean }) {
   const [detail, setDetail] = useState<{ open: boolean; status?: DailyWinStatus; dateKey?: string; loading?: boolean; view?: 'summary' | 'details'; details?: DailyWinDetails; selected?: 'intention' | 'tasks' | 'move' | 'read' | 'center' }>({ open: false })
   const [dayStatuses, setDayStatuses] = useState<Record<string, DailyWinStatus>>({})
   const hasLoadedRef = React.useRef(false)
-  const prevUserIdRef = React.useRef<string>()
-  const prevMonthRef = React.useRef<string>()
+  const prevUserIdRef = React.useRef<string | undefined>(undefined)
+  const prevMonthRef = React.useRef<string | undefined>(undefined)
   
   // Get days of current month
   const monthStart = startOfMonth(currentDate);
@@ -48,7 +48,13 @@ export default function Calendar({ embedded }: { embedded?: boolean }) {
       hasLoadedRef.current = true
       
       // Load both data sources in PARALLEL for faster rendering
-      const startKey = toDateKey(monthStart)
+      // Only compute daily-status rows from the user's registration date forward
+      let registrationStart: Date | null = null
+      try {
+        if (user?.createdAt) { const d = new Date(user.createdAt); d.setHours(0,0,0,0); registrationStart = d }
+      } catch {}
+      const effectiveStart = registrationStart && monthStart < registrationStart ? registrationStart : monthStart
+      const startKey = toDateKey(effectiveStart)
       const endKey = toDateKey(monthEnd)
       
       const [newWonDays, map] = await Promise.all([
@@ -108,11 +114,15 @@ export default function Calendar({ embedded }: { embedded?: boolean }) {
     });
     
     const todayStart = new Date(); todayStart.setHours(0,0,0,0)
+    // Compute user's registration day start (local)
+    let registrationStart: Date | null = null
+    try { if (user?.createdAt) { const d = new Date(user.createdAt); d.setHours(0,0,0,0); registrationStart = d } } catch {}
     const onPressDay = async (day: Date | null) => {
       if (!day) return
       const todayStart = new Date(); todayStart.setHours(0,0,0,0)
       const isFuture = day.getTime() > todayStart.getTime()
-      if (isFuture) return
+      const isBeforeRegistration = !!(registrationStart && day.getTime() < registrationStart.getTime())
+      if (isFuture || isBeforeRegistration) return
       const key = toDateKey(day)
       setDetail({ open: true, dateKey: key, loading: true, view: 'summary' })
       try {
@@ -129,6 +139,7 @@ export default function Calendar({ embedded }: { embedded?: boolean }) {
           const key = day ? toDateKey(day!) : ''
           const isFuture = !!day && day.getTime() > todayStart.getTime()
           const isPast = !!day && day.getTime() < todayStart.getTime()
+          const isBeforeRegistration = !!(registrationStart && day && (day as Date).getTime() < registrationStart.getTime())
           const s = key ? dayStatuses[key] : undefined
           // A day is considered "won" (green) ONLY when a row exists in user_wins
           const isWon = !!(day && !isFuture && wonDays.has(key))
@@ -140,7 +151,7 @@ export default function Calendar({ embedded }: { embedded?: boolean }) {
           let isPartial = false
           let isFailed = false
           if (isWon) stateStyle = styles.wonDay
-          else if (!isFuture && isPast && s) {
+          else if (!isFuture && isPast && s && !isBeforeRegistration) {
             const completedCount = (s.intentionMorning && s.intentionEvening ? 1 : 0)
               + (s.criticalTasks ? 1 : 0)
               + (s.workout ? 1 : 0)
@@ -165,7 +176,7 @@ export default function Calendar({ embedded }: { embedded?: boolean }) {
                     {format(day, 'd')}
                   </Text>
                   {/* Always show dots when status is known for non-future days, including won days */}
-                  {s && !isFuture ? (
+                  {s && !isFuture && !isBeforeRegistration ? (
                     <View style={styles.dotRow}>
                       {(() => { const onStyle = isWon ? styles.dotOnWon : styles.dotOn; const offStyle = isPartial ? styles.dotOffPartial : (isFailed ? styles.dotOffFailed : styles.dotOff); return (
                         <>

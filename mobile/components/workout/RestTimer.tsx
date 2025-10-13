@@ -19,6 +19,7 @@ import {
   Modal,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
+import Svg, { Circle } from "react-native-svg"
 
 interface RestTimerProps {
   visible: boolean
@@ -37,41 +38,37 @@ export default function RestTimer({
 }: RestTimerProps) {
   const [timeLeft, setTimeLeft] = useState(duration)
   const [totalDuration, setTotalDuration] = useState(duration)
-  const progressAnim = useRef(new Animated.Value(1)).current
+  const [progress, setProgress] = useState(1) // 1 -> 0
+  const endTimeMsRef = useRef<number>(Date.now())
 
   useEffect(() => {
     if (visible) {
       setTimeLeft(duration)
       setTotalDuration(duration)
-      progressAnim.setValue(1)
+      setProgress(1)
+      endTimeMsRef.current = Date.now() + duration * 1000
     }
   }, [visible, duration])
 
   useEffect(() => {
-    if (!visible || timeLeft <= 0) return
+    if (!visible) return
 
-    const interval = setInterval(() => {
-      setTimeLeft((prev) => {
-        const newTime = prev - 1
-        
-        // Update progress animation
-        const progress = newTime / totalDuration
-        Animated.timing(progressAnim, {
-          toValue: progress,
-          duration: 100,
-          useNativeDriver: true,
-        }).start()
+    const tick = () => {
+      const now = Date.now()
+      const remainingMs = Math.max(0, endTimeMsRef.current - now)
+      const newProgress = remainingMs / (totalDuration * 1000)
+      setProgress(newProgress)
+      setTimeLeft(Math.ceil(remainingMs / 1000))
+      if (remainingMs <= 0) {
+        onComplete()
+      } else {
+        rafRef.current = requestAnimationFrame(tick)
+      }
+    }
 
-        if (newTime <= 0) {
-          onComplete()
-          return 0
-        }
-        return newTime
-      })
-    }, 1000)
-
-    return () => clearInterval(interval)
-  }, [visible, timeLeft, totalDuration])
+    const rafRef = { current: requestAnimationFrame(tick) } as any
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [visible, totalDuration])
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60)
@@ -83,8 +80,12 @@ export default function RestTimer({
   }
 
   const handleExtend = () => {
-    setTimeLeft((prev) => prev + 30)
-    setTotalDuration((prev) => prev + 30)
+    // Extend from the remaining time, not from the original duration
+    endTimeMsRef.current += 30000
+    const remainingMs = Math.max(0, endTimeMsRef.current - Date.now())
+    setTimeLeft(Math.ceil(remainingMs / 1000))
+    setTotalDuration(prev => prev + 30)
+    setProgress(remainingMs / ( (totalDuration + 30) * 1000 ))
     onExtend(30)
   }
 
@@ -107,11 +108,30 @@ export default function RestTimer({
             </TouchableOpacity>
           </View>
 
-          {/* Timer Display */}
+          {/* Timer Display with animated radial progress */}
           <View style={styles.timerContainer}>
-            <View style={styles.timerCircle}>
-              <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
-              <Text style={styles.timerLabel}>remaining</Text>
+            <View style={styles.timerCircleWrapper}>
+              {/* Background ring */}
+              <Svg width={200} height={200}>
+                <Circle cx={100} cy={100} r={86} stroke="#e6eefc" strokeWidth={12} fill="none" />
+                {/* Foreground ring driven by JS progress */}
+                <Circle
+                  cx={100}
+                  cy={100}
+                  r={86}
+                  stroke="#4A90E2"
+                  strokeWidth={12}
+                  fill="none"
+                  strokeDasharray={`${2 * Math.PI * 86} ${2 * Math.PI * 86}`}
+                  strokeDashoffset={(2 * Math.PI * 86) * (1 - progress)}
+                  strokeLinecap="round"
+                  transform="rotate(-90 100 100)"
+                />
+              </Svg>
+              <View style={styles.timerCenter}>
+                <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
+                <Text style={styles.timerLabel}>remaining</Text>
+              </View>
             </View>
           </View>
 
@@ -135,6 +155,33 @@ export default function RestTimer({
         </View>
       </View>
     </Modal>
+  )
+}
+
+// Animated circle component that consumes the same file's Animated.Value
+function ProgressRing({ progress }: { progress: Animated.Value }) {
+  const circumference = 2 * Math.PI * 86
+  const strokeDashoffset = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [circumference, 0],
+  })
+
+  // We can't directly bind Animated.Value to SVG Circle props; wrap in Animated component
+  const AnimatedCircleComp: any = Animated.createAnimatedComponent(Circle)
+
+  return (
+    <AnimatedCircleComp
+      cx={100}
+      cy={100}
+      r={86}
+      stroke="#4A90E2"
+      strokeWidth={12}
+      fill="none"
+      strokeDasharray={`${circumference} ${circumference}`}
+      strokeDashoffset={strokeDashoffset as any}
+      strokeLinecap="round"
+      transform="rotate(-90 100 100)"
+    />
   )
 }
 
@@ -174,15 +221,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 40,
   },
-  timerCircle: {
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: "#EBF5FF",
+  timerCircleWrapper: {
+    width: 200,
+    height: 200,
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 8,
-    borderColor: "#4A90E2",
+  },
+  timerCenter: {
+    position: "absolute",
+    justifyContent: "center",
+    alignItems: "center",
   },
   timerText: {
     fontSize: 48,

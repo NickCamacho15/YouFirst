@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
-import { getTodaysWorkouts, getThisWeeksWorkouts, listAssignedWorkoutsForUser, getAdminScheduledWorkouts, type AssignedWorkout } from '../../lib/workout-assignments'
+import { getTodaysWorkouts, getThisWeeksWorkouts, getUpcomingWorkouts, listAssignedWorkoutsForUser, getAdminScheduledWorkouts, type AssignedWorkout } from '../../lib/workout-assignments'
 import { useUser } from '../../lib/user-context'
 import { isWorkoutCompletedOnDate } from '../../lib/workout-session'
 
@@ -19,7 +19,8 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
   const isAdmin = user?.role === 'admin'
   const [todaysWorkouts, setTodaysWorkouts] = useState<AssignedWorkout[]>([])
   const [weekWorkouts, setWeekWorkouts] = useState<WorkoutWithStatus[]>([])
-  const [allWorkouts, setAllWorkouts] = useState<AssignedWorkout[]>([])
+  const [upcomingWorkouts, setUpcomingWorkouts] = useState<WorkoutWithStatus[]>([])
+  const [completedWorkouts, setCompletedWorkouts] = useState<WorkoutWithStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -32,11 +33,12 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
     setError(null)
     try {
       // Fetch both assigned workouts and admin's own scheduled workouts
-      const [today, week, all, adminWorkouts] = await Promise.all([
+      const [today, week, all, adminWorkouts, upcoming] = await Promise.all([
         getTodaysWorkouts(),
         getThisWeeksWorkouts(),
         listAssignedWorkoutsForUser(),
         isAdmin ? getAdminScheduledWorkouts() : Promise.resolve([]),
+        getUpcomingWorkouts(),
       ])
 
       // Helper function to get local date string
@@ -61,10 +63,9 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
         })
       }
 
-      // Merge admin workouts with assigned workouts
+      // Do NOT merge admin's published schedules automatically; assignments require dates
       const todayStr = getLocalDateString()
-      const todayAdminWorkouts = filterBySchedule(adminWorkouts, todayStr)
-      const allMerged = [...all, ...adminWorkouts]
+      const allMerged = [...all]
 
       // For week workouts, we need to check each day
       const weekMerged = [...week]
@@ -88,7 +89,22 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
         }
       }
 
-      setTodaysWorkouts([...today, ...todayAdminWorkouts])
+      // De-duplicate by (plan_id, scheduled_date)
+      const dedupMap = new Map<string, AssignedWorkout>()
+      for (const w of today) {
+        const key = `${w.plan_id}|${w.scheduled_date || ''}`
+        if (!dedupMap.has(key)) dedupMap.set(key, w)
+      }
+      const todaysDeduped = Array.from(dedupMap.values())
+
+      // Remove any workouts already completed today from Today's list
+      const completedFlags = await Promise.all(
+        todaysDeduped.map(async (w) => {
+          try { return await isWorkoutCompletedOnDate(w.plan_id, todayStr) } catch { return false }
+        })
+      )
+      const todaysFiltered: AssignedWorkout[] = todaysDeduped.filter((_, idx) => !completedFlags[idx])
+      setTodaysWorkouts(todaysFiltered)
       
       // Add completion status to week workouts
       const sortedWeekWorkouts = weekMerged.sort((a, b) => a.displayDate.localeCompare(b.displayDate))
@@ -103,7 +119,20 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
       )
       
       setWeekWorkouts(weekWorkoutsWithStatus)
-      setAllWorkouts(allMerged)
+
+      // Upcoming = next 7 days
+      const upcomingWithStatus: WorkoutWithStatus[] = await Promise.all(
+        (upcoming || []).map(async (w) => ({
+          ...w,
+          completionStatus: 'upcoming',
+        }))
+      )
+      setUpcomingWorkouts(upcomingWithStatus)
+
+      // Completed = filter weekWorkoutsWithStatus for status completed and dates <= today
+      const todayStr2 = getLocalDateString()
+      const completed = weekWorkoutsWithStatus.filter(w => w.completionStatus === 'completed' && w.displayDate <= todayStr2)
+      setCompletedWorkouts(completed)
     } catch (err: any) {
       console.error('Failed to load workouts:', err)
       setError(err.message || 'Failed to load workouts')
@@ -200,7 +229,8 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
     )
   }
 
-  if (allWorkouts.length === 0) {
+  const hasAny = todaysWorkouts.length > 0 || weekWorkouts.length > 0 || upcomingWorkouts.length > 0 || completedWorkouts.length > 0
+  if (!hasAny) {
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="barbell-outline" size={56} color="#ccc" />
@@ -260,7 +290,39 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
         </View>
       )}
 
-      {/* This Week */}
+      {/* Upcoming Workouts (next 7 days) */}
+      {upcomingWorkouts.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="time-outline" size={22} color="#F59E0B" />
+            <Text style={styles.sectionTitle}>Upcoming Workouts</Text>
+          </View>
+          {upcomingWorkouts.map((workout, idx) => (
+            <TouchableOpacity
+              key={`upcoming-${workout.id}-${workout.displayDate}-${idx}`}
+              style={styles.weekWorkoutCard}
+              onPress={() => onWorkoutPress?.(workout)}
+            >
+              <View style={styles.weekDayIndicator}>
+                <Text style={styles.weekDayText}>{getDayName(workout.displayDate)}</Text>
+              </View>
+              <View style={styles.weekWorkoutInfo}>
+                <Text style={styles.weekWorkoutName} numberOfLines={1}>{workout.name}</Text>
+                {workout.assigned_by_username && (
+                  <Text style={styles.weekWorkoutMeta}>by {workout.assigned_by_username}</Text>
+                )}
+              </View>
+              <View style={[styles.statusBadge, styles.statusBadgeUpcoming]}>
+                <Ionicons name="time-outline" size={12} color="#F59E0B" />
+                <Text style={[styles.statusBadgeText, styles.statusBadgeTextUpcoming]}>Upcoming</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#999" />
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* This Week (with status) */}
       {(() => {
         const now = new Date()
         const year = now.getFullYear()
@@ -327,55 +389,37 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
         )
       })()}
 
-      {/* All Workouts */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Ionicons name="list" size={22} color="#4A90E2" />
-          <Text style={styles.sectionTitle}>All My Workouts</Text>
-        </View>
-        {allWorkouts.map((workout) => (
-          <TouchableOpacity
-            key={`all-${workout.id}`}
-            style={styles.workoutCard}
-            onPress={() => onWorkoutPress?.(workout)}
-          >
-            <View style={styles.workoutHeader}>
-              <View style={styles.workoutTitleContainer}>
-                <Text style={styles.workoutName}>{workout.name}</Text>
-                {workout.description && (
-                  <Text style={styles.workoutDescription} numberOfLines={2}>
-                    {workout.description}
-                  </Text>
+      {/* Completed Workouts */}
+      {completedWorkouts.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="checkmark-done" size={22} color="#10B981" />
+            <Text style={styles.sectionTitle}>Completed Workouts</Text>
+          </View>
+          {completedWorkouts.map((workout, idx) => (
+            <TouchableOpacity
+              key={`completed-${workout.id}-${workout.displayDate}-${idx}`}
+              style={styles.weekWorkoutCard}
+              onPress={() => onWorkoutPress?.(workout)}
+            >
+              <View style={styles.weekDayIndicator}>
+                <Text style={styles.weekDayText}>{getDayName(workout.displayDate)}</Text>
+              </View>
+              <View style={styles.weekWorkoutInfo}>
+                <Text style={styles.weekWorkoutName} numberOfLines={1}>{workout.name}</Text>
+                {workout.assigned_by_username && (
+                  <Text style={styles.weekWorkoutMeta}>by {workout.assigned_by_username}</Text>
                 )}
               </View>
-              <Ionicons name="chevron-forward" size={20} color="#999" />
-            </View>
-
-            <View style={styles.workoutMeta}>
-              <View style={styles.metaItem}>
-                <Ionicons name="repeat-outline" size={16} color="#666" />
-                <Text style={styles.metaText}>{getScheduleLabel(workout)}</Text>
+              <View style={[styles.statusBadge, styles.statusBadgeCompleted]}>
+                <Ionicons name="checkmark-circle" size={12} color="#10B981" />
+                <Text style={[styles.statusBadgeText, styles.statusBadgeTextCompleted]}>Completed</Text>
               </View>
-              {workout.weeks_count > 0 && (
-                <View style={styles.metaItem}>
-                  <Ionicons name="time-outline" size={16} color="#666" />
-                  <Text style={styles.metaText}>
-                    {workout.weeks_count} {workout.weeks_count === 1 ? 'week' : 'weeks'}
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            {workout.assigned_by_username && (
-              <View style={styles.assignedByContainer}>
-                <Text style={styles.assignedByText}>
-                  Assigned by {workout.assigned_by_username}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        ))}
-      </View>
+              <Ionicons name="chevron-forward" size={18} color="#999" />
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
     </View>
   )
 }

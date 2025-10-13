@@ -32,10 +32,19 @@ const WorkoutAssignmentModal: React.FC<WorkoutAssignmentModalProps> = ({
   const [currentStep, setCurrentStep] = useState<Step>('members')
   
   // Schedule state
-  const [scheduleType, setScheduleType] = useState<ScheduleType>('immediate')
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0])
+  type AssignScheduleType = 'immediate' | ScheduleType
+  // Default to 'once' so the date picker is visible by default on step 2
+  const [scheduleType, setScheduleType] = useState<AssignScheduleType>('once')
+  const getLocalDateString = () => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+  const [selectedDate, setSelectedDate] = useState<string>(getLocalDateString())
   const [selectedDays, setSelectedDays] = useState<number[]>([])
-  const [startDate, setStartDate] = useState<string>(new Date().toISOString().split('T')[0])
+  const [startDate, setStartDate] = useState<string>(getLocalDateString())
   const [endDate, setEndDate] = useState<string | undefined>(undefined)
 
   useEffect(() => {
@@ -48,20 +57,31 @@ const WorkoutAssignmentModal: React.FC<WorkoutAssignmentModalProps> = ({
   const resetModal = () => {
     setSelectedMembers(new Set())
     setCurrentStep('members')
-    setScheduleType('immediate')
-    setSelectedDate(new Date().toISOString().split('T')[0])
+    setScheduleType('once')
+    setSelectedDate(getLocalDateString())
     setSelectedDays([])
-    setStartDate(new Date().toISOString().split('T')[0])
+    setStartDate(getLocalDateString())
     setEndDate(undefined)
     setError(null)
   }
+
+  // Ensure when entering the schedule step we show Specific Date by default
+  useEffect(() => {
+    if (currentStep === 'schedule' && scheduleType === 'immediate') {
+      setScheduleType('once')
+    }
+  }, [currentStep])
 
   const loadMembers = async () => {
     setLoading(true)
     try {
       const data = await listGroupMembers()
-      // Filter out admins - typically you assign workouts to regular users
-      setMembers(data.filter(m => m.role !== 'admin'))
+      // Add a virtual "Assign to me" entry at top for convenience and hide admin rows
+      const me: GroupMember = {
+        id: 'me', email: 'me', username: 'Assign to me', display_name: null, role: 'admin', group_id: null, created_at: new Date().toISOString()
+      }
+      const nonAdminMembers = data.filter(m => m.role !== 'admin')
+      setMembers([me, ...nonAdminMembers])
     } catch (err: any) {
       console.error('Failed to load members:', err)
       setError(err.message || 'Failed to load members')
@@ -118,11 +138,26 @@ const WorkoutAssignmentModal: React.FC<WorkoutAssignmentModalProps> = ({
             }),
           }
 
-      const promises = Array.from(selectedMembers).map(userId =>
-        assignWorkoutToUser(workoutId, userId, scheduleParams)
-      )
+      const resolvedUserIds = Array.from(selectedMembers).map(uid => uid === 'me' ? 'me' : uid)
+      const finalUserIds: string[] = []
+      for (const id of resolvedUserIds) {
+        if (id === 'me') {
+          // Replace with current admin's user id via a small fetch
+          try {
+            // We don't have direct accessor here; use listGroupMembers to find the admin (self)
+            const all = await listGroupMembers()
+            const adminSelf = all.find(m => m.role === 'admin')
+            if (adminSelf?.id) finalUserIds.push(adminSelf.id)
+          } catch {}
+        } else {
+          finalUserIds.push(id)
+        }
+      }
+
+      const promises = finalUserIds.map(userId => assignWorkoutToUser(workoutId, userId, scheduleParams))
       await Promise.all(promises)
       onClose()
+      // TODO: Optionally trigger a lightweight event/bus to refresh Workouts list
     } catch (err: any) {
       console.error('Failed to assign workout:', err)
       setError(err.message || 'Failed to assign workout')
@@ -197,12 +232,12 @@ const WorkoutAssignmentModal: React.FC<WorkoutAssignmentModalProps> = ({
               </View>
               <View style={styles.memberAvatar}>
                 <Text style={styles.memberInitial}>
-                  {member.username?.charAt(0).toUpperCase() || member.email.charAt(0).toUpperCase()}
+                  {(member.username === 'Assign to me' ? 'ME' : (member.username?.charAt(0).toUpperCase() || member.email.charAt(0).toUpperCase()))}
                 </Text>
               </View>
               <View style={styles.memberInfo}>
                 <Text style={styles.memberName}>{member.username || 'No username'}</Text>
-                <Text style={styles.memberEmail}>{member.email}</Text>
+                {member.username !== 'Assign to me' && <Text style={styles.memberEmail}>{member.email}</Text>}
               </View>
             </TouchableOpacity>
           ))}
@@ -214,8 +249,8 @@ const WorkoutAssignmentModal: React.FC<WorkoutAssignmentModalProps> = ({
   const renderScheduleStep = () => (
     <>
       <ScheduleTypeSelector 
-        value={scheduleType} 
-        onChange={setScheduleType} 
+        selectedType={(scheduleType === 'immediate' ? 'once' : scheduleType) as ScheduleType}
+        onSelect={(t) => setScheduleType(t)}
       />
 
       {scheduleType === 'once' && (
@@ -245,18 +280,25 @@ const WorkoutAssignmentModal: React.FC<WorkoutAssignmentModalProps> = ({
   )
 
   const renderReviewStep = () => {
+    const parseDateLocal = (dateStr: string) => {
+      const [y, m, d] = dateStr.split('-').map(Number)
+      return new Date(y, (m || 1) - 1, d || 1)
+    }
+
     const getScheduleDescription = () => {
       if (scheduleType === 'immediate') {
         return 'Available immediately'
       }
       if (scheduleType === 'once') {
-        const date = new Date(selectedDate)
+        const date = parseDateLocal(selectedDate)
         return `Scheduled for ${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}`
       }
       if (scheduleType === 'weekly') {
         const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
         const days = selectedDays.map(d => dayNames[d]).join(', ')
-        return `Every ${days} starting ${new Date(startDate).toLocaleDateString()}${endDate ? ` until ${new Date(endDate).toLocaleDateString()}` : ''}`
+        const start = parseDateLocal(startDate)
+        const end = endDate ? parseDateLocal(endDate) : null
+        return `Every ${days} starting ${start.toLocaleDateString()}${end ? ` until ${end.toLocaleDateString()}` : ''}`
       }
       return ''
     }

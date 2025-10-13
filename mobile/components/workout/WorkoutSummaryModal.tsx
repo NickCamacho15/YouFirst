@@ -21,6 +21,8 @@ import {
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import type { WorkoutSession } from "../../lib/workout-session"
+import { supabase } from "../../lib/supabase"
+import { useEffect, useState } from "react"
 
 interface WorkoutSummaryModalProps {
   visible: boolean
@@ -33,6 +35,36 @@ export default function WorkoutSummaryModal({
   session,
   onClose,
 }: WorkoutSummaryModalProps) {
+  const [setsCompleted, setSetsCompleted] = useState<number>(0)
+  const [exercisesCompleted, setExercisesCompleted] = useState<number>(session?.exercises_completed || 0)
+
+  useEffect(() => {
+    if (!session || !visible) return
+    // Recompute exercises and sets from logs when the modal opens or session changes
+    ;(async () => {
+      try {
+        const { data: exRows } = await supabase
+          .from("session_exercises")
+          .select("id, completed_at")
+          .eq("session_id", session.id)
+        const completedEx = (exRows || []).filter((e: any) => e.completed_at).length
+        setExercisesCompleted(completedEx)
+
+        const exIds = (exRows || []).map((e: any) => e.id)
+        if (exIds.length > 0) {
+          const { data: setRows } = await supabase
+            .from("set_logs")
+            .select("completed_at")
+            .in("session_exercise_id", exIds)
+          const completedSets = (setRows || []).filter((s: any) => s.completed_at).length
+          setSetsCompleted(completedSets)
+        } else {
+          setSetsCompleted(0)
+        }
+      } catch {}
+    })()
+  }, [session?.id, visible])
+
   if (!session) return null
 
   const formatDuration = (seconds: number | null): string => {
@@ -90,17 +122,15 @@ export default function WorkoutSummaryModal({
             {/* Exercises */}
             <View style={styles.statCard}>
               <Ionicons name="fitness-outline" size={32} color="#10B981" />
-              <Text style={styles.statValue}>{session.exercises_completed}</Text>
+              <Text style={styles.statValue}>{exercisesCompleted}</Text>
               <Text style={styles.statLabel}>Exercises</Text>
             </View>
 
-            {/* Volume */}
+            {/* Sets Completed (replaces volume) */}
             <View style={styles.statCard}>
-              <Ionicons name="barbell-outline" size={32} color="#F59E0B" />
-              <Text style={styles.statValue}>
-                {formatVolume(session.total_volume)}
-              </Text>
-              <Text style={styles.statLabel}>Total lbs</Text>
+              <Ionicons name="checkmark-done-outline" size={32} color="#F59E0B" />
+              <Text style={styles.statValue}>{setsCompleted}</Text>
+              <Text style={styles.statLabel}>Sets Completed</Text>
             </View>
           </View>
 
@@ -217,7 +247,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     padding: 20,
-    paddingBottom: 34,
+    paddingBottom: 48,
     backgroundColor: "#fff",
     borderTopWidth: 1,
     borderTopColor: "#e0e0e0",

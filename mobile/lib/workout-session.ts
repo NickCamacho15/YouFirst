@@ -128,20 +128,31 @@ export async function startWorkoutSession(planId: string): Promise<{
 
   // Create session exercises
   console.log("[startWorkoutSession] Creating", template.exercises.length, "session exercises")
-  const sessionExercises = template.exercises.map((ex: any, index: number) => ({
+  const sessionExercises = template.exercises.map((ex: any, index: number) => {
+    // Determine the number of sets: prefer explicit sets; fallback to per-set details length
+    const parsedSets = parseInt(ex.sets)
+    let setsCount = Number.isFinite(parsedSets) && parsedSets > 0
+      ? parsedSets
+      : (Array.isArray(ex.set_details) ? ex.set_details.length : 0)
+    if (!setsCount || setsCount <= 0) {
+      setsCount = 5 // sensible default so the user can log sets
+    }
+
+    return {
     session_id: session.id,
     plan_exercise_id: ex.id,
     name: ex.name,
     type: ex.type,
     order_index: index + 1,
-    target_sets: parseInt(ex.sets) || 0,
+    target_sets: setsCount,
     target_reps: ex.reps ? parseInt(ex.reps) : null,
     target_weight: ex.weight ? parseFloat(ex.weight) : null,
     target_rest_seconds: parseInt(ex.rest) || 0,
     target_time_seconds: ex.time ? parseInt(ex.time) : null,
     target_distance_m: ex.distance ? parseInt(ex.distance) : null,
     // Note: set_details is stored in plan_exercises, not session_exercises
-  }))
+    }
+  })
 
   const { data: sessionExercisesData, error: exercisesError } = await supabase
     .from("session_exercises")
@@ -161,8 +172,10 @@ export async function startWorkoutSession(planId: string): Promise<{
     const planExercise = template.exercises[i]
     const setLogs = []
     const setDetails = planExercise.set_details || []
-    
-    for (let j = 0; j < exercise.target_sets; j++) {
+
+    const totalSets = exercise.target_sets || setDetails.length || 5
+
+    for (let j = 0; j < totalSets; j++) {
       const setDetail = setDetails[j]
       setLogs.push({
         session_exercise_id: exercise.id,
@@ -173,7 +186,18 @@ export async function startWorkoutSession(planId: string): Promise<{
       })
     }
 
-    await supabase.from("set_logs").insert(setLogs)
+    if (setLogs.length > 0) {
+      const { error: setLogsError } = await supabase.from("set_logs").insert(setLogs)
+      if (setLogsError) {
+        console.error('[startWorkoutSession] Failed creating set logs for exercise', exercise.id, setLogsError)
+        throw new Error("Failed to create set logs")
+      }
+    } else {
+      console.warn('[startWorkoutSession] No set logs generated for exercise', exercise.id, {
+        target_sets: exercise.target_sets,
+        set_details_len: setDetails.length,
+      })
+    }
   }
   
   console.log("[startWorkoutSession] Workout session created successfully!")
@@ -219,6 +243,10 @@ export async function getActiveSession(): Promise<{
     .order("set_index", { ascending: true })
 
   if (setLogsError) throw setLogsError
+
+  try {
+    console.log('[getActiveSession] session', session?.id, 'exercises', exercises?.length || 0, 'setLogs', setLogs?.length || 0)
+  } catch {}
 
   return { session, exercises: exercises || [], setLogs: setLogs || [] }
 }

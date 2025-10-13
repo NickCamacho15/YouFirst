@@ -5,6 +5,9 @@ import Constants from 'expo-constants'
 
 const extra: any = (Constants as any).expoConfig?.extra || (Constants as any).manifest2?.extra || {}
 
+// Shared key for Remember Me preference across the app
+export const REMEMBER_ME_KEY = 'youfirst_remember_me_v1'
+
 const SUPABASE_URL = extra.expoPublicSupabaseUrl
 const SUPABASE_ANON_KEY = extra.expoPublicSupabaseAnonKey
 

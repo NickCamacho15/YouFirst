@@ -19,11 +19,11 @@ import DailyRoutines from "./components/DailyRoutines"
 import PersonalMasteryDashboard from "./components/PersonalMasteryDashboard"
 import TopHeader from "./components/TopHeader"
 import { UserProvider } from "./lib/user-context"
-import { supabase } from "./lib/supabase"
+import { supabase, REMEMBER_ME_KEY } from "./lib/supabase"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 import { getTodaySummary, getActivityGoals } from "./lib/dashboard"
 import { getWinsForMonth } from "./lib/wins"
 import { warmStartupCaches } from './lib/warm-start'
-import { biometricUnlock, isBiometricLoginEnabled, enableBiometricLock } from './lib/biometrics'
 // Removed duplicate notifications prefetch; TopHeader handles its own fetching/realtime
 
 const App: React.FC = () => {
@@ -50,28 +50,38 @@ const App: React.FC = () => {
 
   const [currentScreen, setCurrentScreen] = useState("home")
   const [bodyEpoch, setBodyEpoch] = useState(0)
-  const [locked, setLocked] = useState(false)
+  
 
   // Detect existing session on cold start and respond to auth events
   useEffect(() => {
     let mounted = true
     ;(async () => {
       try {
-        const { data } = await supabase.auth.getSession()
+        const [rememberFlag, sessionResp] = await Promise.all([
+          AsyncStorage.getItem(REMEMBER_ME_KEY),
+          supabase.auth.getSession(),
+        ])
+        const remember = rememberFlag !== '0' // default to true if not set
+        const { data } = sessionResp
         if (!mounted) return
         const hasSession = !!data.session
+        // If we have a session but user opted not to be remembered, sign out silently
+        if (hasSession && !remember) {
+          try { await supabase.auth.signOut() } catch {}
+          setIsAuthenticated(false)
+          setCurrentScreen("home")
+          setShowStartupOverlay(false)
+          return
+        }
         setIsAuthenticated(hasSession)
         if (hasSession) {
           // Start warming caches in background - don't block UI
           setTimeout(() => { try { warmStartupCaches({ timeoutMs: 1800 }) } catch {} }, 0)
-          // If user opted into biometrics, lock until user authenticates
-          const bioEnabled = await isBiometricLoginEnabled()
-          if (bioEnabled) setLocked(true)
         }
         if (mounted) setShowStartupOverlay(false)
       } catch {}
     })()
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event) => {
       if (event === "SIGNED_IN") { setIsAuthenticated(true); setShowStartupOverlay(false) }
       if (event === "SIGNED_OUT") {
         setIsAuthenticated(false)
@@ -93,23 +103,7 @@ const App: React.FC = () => {
     <UserProvider key={`provider-${appEpoch}`}>
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" />
-        {locked && (
-          <View style={styles.lockOverlay}>
-            <View style={styles.lockCard}>
-              <Text style={styles.lockTitle}>Unlock</Text>
-              <Text style={styles.lockSubtitle}>Use Face ID to continue</Text>
-              <TouchableOpacity style={styles.lockButton} onPress={async () => {
-                const ok = await biometricUnlock('Unlock You.')
-                if (ok) setLocked(false)
-              }}>
-                <Text style={styles.lockButtonText}>Unlock with Face ID</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.lockSecondary} onPress={() => setLocked(false)}>
-                <Text style={styles.lockSecondaryText}>Enter without biometrics</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
+        
         <TopHeader onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
         {/* Keep screens mounted to avoid refetch/re-render on tab return; toggle visibility instead */}
         <View style={{ flex: 1 }}>
@@ -136,6 +130,7 @@ const App: React.FC = () => {
           </View>
           <View style={currentScreen === "body" ? styles.visible : styles.hidden}>
             <BodyScreen 
+              key={`body-${bodyEpoch}`}
               onLogout={handleLogout} 
               onOpenProfile={() => setCurrentScreen("profile")} 
               activeEpoch={bodyEpoch}
@@ -147,14 +142,17 @@ const App: React.FC = () => {
           <View style={currentScreen === "profile" ? styles.visible : styles.hidden}>
             <ProfileScreen onLogout={handleLogout} />
           </View>
-          <View style={currentScreen === "ActiveWorkout" ? styles.visible : styles.hidden}>
-            <ActiveWorkoutScreen 
-              navigation={{
-                navigate: (screen: string) => setCurrentScreen(screen),
-                goBack: () => setCurrentScreen("body")
-              }}
-            />
-          </View>
+          {currentScreen === "ActiveWorkout" && (
+            <View style={styles.visible}>
+              <ActiveWorkoutScreen 
+                navigation={{
+                  navigate: (screen: string) => setCurrentScreen(screen),
+                  goBack: () => setCurrentScreen("body")
+                }}
+                onCompleted={() => setBodyEpoch((e) => e + 1)}
+              />
+            </View>
+          )}
         </View>
         <View style={styles.bottomNavContainer}>
           <View style={styles.bottomNavigation}>
@@ -301,60 +299,6 @@ const styles = StyleSheet.create({
   overlayLogo: {
     width: 96,
     height: 96,
-  },
-  lockOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-  },
-  lockCard: {
-    width: '86%',
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    alignItems: 'center',
-  },
-  lockTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#111',
-    marginBottom: 6,
-  },
-  lockSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 16,
-  },
-  lockButton: {
-    backgroundColor: '#111',
-    borderRadius: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    width: '100%',
-  },
-  lockButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  lockSecondary: {
-    marginTop: 12,
-  },
-  lockSecondaryText: {
-    color: '#666',
-    fontSize: 13,
-    textDecorationLine: 'underline',
   },
 })
 

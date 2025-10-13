@@ -195,6 +195,11 @@ export async function getAssignedWorkouts(userId?: string): Promise<AssignedWork
       user_id,
       assigned_by,
       created_at,
+      schedule_type,
+      scheduled_date,
+      recurrence_days,
+      start_date,
+      end_date,
       training_plans (
         id,
         name,
@@ -356,6 +361,50 @@ export async function getThisWeeksWorkouts(): Promise<Array<AssignedWorkout & { 
   weekWorkouts.sort((a, b) => a.displayDate.localeCompare(b.displayDate))
 
   return weekWorkouts
+}
+
+/**
+ * Get upcoming workouts for the next 7 days (rolling), excluding today
+ */
+export async function getUpcomingWorkouts(): Promise<Array<AssignedWorkout & { displayDate: string }>> {
+  const allWorkouts = await getAssignedWorkouts()
+
+  const today = new Date()
+  const startDate = new Date(today)
+  startDate.setDate(today.getDate() + 1) // start from tomorrow
+  startDate.setHours(0, 0, 0, 0)
+
+  const endDate = new Date(today)
+  endDate.setDate(today.getDate() + 7)
+  endDate.setHours(23, 59, 59, 999)
+
+  const upcoming: Array<AssignedWorkout & { displayDate: string }> = []
+
+  for (const workout of allWorkouts) {
+    if (workout.schedule_type === 'once' && workout.scheduled_date) {
+      const d = new Date(workout.scheduled_date)
+      if (d >= startDate && d <= endDate) {
+        upcoming.push({ ...workout, displayDate: workout.scheduled_date })
+      }
+      continue
+    }
+    if (workout.schedule_type === 'weekly' && workout.recurrence_days) {
+      // generate days for the next 7 days
+      for (let offset = 1; offset <= 7; offset++) {
+        const d = new Date(today)
+        d.setDate(today.getDate() + offset)
+        const dayOfWeek = d.getDay()
+        const dateStr = getLocalDateString(d)
+        if (!workout.recurrence_days.includes(dayOfWeek)) continue
+        if (workout.start_date && dateStr < workout.start_date) continue
+        if (workout.end_date && dateStr > workout.end_date) continue
+        upcoming.push({ ...workout, displayDate: dateStr })
+      }
+    }
+  }
+
+  upcoming.sort((a, b) => a.displayDate.localeCompare(b.displayDate))
+  return upcoming
 }
 
 /**

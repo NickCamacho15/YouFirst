@@ -9,7 +9,7 @@
  * - Visual feedback for completed sets
  */
 
-import React, { useState } from "react"
+import React, { useRef, useState } from "react"
 import {
   View,
   Text,
@@ -48,6 +48,9 @@ export default function SetLogRow({
   const [reps, setReps] = useState(
     setLog.actual_reps?.toString() || setLog.target_reps?.toString() || ""
   )
+
+  const repsInputRef = useRef<TextInput | null>(null)
+  const weightInputRef = useRef<TextInput | null>(null)
 
   const isCompleted = !!setLog.completed_at
   const isSkipped = setLog.skipped
@@ -90,30 +93,45 @@ export default function SetLogRow({
         {/* Set Number */}
         <Text style={styles.setNumber}>{setNumber}</Text>
 
-        {/* Previous */}
-        <Text style={styles.previous}>{formatPrevious()}</Text>
+        {/* Previous spacing dash only */}
+        <Text style={styles.previous}>—</Text>
 
         {/* Reps Input */}
         <TextInput
-          style={[styles.input, isCompleted && styles.inputCompleted]}
+          ref={repsInputRef}
+          style={[styles.input, styles.centerInput, isCompleted && styles.inputCompleted]}
           value={reps}
           onChangeText={setReps}
           keyboardType="number-pad"
           placeholder={setLog.target_reps?.toString() || "10"}
           placeholderTextColor="#999"
           editable={!isCompleted && !disabled}
+          onFocus={() => {
+            const val = reps || ""
+            requestAnimationFrame(() => {
+              // Select all text so typing replaces value; keeps caret at the front visually
+              ;(repsInputRef.current as any)?.setNativeProps?.({ selection: { start: 0, end: val.length } })
+            })
+          }}
         />
 
         {/* Weight Input (only for Lifting) */}
         {exerciseType === "Lifting" && (
           <TextInput
-            style={[styles.input, isCompleted && styles.inputCompleted]}
+            ref={weightInputRef}
+            style={[styles.input, styles.centerInput, isCompleted && styles.inputCompleted]}
             value={weight}
             onChangeText={setWeight}
             keyboardType="decimal-pad"
             placeholder={setLog.target_weight?.toString() || "135"}
             placeholderTextColor="#999"
             editable={!isCompleted && !disabled}
+            onFocus={() => {
+              const val = weight || ""
+              requestAnimationFrame(() => {
+                ;(weightInputRef.current as any)?.setNativeProps?.({ selection: { start: 0, end: val.length } })
+              })
+            }}
           />
         )}
 
@@ -168,8 +186,8 @@ const styles = StyleSheet.create({
   },
   previous: {
     flex: 1,
-    fontSize: 14,
-    color: "#666",
+    fontSize: 16,
+    color: "#999",
     textAlign: "center",
   },
   input: {
@@ -185,6 +203,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
     borderWidth: 1,
     borderColor: "#e0e0e0",
+  },
+  centerInput: {
+    textAlign: "center",
   },
   inputCompleted: {
     backgroundColor: "#fff",

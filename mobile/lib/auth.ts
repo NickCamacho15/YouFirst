@@ -22,6 +22,8 @@ export interface User {
   profileImageUrl?: string | null
   role?: 'admin' | 'user'
   groupId?: string | null
+  // ISO timestamp when the user account (row in public.users) was created
+  createdAt?: string
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label?: string): Promise<T> {
@@ -164,15 +166,17 @@ export async function login(payload: LoginPayload): Promise<User> {
   // Fetch canonical profile fields including role and group_id from public.users
   let role: 'admin' | 'user' | undefined
   let groupId: string | null | undefined
+  let profileRow: any | undefined
   try {
     const { data: profile } = await supabase
       .from("users")
-      .select("email, display_name, username, profile_image_url, role, group_id")
+      .select("email, display_name, username, profile_image_url, role, group_id, created_at")
       .eq("id", data.user.id)
       .maybeSingle()
     if (profile) {
       role = (profile.role as 'admin' | 'user' | null) || undefined
       groupId = (profile.group_id as string | null | undefined) ?? null
+      profileRow = profile
     }
   } catch {}
   const user: User = {
@@ -183,6 +187,8 @@ export async function login(payload: LoginPayload): Promise<User> {
     profileImageUrl: data.user.user_metadata?.profile_image_url || null,
     role,
     groupId: groupId ?? null,
+    // Prefer created_at from canonical users table when available
+    createdAt: profileRow?.created_at ? String(profileRow.created_at) : undefined,
   }
   // Update local username→email cache for faster next login
   await mapUsernameToEmailLocally(user.username, user.email)
@@ -243,7 +249,7 @@ export async function getCurrentUser(): Promise<User | null> {
   try {
     const { data: profile } = await supabase
       .from("users")
-      .select("email, display_name, username, profile_image_url, role, group_id")
+      .select("email, display_name, username, profile_image_url, role, group_id, created_at")
       .eq("id", authUser.id)
       .maybeSingle()
     return {
@@ -254,6 +260,7 @@ export async function getCurrentUser(): Promise<User | null> {
       profileImageUrl: profile?.profile_image_url ?? authUser.user_metadata?.profile_image_url ?? null,
       role: (profile?.role as 'admin' | 'user' | null) || undefined,
       groupId: (profile?.group_id as string | null | undefined) ?? null,
+      createdAt: (profile as any)?.created_at ? String((profile as any).created_at) : undefined,
     }
   } catch {
     return {
@@ -262,6 +269,8 @@ export async function getCurrentUser(): Promise<User | null> {
       displayName: authUser.user_metadata?.display_name || "",
       username: authUser.user_metadata?.username || undefined,
       profileImageUrl: authUser.user_metadata?.profile_image_url || null,
+      // If the public.users lookup failed, we can still fall back to auth's created_at (if present)
+      createdAt: (authUser as any)?.created_at ? String((authUser as any).created_at) : undefined,
     }
   }
 }

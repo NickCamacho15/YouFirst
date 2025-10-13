@@ -101,7 +101,6 @@ export default function EnhancedWorkoutBuilderModal({
           )
         `)
         .eq("id", templateId)
-        .order("exercises.position", { ascending: true })
         .single()
 
       if (error) throw error
@@ -111,19 +110,21 @@ export default function EnhancedWorkoutBuilderModal({
         setDescription(data.description || "")
         
         // Transform exercises data with proper types
-        const transformedExercises = (data.exercises || []).map((ex: any) => ({
-          ...ex,
-          sets: parseInt(ex.sets) || 0,
-          reps: ex.reps ? parseInt(ex.reps) : null,
-          weight: ex.weight ? parseFloat(ex.weight) : null,
-          rest_seconds: parseInt(ex.rest) || 0,
-          time_seconds: ex.time ? parseInt(ex.time) : null,
-          distance_m: ex.distance ? parseInt(ex.distance) : null,
-          pace_sec_per_km: ex.pace ? parseInt(ex.pace) : null,
-          time_cap_seconds: ex.time_cap ? parseInt(ex.time_cap) : null,
-          target_score: ex.target || null,
-          set_details: ex.set_details || null, // Keep as-is (already JSONB)
-        }))
+        const transformedExercises = (data.exercises || [])
+          .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+          .map((ex: any) => ({
+            ...ex,
+            sets: parseInt(ex.sets) || 0,
+            reps: ex.reps ? parseInt(ex.reps) : null,
+            weight: ex.weight ? parseFloat(ex.weight) : null,
+            rest_seconds: parseInt(ex.rest) || 0,
+            time_seconds: ex.time ? parseInt(ex.time) : null,
+            distance_m: ex.distance ? parseInt(ex.distance) : null,
+            pace_sec_per_km: ex.pace ? parseInt(ex.pace) : null,
+            time_cap_seconds: ex.time_cap ? parseInt(ex.time_cap) : null,
+            target_score: ex.target || null,
+            set_details: ex.set_details || null, // Keep as-is (already JSONB)
+          }))
         
         setExercises(transformedExercises)
       }

@@ -23,6 +23,7 @@ import { Ionicons } from "@expo/vector-icons"
 import SetLogRow from "../components/workout/SetLogRow"
 import RestTimer from "../components/workout/RestTimer"
 import WorkoutSummaryModal from "../components/workout/WorkoutSummaryModal"
+import { supabase } from "../lib/supabase"
 import {
   getActiveSession,
   logSet,
@@ -39,9 +40,10 @@ import {
 
 interface ActiveWorkoutScreenProps {
   navigation: any
+  onCompleted?: () => void
 }
 
-export default function ActiveWorkoutScreen({ navigation }: ActiveWorkoutScreenProps) {
+export default function ActiveWorkoutScreen({ navigation, onCompleted }: ActiveWorkoutScreenProps) {
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<WorkoutSession | null>(null)
   const [exercises, setExercises] = useState<SessionExercise[]>([])
@@ -89,6 +91,69 @@ export default function ActiveWorkoutScreen({ navigation }: ActiveWorkoutScreenP
       setExercises(data.exercises)
       setSetLogs(data.setLogs)
 
+      // Ensure set logs exist for each exercise (for legacy sessions that were created without set_logs
+      // or where target_sets was not populated on session_exercises)
+      try {
+        // Determine sets needed per exercise
+        const exercisesNeedingSetsInfo = data.exercises.filter(ex => (ex.target_sets || 0) <= 0 && !!ex.plan_exercise_id)
+        let planSetMap: Record<string, number> = {}
+        if (exercisesNeedingSetsInfo.length > 0) {
+          const { data: planRows } = await supabase
+            .from("plan_exercises")
+            .select("id, sets, set_details")
+            .in("id", exercisesNeedingSetsInfo.map(ex => ex.plan_exercise_id as string))
+          ;(planRows || []).forEach((r: any) => {
+            const parsed = parseInt(r.sets)
+            const len = Array.isArray(r.set_details) ? r.set_details.length : 0
+            planSetMap[r.id] = (Number.isFinite(parsed) && parsed > 0) ? parsed : (len > 0 ? len : 5) // sensible default
+          })
+          // Persist fixed target_sets back to session_exercises
+          const updates = exercisesNeedingSetsInfo
+            .filter(ex => planSetMap[ex.plan_exercise_id!])
+            .map(ex => ({ id: ex.id, target_sets: planSetMap[ex.plan_exercise_id!] }))
+          if (updates.length) {
+            await supabase.from("session_exercises").upsert(updates, { onConflict: "id" })
+            // reflect in local state
+            setExercises(prev => prev.map(ex => {
+              const updated = (updates as any[]).find(u => u.id === ex.id)
+              return updated ? { ...ex, target_sets: updated.target_sets } : ex
+            }))
+          }
+        }
+
+        const missingPayload: any[] = []
+        for (const ex of (data.exercises || [])) {
+          const countForEx = data.setLogs.filter(l => l.session_exercise_id === ex.id).length
+          const setsNeeded = (ex.target_sets && ex.target_sets > 0)
+            ? ex.target_sets
+            : (ex.plan_exercise_id && planSetMap[ex.plan_exercise_id]) || 0
+          if (countForEx === 0 && setsNeeded > 0) {
+            for (let j = 0; j < setsNeeded; j++) {
+              missingPayload.push({
+                session_exercise_id: ex.id,
+                set_index: j + 1,
+                target_reps: ex.target_reps,
+                target_weight: ex.target_weight,
+                skipped: false,
+              })
+            }
+          }
+        }
+        if (missingPayload.length > 0) {
+          const { error } = await supabase.from("set_logs").insert(missingPayload)
+          if (!error) {
+            const { data: refreshed } = await supabase
+              .from("set_logs")
+              .select("*")
+              .in("session_exercise_id", data.exercises.map(e => e.id))
+              .order("set_index", { ascending: true })
+            setSetLogs(refreshed || [])
+          }
+        }
+      } catch (e) {
+        console.warn('[ActiveWorkout] ensure set logs failed', e)
+      }
+
       // Load previous data for all exercises
       const prevDataMap: Record<string, SetLog[]> = {}
       for (const ex of data.exercises) {
@@ -113,13 +178,16 @@ export default function ActiveWorkoutScreen({ navigation }: ActiveWorkoutScreenP
     }
   }
 
-  const currentExercise = exercises[currentExerciseIndex]
-  const currentSets = currentExercise 
-    ? setLogs.filter(log => log.session_exercise_id === currentExercise.id)
-    : []
+  // Build quick lookup for sets by exercise
+  const setsByExerciseId: Record<string, SetLog[]> = {}
+  for (const log of setLogs) {
+    if (!setsByExerciseId[log.session_exercise_id]) setsByExerciseId[log.session_exercise_id] = []
+    setsByExerciseId[log.session_exercise_id].push(log)
+  }
 
-  const completedSetsCount = currentSets.filter(log => log.completed_at).length
-  const previousSets = currentExercise && previousData[currentExercise.id]
+  // Derive the currently active exercise for convenience
+  const currentExercise: SessionExercise | null =
+    exercises && exercises.length > 0 ? (exercises[currentExerciseIndex] || null) : null
 
   const handleSetComplete = async (setLog: SetLog, actualReps: number, actualWeight: number | null) => {
     try {
@@ -132,11 +200,31 @@ export default function ActiveWorkoutScreen({ navigation }: ActiveWorkoutScreenP
           : log
       ))
 
-      // Show rest timer if not last set
-      const setIndex = currentSets.findIndex(s => s.id === setLog.id)
-      if (setIndex < currentSets.length - 1 && currentExercise.target_rest_seconds > 0) {
-        setRestDuration(currentExercise.target_rest_seconds)
-        setShowRestTimer(true)
+      // Determine exercise for this set
+      const exerciseForSet = exercises.find(ex => ex.id === setLog.session_exercise_id)
+      if (exerciseForSet) {
+        // If exercise not started, start it
+        if (!exerciseForSet.started_at) {
+          await startExercise(exerciseForSet.id)
+          setExercises(prev => prev.map(ex => ex.id === exerciseForSet.id ? { ...ex, started_at: new Date().toISOString() } : ex))
+        }
+
+        // Rest timer if not last set for that exercise
+        const logsForExercise = (setsByExerciseId[exerciseForSet.id] || []).slice()
+        const setIndex = logsForExercise.findIndex(s => s.id === setLog.id)
+        // Show rest timer between sets; user can skip, complete, or extend
+        if (setIndex < (logsForExercise.length - 1) && exerciseForSet.target_rest_seconds > 0) {
+          setRestDuration(exerciseForSet.target_rest_seconds)
+          setShowRestTimer(true)
+        }
+
+        // Auto-complete exercise when all sets done
+        const updatedLogs = (setLogs.filter(l => l.session_exercise_id === exerciseForSet.id).map(l => l.id === setLog.id ? { ...l, completed_at: new Date().toISOString() } as any : l))
+        const allDone = updatedLogs.every(l => l.completed_at)
+        if (allDone && !exerciseForSet.completed_at) {
+          await completeExercise(exerciseForSet.id)
+          setExercises(prev => prev.map(ex => ex.id === exerciseForSet.id ? { ...ex, completed_at: new Date().toISOString() } : ex))
+        }
       }
     } catch (error: any) {
       console.error("Failed to log set:", error)
@@ -199,13 +287,20 @@ export default function ActiveWorkoutScreen({ navigation }: ActiveWorkoutScreenP
     try {
       await completeSession(session.id)
       
-      // Reload session to get updated stats
-      const updated = await getActiveSession()
-      if (updated) {
-        setSession(updated.session)
-      }
+      // Load the just-completed session to get final totals/duration
+      try {
+        const { data } = await supabase
+          .from("workout_sessions")
+          .select("*")
+          .eq("id", session.id)
+          .single()
+        if (data) {
+          setSession(data as any)
+        }
+      } catch {}
       
       setShowSummary(true)
+      try { onCompleted?.() } catch {}
     } catch (error: any) {
       console.error("Failed to complete workout:", error)
       Alert.alert("Error", "Failed to complete workout")
@@ -243,7 +338,10 @@ export default function ActiveWorkoutScreen({ navigation }: ActiveWorkoutScreenP
     return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
-  const allSetsCompleted = currentSets.every(log => log.completed_at)
+  const allSetsCompleted = exercises.length > 0 && exercises.every(ex => {
+    const logs = setsByExerciseId[ex.id] || []
+    return logs.length > 0 && logs.every(l => l.completed_at)
+  })
 
   if (loading) {
     return (
@@ -254,7 +352,7 @@ export default function ActiveWorkoutScreen({ navigation }: ActiveWorkoutScreenP
     )
   }
 
-  if (!currentExercise) {
+  if (!exercises || exercises.length === 0) {
     return (
       <View style={styles.errorContainer}>
         <Ionicons name="alert-circle-outline" size={64} color="#EF4444" />
@@ -280,62 +378,58 @@ export default function ActiveWorkoutScreen({ navigation }: ActiveWorkoutScreenP
       </View>
 
       <ScrollView style={styles.content}>
-        {/* Exercise Info */}
-        <View style={styles.exerciseHeader}>
-          <View style={styles.exerciseIcon}>
-            <Ionicons name="barbell" size={32} color="#4A90E2" />
-          </View>
-          <View style={styles.exerciseInfo}>
-            <Text style={styles.exerciseName}>{currentExercise.name}</Text>
-            <Text style={styles.exerciseType}>{currentExercise.type}</Text>
-          </View>
-        </View>
+        {exercises.map((ex, exIndex) => {
+          const exSets = (setsByExerciseId[ex.id] || [])
+          const completed = exSets.filter(s => s.completed_at).length
+          const prev = previousData[ex.id]
+          return (
+            <View key={ex.id} style={styles.exerciseCard}>
+              <View style={styles.exerciseHeader}>
+                <View style={styles.exerciseIcon}>
+                  <Ionicons name="barbell" size={32} color="#4A90E2" />
+                </View>
+                <View style={styles.exerciseInfo}>
+                  <Text style={styles.exerciseName}>{ex.name}</Text>
+                  <Text style={styles.exerciseType}>Exercise {exIndex + 1} of {exercises.length} • {ex.type}</Text>
+                </View>
+              </View>
 
-        {/* Progress */}
-        <View style={styles.progressBar}>
-          <View 
-            style={[
-              styles.progressFill, 
-              { width: `${(completedSetsCount / currentSets.length) * 100}%` }
-            ]} 
-          />
-        </View>
-        <Text style={styles.progressText}>
-          {completedSetsCount} of {currentSets.length} sets completed
-        </Text>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: `${exSets.length ? (completed / exSets.length) * 100 : 0}%` }]} />
+              </View>
+              <Text style={styles.progressText}>{completed} of {exSets.length} sets completed</Text>
 
-        {/* Set Header */}
-        <View style={styles.setHeader}>
-          <Text style={styles.setHeaderText}>Set</Text>
-          <Text style={styles.setHeaderText}>Previous</Text>
-          <Text style={styles.setHeaderText}>Reps</Text>
-          {currentExercise.type === "Lifting" && (
-            <Text style={styles.setHeaderText}>lbs</Text>
-          )}
-          <View style={{ width: 40 }} />
-        </View>
+              <View style={styles.setHeader}>
+                <View style={styles.colSet}><Text style={styles.setHeaderLabel}>Set</Text></View>
+                {/* Keep column spacing but hide label */}
+                <View style={styles.colFlex}><Text style={styles.setHeaderLabel} /></View>
+                <View style={styles.colFlex}><Text style={styles.setHeaderLabel}>Reps</Text></View>
+                {ex.type === "Lifting" && (
+                  <View style={styles.colFlex}><Text style={styles.setHeaderLabel}>lbs</Text></View>
+                )}
+                <View style={styles.colCheck} />
+              </View>
 
-        {/* Sets List */}
-        {currentSets.map((setLog, index) => (
-          <SetLogRow
-            key={setLog.id}
-            setLog={setLog}
-            setNumber={index + 1}
-            previousWeight={previousSets?.[index]?.actual_weight}
-            previousReps={previousSets?.[index]?.actual_reps}
-            exerciseType={currentExercise.type}
-            onComplete={(reps, weight) => handleSetComplete(setLog, reps, weight)}
-            onSkip={() => handleSetSkip(setLog)}
-          />
-        ))}
+              {exSets.map((setLog, index) => (
+                <SetLogRow
+                  key={setLog.id}
+                  setLog={setLog}
+                  setNumber={index + 1}
+                  previousWeight={prev?.[index]?.actual_weight}
+                  previousReps={prev?.[index]?.actual_reps}
+                  exerciseType={ex.type}
+                  onComplete={(reps, weight) => handleSetComplete(setLog, reps, weight)}
+                  onSkip={() => handleSetSkip(setLog)}
+                />
+              ))}
+            </View>
+          )
+        })}
 
-        {/* Instructions */}
         {!allSetsCompleted && (
           <View style={styles.instructions}>
             <Ionicons name="information-circle-outline" size={20} color="#4A90E2" />
-            <Text style={styles.instructionsText}>
-              Tap the checkbox after completing each set
-            </Text>
+            <Text style={styles.instructionsText}>Tap the checkbox after completing each set</Text>
           </View>
         )}
       </ScrollView>
@@ -343,19 +437,12 @@ export default function ActiveWorkoutScreen({ navigation }: ActiveWorkoutScreenP
       {/* Footer Actions */}
       <View style={styles.footer}>
         {allSetsCompleted ? (
-          <TouchableOpacity
-            style={styles.nextButton}
-            onPress={handleNextExercise}
-          >
-            <Text style={styles.nextButtonText}>
-              {currentExerciseIndex < exercises.length - 1 ? "Next Exercise" : "Finish Workout"}
-            </Text>
-            <Ionicons name="arrow-forward" size={20} color="#fff" />
+          <TouchableOpacity style={styles.nextButton} onPress={finishWorkout}>
+            <Text style={styles.nextButtonText}>Finish Workout</Text>
+            <Ionicons name="checkmark" size={20} color="#fff" />
           </TouchableOpacity>
         ) : (
-          <Text style={styles.footerHint}>
-            Complete all sets to continue
-          </Text>
+          <Text style={styles.footerHint}>Complete all sets to finish</Text>
         )}
       </View>
 
@@ -365,7 +452,7 @@ export default function ActiveWorkoutScreen({ navigation }: ActiveWorkoutScreenP
         duration={restDuration}
         onComplete={() => setShowRestTimer(false)}
         onSkip={() => setShowRestTimer(false)}
-        onExtend={(secs) => setRestDuration(prev => prev + secs)}
+        onExtend={() => { /* RestTimer manages its own extension to avoid reset */ }}
       />
 
       {/* Workout Summary */}
@@ -439,6 +526,17 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
   },
+  exerciseCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
   exerciseHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -500,8 +598,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 12,
   },
-  setHeaderText: {
-    flex: 1,
+  colSet: { width: 40, alignItems: "center" },
+  colFlex: { flex: 1, alignItems: "center" },
+  colCheck: { width: 52 },
+  setHeaderLabel: {
     fontSize: 13,
     fontWeight: "600",
     color: "#666",
