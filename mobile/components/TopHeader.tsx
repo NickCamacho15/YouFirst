@@ -1,8 +1,7 @@
 import type React from "react"
 import { useEffect, useState } from "react"
-import { View, Text, StyleSheet, TouchableOpacity, Pressable, FlatList, Image } from "react-native"
-import { Bell, User, LogOut } from "lucide-react-native"
-import { getUnreadCountForPastWeek, listNotifications, markAllRead, subscribeNotifications, ensureNotificationsRealtime } from "../lib/notifications"
+import { View, Text, StyleSheet, TouchableOpacity, Pressable, Image } from "react-native"
+import { User, LogOut } from "lucide-react-native"
 import { logout as supabaseLogout } from "../lib/auth"
 import { forceClearAuthStorage } from "../lib/supabase"
 import { useUser } from "../lib/user-context"
@@ -12,37 +11,9 @@ interface TopHeaderProps { showShadow?: boolean; onLogout?: () => void; onOpenPr
 const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout, onOpenProfile }) => {
   const [menuOpen, setMenuOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
-  const [unread, setUnread] = useState(0)
-  const [notifOpen, setNotifOpen] = useState(false)
-  const [items, setItems] = useState<any[]>([])
   const { user, refresh } = useUser()
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null)
   const [profileInitial, setProfileInitial] = useState<string>('')
-
-  useEffect(() => {
-    let mounted = true
-    ensureNotificationsRealtime()
-    const refresh = async () => {
-      try {
-        const [c, list] = await Promise.all([
-          getUnreadCountForPastWeek(),
-          listNotifications(10),
-        ])
-        if (!mounted) return
-        setUnread(c)
-        setItems(list)
-      } catch {}
-    }
-    const refreshUser = async () => {
-      try {
-        await refresh()
-      } catch {}
-    }
-    refresh()
-    refreshUser()
-    const unsub = subscribeNotifications(() => { refresh() })
-    return () => { mounted = false; if (unsub) unsub() }
-  }, [])
 
   const handleLogout = async () => {
     if (loggingOut) return
@@ -68,7 +39,9 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout, onO
 
   useEffect(() => {
     const url = user?.profileImageUrl || null
+    console.log('[TopHeader] Profile image URL updated:', url)
     setProfileImageUrl(url)
+    
     const init = (user?.username || user?.email || 'U').slice(0,1).toUpperCase()
     setProfileInitial(init)
   }, [user])
@@ -80,22 +53,21 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout, onO
       </View>
 
       <View style={styles.right}>
-        <TouchableOpacity style={styles.iconButton} hitSlop={8} onPress={()=> setNotifOpen(v=>!v)} onLongPress={async ()=> { await markAllRead(); setUnread(0); setNotifOpen(false) }}>
-          <View>
-            <Bell color="#111" width={22} height={22} />
-            {unread > 0 && (
-              <View style={styles.badge}><Text style={styles.badgeText}>{unread > 9 ? '9+' : String(unread)}</Text></View>
-            )}
-          </View>
-        </TouchableOpacity>
-
         <TouchableOpacity
           style={styles.profileButton}
           onPress={async () => { setMenuOpen(v => !v); try { await refresh(); } catch {} }}
           activeOpacity={0.8}
         >
           {profileImageUrl ? (
-            <Image source={{ uri: profileImageUrl }} style={{ width: 32, height: 32, borderRadius: 16 }} onError={() => setProfileImageUrl(null)} />
+            <Image 
+              source={{ uri: profileImageUrl }} 
+              style={{ width: 32, height: 32, borderRadius: 16 }} 
+              onError={(error) => {
+                console.error('[TopHeader] Image load error:', error.nativeEvent)
+                setProfileImageUrl(null)
+              }}
+              onLoad={() => console.log('[TopHeader] Image loaded successfully')}
+            />
           ) : profileInitial ? (
             <Text style={styles.profileInitial}>{profileInitial}</Text>
           ) : (
@@ -104,30 +76,9 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout, onO
         </TouchableOpacity>
       </View>
 
-      {(menuOpen || notifOpen) && (
+      {menuOpen && (
         <>
-          <Pressable style={styles.backdrop} onPress={() => { setMenuOpen(false); setNotifOpen(false) }} />
-          {notifOpen ? (
-            <View style={[styles.menu, { width: 260 }]}> 
-              <Text style={[styles.menuText, { fontWeight: '800', marginBottom: 6 }]}>Notifications</Text>
-              <FlatList
-                data={items}
-                keyExtractor={(n)=> n.id}
-                ItemSeparatorComponent={() => <View style={styles.menuDivider} />}
-                style={{ maxHeight: 260 }}
-                renderItem={({item}) => (
-                  <View style={{ paddingVertical: 8, paddingHorizontal: 12 }}>
-                    <Text style={{ color: '#111', fontWeight: '700', marginBottom: 2 }}>{item.title}</Text>
-                    {!!item.body && <Text style={{ color: '#6b7280', fontSize: 12 }}>{item.body}</Text>}
-                    <Text style={{ color: '#9ca3af', fontSize: 11, marginTop: 4 }}>{new Date(item.created_at).toLocaleString()}</Text>
-                  </View>
-                )}
-              />
-              <TouchableOpacity style={{ paddingVertical: 10, paddingHorizontal: 12 }} onPress={async ()=> { await markAllRead(); setUnread(0); setItems([]); setNotifOpen(false) }}>
-                <Text style={{ color: '#2563EB', fontWeight: '700' }}>Mark all as read</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
+          <Pressable style={styles.backdrop} onPress={() => { setMenuOpen(false) }} />
           <View style={styles.menu}>
             <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuOpen(false); onOpenProfile && onOpenProfile() }}>
               <User color="#111" width={18} height={18} />
@@ -139,7 +90,6 @@ const TopHeader: React.FC<TopHeaderProps> = ({ showShadow = false, onLogout, onO
               <Text style={[styles.menuText, { color: "#ef4444" }]}>{loggingOut ? "Logging out…" : "Log Out"}</Text>
             </TouchableOpacity>
           </View>
-          )}
         </>
       )}
     </View>
@@ -171,7 +121,6 @@ const styles = StyleSheet.create({
     color: "#111",
   },
   right: { flexDirection: "row", alignItems: "center" },
-  iconButton: { padding: 6, marginRight: 8 },
   profileButton: {
     width: 32,
     height: 32,
@@ -210,19 +159,6 @@ const styles = StyleSheet.create({
   },
   menuText: { marginLeft: 8, color: "#111", fontSize: 14, fontWeight: "600" },
   menuDivider: { height: 1, backgroundColor: "#f0f0f0", marginVertical: 4 },
-  badge: {
-    position: "absolute",
-    right: -4,
-    top: -4,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: "#EF4444",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 2,
-  },
-  badgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
 })
 
 export default TopHeader

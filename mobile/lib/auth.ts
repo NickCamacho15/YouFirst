@@ -353,11 +353,15 @@ export async function updatePassword(newPassword: string): Promise<void> {
 // ---- Profile Image helpers ----
 
 export async function updateProfileImageUrl(pathInBucket: string | null): Promise<void> {
+  // Prefer a signed URL so avatars work regardless of bucket visibility.
+  // If signing fails for any reason, fall back to a public URL.
   let publicUrl: string | null = null
   if (pathInBucket) {
-    publicUrl = getPublicUrlFromStorage("avatars", pathInBucket)
+    try {
+      publicUrl = await getSignedUrlFromStorage("avatars", pathInBucket)
+    } catch {}
     if (!publicUrl) {
-      try { publicUrl = await getSignedUrlFromStorage("avatars", pathInBucket) } catch {}
+      publicUrl = getPublicUrlFromStorage("avatars", pathInBucket)
     }
   }
   try {
@@ -413,6 +417,15 @@ export async function uploadProfileImage(file: Blob | ArrayBuffer | Uint8Array, 
     20000,
     "Upload avatar"
   )
+  // Prefer returning a signed URL (works for both private/public buckets)
+  let signedOrPublicUrl: string | null = null
+  try {
+    signedOrPublicUrl = await getSignedUrlFromStorage("avatars", storagePath)
+  } catch {}
+  if (!signedOrPublicUrl) {
+    signedOrPublicUrl = publicUrl
+  }
+
   // Kick metadata updates but do not block caller if they are slow
   try {
     await updateProfileImageUrl(storagePath)
@@ -420,7 +433,7 @@ export async function uploadProfileImage(file: Blob | ArrayBuffer | Uint8Array, 
     // eslint-disable-next-line no-console
     console.warn("Non-fatal profile image metadata update error:", e?.message || String(e))
   }
-  return { publicUrl }
+  return { publicUrl: signedOrPublicUrl }
 }
 
 

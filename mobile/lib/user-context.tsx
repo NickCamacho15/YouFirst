@@ -99,8 +99,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const u = await apiCall(
         () => getCurrentUser(),
         {
-          timeoutMs: 15000, // 15 second timeout
-          maxRetries: 2,
+          timeoutMs: 25000, // 25 second timeout (increased for slower networks)
+          maxRetries: 1, // Reduced retries to fail faster
           timeoutMessage: 'Failed to fetch user data'
         }
       )
@@ -162,7 +162,28 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user,
     loading,
     refresh: doRefresh,
-    setUser: (u) => { setUser(u); if (u) { try { AsyncStorage.setItem(CACHE_KEY, JSON.stringify(u)) } catch {} } else { try { AsyncStorage.removeItem(CACHE_KEY) } catch {} } },
+    setUser: (updater) => {
+      if (typeof updater === 'function') {
+        // Handle functional update
+        setUser((prev) => {
+          const next = updater(prev)
+          if (next) {
+            try { AsyncStorage.setItem(CACHE_KEY, JSON.stringify(next)) } catch {}
+          } else {
+            try { AsyncStorage.removeItem(CACHE_KEY) } catch {}
+          }
+          return next
+        })
+      } else {
+        // Handle direct value
+        setUser(updater)
+        if (updater) {
+          try { AsyncStorage.setItem(CACHE_KEY, JSON.stringify(updater)) } catch {}
+        } else {
+          try { AsyncStorage.removeItem(CACHE_KEY) } catch {}
+        }
+      }
+    },
   }
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>

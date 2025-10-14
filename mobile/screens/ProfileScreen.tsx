@@ -3,14 +3,13 @@
 import React, { useEffect, useState } from "react"
 import { SafeAreaView, StatusBar, ScrollView, View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Image, KeyboardAvoidingView, Platform } from "react-native"
 import TopHeader from "../components/TopHeader"
-import { getCurrentUser, updateEmail, updatePassword, updateUsername, uploadProfileImage } from "../lib/auth"
-import { Image as RNImage } from "react-native"
+import { getCurrentUser, updateEmail, updatePassword, updateUsername } from "../lib/auth"
+import { uploadProfileImage } from "../lib/profile-image"
 import { useUser } from "../lib/user-context"
 import * as ImagePicker from 'expo-image-picker'
 import * as ImageManipulator from 'expo-image-manipulator'
 import * as FileSystem from 'expo-file-system'
 import AvatarPreviewModal from "../components/AvatarPreviewModal"
-import { apiCall } from "../lib/api-utils"
 
 interface ScreenProps { onBack?: () => void; onLogout?: () => void }
 
@@ -25,7 +24,7 @@ const ProfileScreen: React.FC<ScreenProps> = ({ onBack, onLogout }) => {
   const [previewUri, setPreviewUri] = useState<string | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
 
-  const { refresh } = useUser()
+  const { refresh, setUser } = useUser()
 
   useEffect(() => {
     ;(async () => {
@@ -34,7 +33,24 @@ const ProfileScreen: React.FC<ScreenProps> = ({ onBack, onLogout }) => {
         if (u) {
           setEmail(u.email || "")
           setUsername(u.username || "")
-          setProfileImageUrl(u.profileImageUrl || null)
+          // Validate profile image URL by checking if it loads
+          if (u.profileImageUrl) {
+            // Check if the URL returns a valid image (not 0 bytes)
+            fetch(u.profileImageUrl, { method: 'HEAD' })
+              .then(response => {
+                const contentLength = response.headers.get('content-length')
+                if (contentLength && parseInt(contentLength) > 0) {
+                  setProfileImageUrl(u.profileImageUrl || null)
+                } else {
+                  console.warn('[ProfileScreen] Profile image is empty, ignoring')
+                  setProfileImageUrl(null)
+                }
+              })
+              .catch(() => {
+                console.warn('[ProfileScreen] Failed to validate profile image')
+                setProfileImageUrl(null)
+              })
+          }
         }
       } finally {
         setLoading(false)
@@ -70,162 +86,149 @@ const ProfileScreen: React.FC<ScreenProps> = ({ onBack, onLogout }) => {
 
   const handlePickImage = async () => {
     try {
-      setUploading(true)
-      
       // Request permissions
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
       if (status !== 'granted') {
         Alert.alert('Permission needed', 'Please allow photo library access to upload a profile image.')
-        setUploading(false)
         return
       }
 
-      // Launch image picker with NO ASPECT RATIO (free-form selection)
-      const result = await ImagePicker.launchImageLibraryAsync({ 
-        mediaTypes: ['images'], 
-        allowsEditing: true, 
-        // Removed aspect ratio constraint to allow free-form cropping
-        quality: 0.9 
+      // Launch image picker with free-form editing
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.9
       })
 
-      if (result.canceled || !result.assets?.length) { 
-        setUploading(false)
-        return 
+      if (result.canceled || !result.assets?.length) {
+        return
       }
 
       const asset = result.assets[0]
-      const originalUri = asset.uri
-
-      // Show a circular preview before upload
-      setPreviewUri(originalUri)
+      
+      // Show circular preview modal before upload
+      setPreviewUri(asset.uri)
       setPreviewOpen(true)
-
-      // Defer actual upload until user confirms
-      setUploading(false)
-      return
-
-      // Wrap the entire upload process with timeout protection
-      await apiCall(
-        async () => {
-          // Normalize image: crop to square, resize and convert to JPEG
-          const manip = await ImageManipulator.manipulateAsync(
-            originalUri,
-            [
-              // Crop to square from center
-              { 
-                crop: { 
-                  originX: Math.max(0, (asset.width - Math.min(asset.width, asset.height)) / 2),
-                  originY: Math.max(0, (asset.height - Math.min(asset.width, asset.height)) / 2),
-                  width: Math.min(asset.width, asset.height),
-                  height: Math.min(asset.width, asset.height)
-                } 
-              },
-              // Resize to reasonable size
-              { resize: { width: 1024, height: 1024 } }
-            ],
-            { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG }
-          )
-
-          const uri = manip.uri
-          const fileName = (asset.fileName || uri.split('/').pop() || 'avatar').replace(/\.(heic|heif|png)$/i, '') + '.jpg'
-          const mime = 'image/jpeg'
-
-          // Read file with timeout protection
-          const response = await Promise.race([
-            fetch(uri),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Local file read timed out')), 10000)),
-          ]) as Response
-          
-          let blob = await response.blob()
-
-          // Fallback for iOS/iCloud assets that yield 0-byte blobs
-          if (!blob || (blob as any).size === 0) {
-            const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 })
-            const binary = atob(b64)
-            const len = binary.length
-            const bytes = new Uint8Array(len)
-            for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i)
-            blob = new Blob([bytes], { type: mime })
-          }
-
-          // Upload to storage (has its own timeout in auth.ts)
-          const { publicUrl } = await uploadProfileImage(blob as any, mime, fileName)
-          
-          if (publicUrl) {
-            try { await RNImage.prefetch(publicUrl) } catch {}
-            setProfileImageUrl(publicUrl)
-          }
-
-          // Refresh user context with timeout protection
-          await apiCall(
-            () => refresh(),
-            {
-              timeoutMs: 10000,
-              maxRetries: 1,
-              timeoutMessage: 'Failed to refresh user data'
-            }
-          )
-
-          return publicUrl
-        },
-        {
-          timeoutMs: 30000, // 30 second total timeout for entire upload process
-          maxRetries: 1,
-          timeoutMessage: 'Profile image upload timed out. Please check your connection and try again.'
-        }
-      )
-
-      Alert.alert('Success', 'Your profile picture has been updated!')
-    } catch (e: any) {
-      console.error('[ProfileScreen] Upload failed:', e)
-      Alert.alert('Upload Failed', e?.message || 'Failed to upload profile picture. Please try again.')
-    } finally {
-      setUploading(false)
+    } catch (error: any) {
+      console.error('[ProfileScreen] Image picker failed:', error)
+      Alert.alert('Error', 'Failed to open image picker. Please try again.')
     }
   }
 
   const confirmUpload = async () => {
-    if (!previewUri) { setPreviewOpen(false); return }
+    if (!previewUri) {
+      setPreviewOpen(false)
+      return
+    }
+
     setPreviewOpen(false)
     setUploading(true)
+
     try {
-      // We still center-crop to square and resize for storage efficiency
-      const { width, height } = await new Promise<{ width: number; height: number }>((resolve) => {
-        Image.getSize(previewUri!, (w, h) => resolve({ width: w, height: h }), () => resolve({ width: 1024, height: 1024 }))
+      console.log('[ProfileScreen] Starting image upload process')
+
+      // Step 1: Get image dimensions
+      const { width, height } = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+        Image.getSize(
+          previewUri!,
+          (w, h) => resolve({ width: w, height: h }),
+          (error) => {
+            console.error('[ProfileScreen] Failed to get image size:', error)
+            resolve({ width: 1024, height: 1024 }) // Fallback
+          }
+        )
       })
+
+      console.log('[ProfileScreen] Image dimensions:', { width, height })
+
+      // Step 2: Crop to square and resize
       const side = Math.min(width, height)
-      const manip = await ImageManipulator.manipulateAsync(
+      const manipResult = await ImageManipulator.manipulateAsync(
         previewUri,
         [
-          { crop: { originX: Math.max(0, (width - side) / 2), originY: Math.max(0, (height - side) / 2), width: side, height: side } },
-          { resize: { width: 1024, height: 1024 } },
+          {
+            crop: {
+              originX: Math.max(0, (width - side) / 2),
+              originY: Math.max(0, (height - side) / 2),
+              width: side,
+              height: side
+            }
+          },
+          { resize: { width: 1024, height: 1024 } }
         ],
-        { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG }
+        {
+          compress: 0.85,
+          format: ImageManipulator.SaveFormat.JPEG
+        }
       )
-      const uri = manip.uri
-      const fileName = (uri.split('/').pop() || 'avatar')
-      const mime = 'image/jpeg'
 
-      const response = await Promise.race([
-        fetch(uri),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Local file read timed out')), 10000)),
-      ]) as Response
-      let blob = await response.blob()
-      if (!blob || (blob as any).size === 0) {
-        const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 })
-        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
-        blob = new Blob([bytes], { type: mime })
+      console.log('[ProfileScreen] Image manipulated:', manipResult.uri)
+
+      // Step 3: Read file into blob
+      const fileName = manipResult.uri.split('/').pop() || 'avatar.jpg'
+      const contentType = 'image/jpeg'
+
+      // React Native: Use FormData with the file URI directly
+      console.log('[ProfileScreen] Reading file from:', manipResult.uri)
+      const fileInfo = await FileSystem.getInfoAsync(manipResult.uri)
+      console.log('[ProfileScreen] File info:', fileInfo)
+
+      if (!fileInfo.exists || fileInfo.size === 0) {
+        throw new Error('Image file is empty or does not exist')
       }
-      const { publicUrl } = await uploadProfileImage(blob as any, mime, fileName)
-      if (publicUrl) {
-        try { await RNImage.prefetch(publicUrl) } catch {}
-        setProfileImageUrl(publicUrl)
+
+      // Read as base64 and convert to ArrayBuffer (Supabase accepts ArrayBuffer)
+      const b64 = await FileSystem.readAsStringAsync(manipResult.uri, {
+        encoding: FileSystem.EncodingType.Base64
+      })
+      
+      console.log('[ProfileScreen] Base64 length:', b64.length)
+      
+      // Convert base64 to ArrayBuffer (not Uint8Array or Blob)
+      const binaryString = atob(b64)
+      const len = binaryString.length
+      const arrayBuffer = new ArrayBuffer(len)
+      const uint8Array = new Uint8Array(arrayBuffer)
+      for (let i = 0; i < len; i++) {
+        uint8Array[i] = binaryString.charCodeAt(i)
       }
-      try { await apiCall(() => refresh(), { timeoutMs: 10000, maxRetries: 1 }) } catch {}
+
+      console.log('[ProfileScreen] ArrayBuffer created, size:', arrayBuffer.byteLength)
+      
+      if (arrayBuffer.byteLength === 0) {
+        throw new Error('Created buffer is empty. Please try selecting a different image.')
+      }
+
+      // Step 4: Upload to Supabase (pass ArrayBuffer)
+      const displayUrl = await uploadProfileImage(arrayBuffer, contentType, fileName)
+
+      console.log('[ProfileScreen] Upload successful, URL:', displayUrl)
+
+      // Step 5: Update local UI state immediately
+      setProfileImageUrl(displayUrl)
+
+      // Step 6: Update global user context for header/nav
+      setUser((prev) => {
+        if (!prev) return prev
+        return { ...prev, profileImageUrl: displayUrl }
+      })
+
+      // Step 7: Show success immediately
       Alert.alert('Success', 'Your profile picture has been updated!')
-    } catch (e: any) {
-      console.error('[ProfileScreen] Upload failed:', e)
-      Alert.alert('Upload Failed', e?.message || 'Failed to upload profile picture. Please try again.')
+
+      // Step 8: Trigger a delayed background refresh to sync with database
+      // Wait 2 seconds to give database update time to complete
+      setTimeout(() => {
+        refresh().catch((error) => {
+          console.warn('[ProfileScreen] Background refresh failed (non-critical):', error)
+        })
+      }, 2000)
+    } catch (error: any) {
+      console.error('[ProfileScreen] Upload failed:', error)
+      Alert.alert(
+        'Upload Failed',
+        error?.message || 'Failed to upload profile picture. Please try again.'
+      )
     } finally {
       setUploading(false)
       setPreviewUri(null)
@@ -249,7 +252,11 @@ const ProfileScreen: React.FC<ScreenProps> = ({ onBack, onLogout }) => {
                   source={{ uri: profileImageUrl }}
                   style={{ width: 96, height: 96 }}
                   resizeMode="cover"
-                  onError={() => setProfileImageUrl(null)}
+                  onError={(error) => {
+                    console.error('[ProfileScreen] Image load error:', error.nativeEvent)
+                    setProfileImageUrl(null)
+                  }}
+                  onLoad={() => console.log('[ProfileScreen] Image loaded successfully')}
                 />
               ) : (
                 <Text style={styles.avatarInitial}>{(username || email || "U").slice(0,1).toUpperCase()}</Text>
