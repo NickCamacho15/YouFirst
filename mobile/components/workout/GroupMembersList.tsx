@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react'
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native'
+import React, { useEffect, useState, useRef } from 'react'
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, AppState } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { listGroupMembers, type GroupMember } from '../../lib/workout-assignments'
+import { apiCall } from '../../lib/api-utils'
 
 interface GroupMembersListProps {
   onMemberPress?: (member: GroupMember) => void
@@ -11,20 +12,44 @@ const GroupMembersList: React.FC<GroupMembersListProps> = ({ onMemberPress }) =>
   const [members, setMembers] = useState<GroupMember[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const appState = useRef(AppState.currentState)
 
   useEffect(() => {
     loadMembers()
+
+    // Refresh when app comes to foreground
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        console.log('[GroupMembersList] App came to foreground, refreshing...')
+        loadMembers()
+      }
+      appState.current = nextAppState
+    })
+
+    return () => {
+      subscription.remove()
+    }
   }, [])
 
   const loadMembers = async () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await listGroupMembers()
+      const data = await apiCall(
+        () => listGroupMembers(),
+        {
+          timeoutMs: 15000, // 15 second timeout
+          maxRetries: 2,
+          timeoutMessage: 'Failed to load members. Please check your connection and try again.'
+        }
+      )
       setMembers(data)
     } catch (err: any) {
       console.error('Failed to load group members:', err)
-      setError(err.message || 'Failed to load members')
+      setError(err.message || 'Failed to load members. Please try again.')
     } finally {
       setLoading(false)
     }

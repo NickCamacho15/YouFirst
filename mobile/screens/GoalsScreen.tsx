@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, Modal, Animated, Easing, LayoutChangeEvent } from "react-native"
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, Modal, Animated, Easing, LayoutChangeEvent, AppState, RefreshControl, Alert } from "react-native"
 import TopHeader from "../components/TopHeader"
 import { Ionicons } from "@expo/vector-icons"
 import { Target, Plus, Trophy, ChevronDown, ChevronUp, CheckCircle, Trash2, CalendarDays } from "lucide-react-native"
@@ -7,6 +7,7 @@ import GoalWizardModal from "../components/GoalWizardModal"
 import { createGoal, listGoals, GoalRecord, setGoalStepDone, listAchievements, AchievementRecord, completeGoal, deleteGoal, getCachedGoals, getCachedAchievements, createAchievement } from "../lib/goals"
 import { format } from "date-fns"
 import EditEntityModal from "../components/EditEntityModal"
+import { apiCall } from "../lib/api-utils"
 
 interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void }
 
@@ -14,11 +15,13 @@ const GoalsScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
   const [wizardOpen, setWizardOpen] = useState(false)
   const [goals, setGoals] = useState<GoalRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [achievements, setAchievements] = useState<AchievementRecord[]>([])
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [addAchOpen, setAddAchOpen] = useState(false)
   const [selectedAch, setSelectedAch] = useState<AchievementRecord | null>(null)
+  const appState = useRef(AppState.currentState)
 
   // Animated progress state
   const trackWidths = useRef<Record<string, number>>({})
@@ -28,27 +31,61 @@ const GoalsScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
     return progressAnims.current[id]
   }
 
+  const loadData = async (isRefresh: boolean = false) => {
+    if (isRefresh) {
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
+    try {
+      const [g, a] = await apiCall(
+        () => Promise.all([listGoals(), listAchievements()]),
+        {
+          timeoutMs: 15000,
+          maxRetries: 2,
+          timeoutMessage: 'Failed to load goals. Please check your connection and try again.'
+        }
+      )
+      setGoals(g)
+      setAchievements(a)
+    } catch (e: any) {
+      console.error("Failed to load goals/achievements", e)
+      Alert.alert('Error', e.message || 'Failed to load goals. Please try again.')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }
+
   useEffect(() => {
-    let mounted = true
     // Prime from cache first for instant paint
     const cachedGoals = getCachedGoals()
     const cachedAch = getCachedAchievements()
     if (cachedGoals) setGoals(cachedGoals)
     if (cachedAch) setAchievements(cachedAch)
-    ;(async () => {
-      try {
-        const [g, a] = await Promise.all([listGoals(), listAchievements()])
-        if (!mounted) return
-        setGoals(g)
-        setAchievements(a)
-      } catch (e) {
-        console.warn("Failed to load goals/achievements", e)
-      } finally {
-        if (mounted) setLoading(false)
+
+    loadData()
+
+    // Refresh when app comes to foreground
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        console.log('[GoalsScreen] App came to foreground, refreshing...')
+        loadData()
       }
-    })()
-    return () => { mounted = false }
+      appState.current = nextAppState
+    })
+
+    return () => {
+      subscription.remove()
+    }
   }, [])
+
+  const handleRefresh = () => {
+    loadData(true)
+  }
 
   // Animate widths when goals or measurements change
   useEffect(() => {
@@ -95,7 +132,18 @@ const GoalsScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
 
       {/* Header rendered persistently in App */}
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.scrollView} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#4A90E2"
+            colors={['#4A90E2']}
+          />
+        }
+      >
         {/* Active Goals Section */}
         <View style={styles.sectionHeader}>
           <View style={styles.sectionTitleContainer}>

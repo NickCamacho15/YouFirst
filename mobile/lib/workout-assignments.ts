@@ -111,21 +111,41 @@ export async function assignWorkoutToUser(
 
   if (error) throw new Error(error.message)
 
-  // If scheduling params provided, update the assignment
-  if (scheduleParams) {
+  // If no scheduleParams provided, check if the training_plan has a schedule and copy it
+  let effectiveScheduleParams = scheduleParams
+  if (!effectiveScheduleParams) {
+    const { data: planData, error: planError } = await supabase
+      .from("training_plans")
+      .select("schedule_type, scheduled_date, recurrence_days, start_date, end_date")
+      .eq("id", planId)
+      .single()
+    
+    if (!planError && planData && planData.schedule_type) {
+      effectiveScheduleParams = {
+        scheduleType: planData.schedule_type as ScheduleType,
+        scheduledDate: planData.scheduled_date || undefined,
+        recurrenceDays: planData.recurrence_days || undefined,
+        startDate: planData.start_date || undefined,
+        endDate: planData.end_date || undefined,
+      }
+    }
+  }
+
+  // If scheduling params provided or inherited from plan, update the assignment
+  if (effectiveScheduleParams) {
     const updateData: any = {
-      schedule_type: scheduleParams.scheduleType,
+      schedule_type: effectiveScheduleParams.scheduleType,
     }
 
-    if (scheduleParams.scheduleType === 'once' && scheduleParams.scheduledDate) {
-      updateData.scheduled_date = scheduleParams.scheduledDate
+    if (effectiveScheduleParams.scheduleType === 'once' && effectiveScheduleParams.scheduledDate) {
+      updateData.scheduled_date = effectiveScheduleParams.scheduledDate
     }
 
-    if (scheduleParams.scheduleType === 'weekly') {
-      updateData.recurrence_days = scheduleParams.recurrenceDays || []
-      updateData.start_date = scheduleParams.startDate || new Date().toISOString().split('T')[0]
-      if (scheduleParams.endDate) {
-        updateData.end_date = scheduleParams.endDate
+    if (effectiveScheduleParams.scheduleType === 'weekly') {
+      updateData.recurrence_days = effectiveScheduleParams.recurrenceDays || []
+      updateData.start_date = effectiveScheduleParams.startDate || new Date().toISOString().split('T')[0]
+      if (effectiveScheduleParams.endDate) {
+        updateData.end_date = effectiveScheduleParams.endDate
       }
     }
 
@@ -405,6 +425,54 @@ export async function getUpcomingWorkouts(): Promise<Array<AssignedWorkout & { d
 
   upcoming.sort((a, b) => a.displayDate.localeCompare(b.displayDate))
   return upcoming
+}
+
+/**
+ * Get past workouts for the last 14 days (excluding today)
+ */
+export async function getPastWorkouts(): Promise<Array<AssignedWorkout & { displayDate: string }>> {
+  const allWorkouts = await getAssignedWorkouts()
+
+  const today = new Date()
+  const todayStr = getLocalDateString(today)
+  
+  const startDate = new Date(today)
+  startDate.setDate(today.getDate() - 14)
+  startDate.setHours(0, 0, 0, 0)
+  const startDateStr = getLocalDateString(startDate)
+
+  const endDate = new Date(today)
+  endDate.setDate(today.getDate() - 1) // up to yesterday
+  endDate.setHours(23, 59, 59, 999)
+  const endDateStr = getLocalDateString(endDate)
+
+  const past: Array<AssignedWorkout & { displayDate: string }> = []
+
+  for (const workout of allWorkouts) {
+    if (workout.schedule_type === 'once' && workout.scheduled_date) {
+      if (workout.scheduled_date >= startDateStr && workout.scheduled_date <= endDateStr) {
+        past.push({ ...workout, displayDate: workout.scheduled_date })
+      }
+      continue
+    }
+    if (workout.schedule_type === 'weekly' && workout.recurrence_days) {
+      // Generate instances for each day in the past 14 days
+      for (let offset = 1; offset <= 14; offset++) {
+        const d = new Date(today)
+        d.setDate(today.getDate() - offset)
+        const dayOfWeek = d.getDay()
+        const dateStr = getLocalDateString(d)
+        if (!workout.recurrence_days.includes(dayOfWeek)) continue
+        if (workout.start_date && dateStr < workout.start_date) continue
+        if (workout.end_date && dateStr > workout.end_date) continue
+        past.push({ ...workout, displayDate: dateStr })
+      }
+    }
+  }
+
+  // Sort by date descending (most recent first)
+  past.sort((a, b) => b.displayDate.localeCompare(a.displayDate))
+  return past
 }
 
 /**

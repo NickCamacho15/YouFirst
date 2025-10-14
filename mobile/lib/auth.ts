@@ -1,4 +1,4 @@
-import { supabase, uploadToStorage, getPublicUrlFromStorage } from "./supabase"
+import { supabase, uploadToStorage, getPublicUrlFromStorage, getSignedUrlFromStorage } from "./supabase"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 
 export interface LoginPayload {
@@ -353,7 +353,13 @@ export async function updatePassword(newPassword: string): Promise<void> {
 // ---- Profile Image helpers ----
 
 export async function updateProfileImageUrl(pathInBucket: string | null): Promise<void> {
-  const publicUrl = pathInBucket ? getPublicUrlFromStorage("avatars", pathInBucket) : null
+  let publicUrl: string | null = null
+  if (pathInBucket) {
+    publicUrl = getPublicUrlFromStorage("avatars", pathInBucket)
+    if (!publicUrl) {
+      try { publicUrl = await getSignedUrlFromStorage("avatars", pathInBucket) } catch {}
+    }
+  }
   try {
     const { data: auth } = await supabase.auth.getUser()
     const uid = auth.user?.id

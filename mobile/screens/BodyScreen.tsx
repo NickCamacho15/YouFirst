@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   View,
   Text,
@@ -15,6 +15,8 @@ import {
   TextInput,
   Animated,
   Alert,
+  AppState,
+  RefreshControl,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { Loader2, Check } from "lucide-react-native"
@@ -22,7 +24,7 @@ import ConfettiCannon from 'react-native-confetti-cannon'
 import Svg, { Circle } from "react-native-svg"
 import TopHeader from "../components/TopHeader"
 import { LineChart } from "react-native-chart-kit"
-import { getPersonalRecords, upsertPersonalRecords, addPrEntry, getPrSeries, getCachedPersonalRecords, getCachedPrSeries } from "../lib/prs"
+import { getPersonalRecords, upsertPersonalRecords, addPrEntry, getPrSeries, getCachedPersonalRecords, getCachedPrSeries, addOrUpdateCustomPr, listCustomPrs, type CustomPr } from "../lib/prs"
 import { createPlanInDb, listPlansForCurrentUser, listPlanTree, createWeek as dbCreateWeek, createDay as dbCreateDay, createBlock as dbCreateBlock, createExercise as dbCreateExercise, updateExercise as dbUpdateExercise, deleteExercises as dbDeleteExercises } from "../lib/plans"
 import { getBodyMetrics, upsertBodyMetrics, estimateBodyFatPercentDeurenberg, inchesFromFeetInches } from "../lib/body"
 import { buildSnapshotFromPlanDay, createSessionFromSnapshot, getActiveSessionForToday, endSession, completeSet, markExercisesCompleted, getWorkoutStats, type SessionExerciseRow } from "../lib/workout"
@@ -37,6 +39,7 @@ import GroupMembersList from "../components/workout/GroupMembersList"
 import WorkoutAssignmentModal from "../components/workout/WorkoutAssignmentModal"
 import AssignedWorkoutsList from "../components/workout/AssignedWorkoutsList"
 import { startWorkoutSession, getActiveSession, abortSession } from "../lib/workout-session"
+import { apiCall } from "../lib/api-utils"
 
 interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void; activeEpoch?: number; navigation?: any }
 
@@ -46,6 +49,8 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
   const [activeTab, setActiveTab] = useState("profile")
   const [prs, setPrs] = useState({ bench: 0, squat: 0, deadlift: 0, ohp: 0 })
   const [groupData, setGroupData] = useState<{ name: string; accessCode: string } | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const appState = useRef(AppState.currentState)
   
   // Workout templates state
   const [workoutTemplates, setWorkoutTemplates] = useState<WorkoutTemplateWithDetails[]>([])
@@ -60,9 +65,18 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
   const [selectedWorkoutForAssignment, setSelectedWorkoutForAssignment] = useState<{ id: string; name: string } | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [prUpdateOpen, setPrUpdateOpen] = useState(false)
-  const [prLift, setPrLift] = useState<'Bench Press' | 'Squat' | 'Deadlift' | 'Overhead Press'>('Bench Press')
+  const [customPrOpen, setCustomPrOpen] = useState(false)
+  const [viewAllOpen, setViewAllOpen] = useState(false)
+  const coreLifts = ['Bench Press','Squat','Deadlift','Overhead Press'] as const
+  const [prLift, setPrLift] = useState<string>('Bench Press')
   const [prValue, setPrValue] = useState<string>("")
   const [prSaving, setPrSaving] = useState(false)
+  const [customName, setCustomName] = useState<string>("")
+  const [customWeight, setCustomWeight] = useState<string>("")
+  const [customSaving, setCustomSaving] = useState(false)
+  const [customList, setCustomList] = useState<CustomPr[]>([])
+  const [loadingAll, setLoadingAll] = useState(false)
+  const [selectOpen, setSelectOpen] = useState(false)
   const [prSuccessOpen, setPrSuccessOpen] = useState(false)
   const [formBench, setFormBench] = useState<string>("")
   const [formSquat, setFormSquat] = useState<string>("")
@@ -203,6 +217,14 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn('Failed to load body metrics', (e as any)?.message)
+      }
+      // Load custom PRs
+      try {
+        const customPrs = await listCustomPrs(200)
+        setCustomList(customPrs)
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('Failed to load custom PRs', (e as any)?.message)
       }
       // Load PR history series for charts
       try {
@@ -396,15 +418,71 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
     }
   }, [activeTab, isAdmin, statusFilter])
 
+  // Refresh data when app comes to foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        console.log('[BodyScreen] App came to foreground, refreshing current tab...')
+        // Refresh based on current tab
+        if (activeTab === 'planning' && isAdmin) {
+          loadWorkoutTemplates()
+        }
+        // The AssignedWorkoutsList component handles its own refresh
+      }
+      appState.current = nextAppState
+    })
+
+    return () => {
+      subscription.remove()
+    }
+  }, [activeTab, isAdmin, statusFilter])
+
   const loadWorkoutTemplates = async () => {
     setTemplatesLoading(true)
     try {
-      const templates = await listWorkoutTemplates(statusFilter)
+      const templates = await apiCall(
+        () => listWorkoutTemplates(statusFilter),
+        {
+          timeoutMs: 15000, // 15 second timeout
+          maxRetries: 2,
+          timeoutMessage: 'Failed to load workout library. Please check your connection and try again.'
+        }
+      )
       setWorkoutTemplates(templates)
     } catch (error: any) {
       console.error('Failed to load workout templates:', error)
+      Alert.alert('Error', error.message || 'Failed to load workout library. Please try again.')
     } finally {
       setTemplatesLoading(false)
+    }
+  }
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    try {
+      // Refresh data based on active tab
+      if (activeTab === 'planning' && isAdmin) {
+        await loadWorkoutTemplates()
+      }
+      // For profile and workout tabs, reload core data
+      if (activeTab === 'profile' || activeTab === 'workout') {
+        const data = await getPersonalRecords()
+        if (data) {
+          setPrs({
+            bench: data.bench_press_1rm || 0,
+            squat: data.squat_1rm || 0,
+            deadlift: data.deadlift_1rm || 0,
+            ohp: data.overhead_press_1rm || 0,
+          })
+        }
+      }
+    } catch (error) {
+      console.error('Failed to refresh:', error)
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -797,7 +875,18 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
 
       {/* Header rendered persistently in App */}
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.scrollView} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#4A90E2"
+            colors={['#4A90E2']}
+          />
+        }
+      >
         {/* Body Section */}
         <View style={styles.bodySection}>
           <View style={styles.bodySectionHeader}>
@@ -846,10 +935,18 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
                   <Ionicons name="trophy-outline" size={20} color="#4A90E2"/>
                   <Text style={styles.sectionTitle} numberOfLines={1} ellipsizeMode="tail">Personal Records (1RM) </Text>
                 </View>
-                <TouchableOpacity style={styles.prActionButton} onPress={() => setPrUpdateOpen(true)}>
-                  <Ionicons name="trending-up-outline" size={16} color="#fff" />
-                  <Text style={styles.prActionText}>Update PR</Text>
-                </TouchableOpacity>
+              <TouchableOpacity style={styles.viewAllButton} onPress={async ()=>{
+                try {
+                  setLoadingAll(true)
+                  const rows = await listCustomPrs(200)
+                  setCustomList(rows)
+                  setViewAllOpen(true)
+                } finally {
+                  setLoadingAll(false)
+                }
+              }}>
+                <Text style={styles.viewAllText}>View all</Text>
+              </TouchableOpacity>
               </View>
 
               <View style={styles.recordsGrid}>
@@ -858,6 +955,17 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
                 <PersonalRecordCard exercise="Deadlift" weight={`${prs.deadlift} lbs`} />
                 <PersonalRecordCard exercise="Overhead Press" weight={`${prs.ohp} lbs`} />
               </View>
+
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={[styles.prActionButton, styles.actionButton]} onPress={() => setPrUpdateOpen(true)}>
+              <Ionicons name="trending-up-outline" size={16} color="#fff" />
+              <Text style={styles.prActionText}>Update PR</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.addActionButton, styles.actionButton]} onPress={() => setCustomPrOpen(true)}>
+              <Ionicons name="add-outline" size={16} color="#fff" />
+              <Text style={styles.prActionText}>Add new</Text>
+            </TouchableOpacity>
+          </View>
             </View>
 
             {/* Training Stats */}
@@ -960,8 +1068,8 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
             <View style={styles.sectionCard}>
               <View style={styles.sectionHeader}>
                 <View style={styles.sectionTitleContainer}>
-                  <Ionicons name="list-outline" size={20} color="#4A90E2"/>
-                  <Text style={styles.sectionTitle}>My Workouts</Text>
+                  <Ionicons name="list-outline" size={24} color="#4A90E2"/>
+                  <Text style={styles.mainSectionTitle}>My Workouts</Text>
                 </View>
               </View>
               <AssignedWorkoutsList onWorkoutPress={handleStartWorkout} />
@@ -1327,13 +1435,40 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
               </TouchableOpacity>
             </View>
             <View style={styles.modalFieldRow}>
-              <Text style={styles.modalLabel}>Select lift</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {(['Bench Press','Squat','Deadlift','Overhead Press'] as const).map((opt)=> (
-                  <TouchableOpacity key={opt} onPress={()=> setPrLift(opt)} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: prLift===opt? '#4A90E2':'#e0e0e0', backgroundColor: prLift===opt? '#E6F0FF':'#f8f9fa' }}>
-                    <Text style={{ color: prLift===opt? '#1E40AF':'#333', fontWeight: '600' }}>{opt}</Text>
-                  </TouchableOpacity>
-                ))}
+              <Text style={styles.modalLabel}>Select exercise</Text>
+              <View style={[styles.selectContainer, selectOpen && { zIndex: 1000 }]}>
+                <TouchableOpacity style={styles.selectControl} onPress={()=> setSelectOpen(!selectOpen)}>
+                  <Text style={styles.selectValue} numberOfLines={1}>{prLift}</Text>
+                  <Ionicons name={selectOpen? 'chevron-up-outline':'chevron-down-outline'} size={18} color="#666" />
+                </TouchableOpacity>
+                {selectOpen && (
+                  <View style={styles.selectMenu}>
+                    {[...coreLifts, ...customList.map(c=> c.exercise_name)].map((name)=> {
+                      // Get current PR value for this exercise
+                      let currentPR: number | null = null
+                      if (name === 'Bench Press') currentPR = prs.bench || null
+                      else if (name === 'Squat') currentPR = prs.squat || null
+                      else if (name === 'Deadlift') currentPR = prs.deadlift || null
+                      else if (name === 'Overhead Press') currentPR = prs.ohp || null
+                      else {
+                        const custom = customList.find(c => c.exercise_name === name)
+                        currentPR = custom?.pr_lbs ? Number(custom.pr_lbs) : null
+                      }
+                      
+                      return (
+                        <TouchableOpacity key={name} style={styles.selectOption} onPress={()=>{ setPrLift(name); setSelectOpen(false) }}>
+                          <Text style={styles.selectOptionText}>{name}</Text>
+                          {currentPR !== null && currentPR > 0 && (
+                            <Text style={styles.selectOptionValue}>{currentPR} lbs</Text>
+                          )}
+                        </TouchableOpacity>
+                      )
+                    })}
+                    {customList.length === 0 && (
+                      <Text style={styles.selectEmptyText}>No custom exercises yet</Text>
+                    )}
+                  </View>
+                )}
               </View>
             </View>
             <View style={styles.modalFieldRow}>
@@ -1344,34 +1479,45 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
               try {
                 setPrSaving(true)
                 const val = prValue ? Number(prValue) : null
-                await upsertPersonalRecords({
-                  bench_press_1rm: prLift==='Bench Press'? val : prs.bench || null,
-                  squat_1rm: prLift==='Squat'? val : prs.squat || null,
-                  deadlift_1rm: prLift==='Deadlift'? val : prs.deadlift || null,
-                  overhead_press_1rm: prLift==='Overhead Press'? val : prs.ohp || null,
-                })
-                if (val !== null) {
-                  const mapLift: Record<string, 'bench'|'squat'|'deadlift'|'ohp'> = {
-                    'Bench Press': 'bench',
-                    'Squat': 'squat',
-                    'Deadlift': 'deadlift',
-                    'Overhead Press': 'ohp',
+                if (coreLifts.includes(prLift as any)) {
+                  await upsertPersonalRecords({
+                    bench_press_1rm: prLift==='Bench Press'? val : prs.bench || null,
+                    squat_1rm: prLift==='Squat'? val : prs.squat || null,
+                    deadlift_1rm: prLift==='Deadlift'? val : prs.deadlift || null,
+                    overhead_press_1rm: prLift==='Overhead Press'? val : prs.ohp || null,
+                  })
+                  if (val !== null) {
+                    const mapLift: Record<string, 'bench'|'squat'|'deadlift'|'ohp'> = {
+                      'Bench Press': 'bench',
+                      'Squat': 'squat',
+                      'Deadlift': 'deadlift',
+                      'Overhead Press': 'ohp',
+                    }
+                    await addPrEntry(mapLift[prLift], val)
+                    // Silent refresh of chart series
+                    try {
+                      const [b, s, d, o] = await Promise.all([
+                        getPrSeries('bench'),
+                        getPrSeries('squat'),
+                        getPrSeries('deadlift'),
+                        getPrSeries('ohp'),
+                      ])
+                      const fmt = (rows: Array<{ recorded_at: string; value: number }>) => rows.map(r => ({ x: new Date(r.recorded_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), y: Number(r.value) }))
+                      setBenchSeries(fmt(b))
+                      setSquatSeries(fmt(s))
+                      setDeadliftSeries(fmt(d))
+                      setOhpSeries(fmt(o))
+                    } catch {}
                   }
-                  await addPrEntry(mapLift[prLift], val)
-                  // Silent refresh of chart series
-                  try {
-                    const [b, s, d, o] = await Promise.all([
-                      getPrSeries('bench'),
-                      getPrSeries('squat'),
-                      getPrSeries('deadlift'),
-                      getPrSeries('ohp'),
-                    ])
-                    const fmt = (rows: Array<{ recorded_at: string; value: number }>) => rows.map(r => ({ x: new Date(r.recorded_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), y: Number(r.value) }))
-                    setBenchSeries(fmt(b))
-                    setSquatSeries(fmt(s))
-                    setDeadliftSeries(fmt(d))
-                    setOhpSeries(fmt(o))
-                  } catch {}
+                } else {
+                  if (val !== null) {
+                    await addOrUpdateCustomPr(prLift, val)
+                    // Refresh custom list
+                    try {
+                      const refreshed = await listCustomPrs(200)
+                      setCustomList(refreshed)
+                    } catch {}
+                  }
                 }
                 setPrs({
                   bench: prLift==='Bench Press'? (val||0) : prs.bench,
@@ -1409,6 +1555,91 @@ const BodyScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile, activeEpoc
             </TouchableOpacity>
           </View>
           <ConfettiCannon count={120} origin={{ x: 0, y: 0 }} fadeOut autoStart={true} explosionSpeed={350} fallSpeed={2400} />
+        </View>
+      )}
+
+      {/* View All PRs Modal */}
+      {viewAllOpen && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>My Personal Records</Text>
+              <TouchableOpacity onPress={() => setViewAllOpen(false)}>
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: Dimensions.get('window').height * 0.65 }}>
+              <View style={{ gap: 10 }}>
+                {[
+                  { name: 'Bench Press', value: prs.bench },
+                  { name: 'Squat', value: prs.squat },
+                  { name: 'Deadlift', value: prs.deadlift },
+                  { name: 'Overhead Press', value: prs.ohp },
+                ].map((row) => (
+                  <View key={row.name} style={styles.prListRow}>
+                    <Text style={styles.prListName}>{row.name}</Text>
+                    <Text style={styles.prListValue}>{(row.value||0)} lbs</Text>
+                  </View>
+                ))}
+
+                {customList.map((c) => (
+                  <View key={c.id} style={styles.prListRow}>
+                    <Text style={styles.prListName}>{c.exercise_name}</Text>
+                    <Text style={styles.prListValue}>{Number(c.pr_lbs)} lbs</Text>
+                  </View>
+                ))}
+
+                {(!loadingAll && customList.length === 0) && (
+                  <Text style={{ color: '#777', textAlign: 'center', marginTop: 8 }}>No custom PRs yet</Text>
+                )}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      )}
+
+      {/* Add Custom PR Modal */}
+      {customPrOpen && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add Personal Record</Text>
+              <TouchableOpacity onPress={() => setCustomPrOpen(false)}>
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalFieldRow}>
+              <Text style={styles.modalLabel}>Exercise name</Text>
+              <TextInput style={styles.modalInput} placeholder="e.g. Power Clean" placeholderTextColor="#999" value={customName} onChangeText={setCustomName} />
+            </View>
+            <View style={styles.modalFieldRow}>
+              <Text style={styles.modalLabel}>Weight (lbs)</Text>
+              <TextInput style={styles.modalInput} placeholder="0" placeholderTextColor="#999" keyboardType="numeric" value={customWeight} onChangeText={setCustomWeight} />
+            </View>
+            <TouchableOpacity style={styles.modalSaveButton} disabled={customSaving} onPress={async ()=>{
+              try {
+                setCustomSaving(true)
+                const v = customWeight ? Number(customWeight) : NaN
+                await addOrUpdateCustomPr(customName, v)
+                // Refresh custom list
+                try {
+                  const refreshed = await listCustomPrs(200)
+                  setCustomList(refreshed)
+                } catch {}
+                setCustomPrOpen(false)
+                setCustomName("")
+                setCustomWeight("")
+              } catch(e) {
+                // eslint-disable-next-line no-console
+                console.warn('add custom pr failed', (e as Error).message)
+              } finally {
+                setCustomSaving(false)
+              }
+            }}>
+              <Text style={styles.modalSaveButtonText}>{customSaving? 'Saving...' : 'Save PR'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
       {/* Build Plan Modal */}
@@ -1824,6 +2055,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
+  viewAllButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#E6F0FF',
+  },
+  viewAllText: {
+    color: '#2563EB',
+    fontWeight: '700',
+    fontSize: 13,
+  },
   sectionTitleContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -1834,6 +2076,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
     color: "#333",
+    marginLeft: 8,
+    flexShrink: 1,
+  },
+  mainSectionTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#1a1a1a",
     marginLeft: 8,
     flexShrink: 1,
   },
@@ -1860,6 +2109,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
+  },
+  // actionRow defined later for clarity
+  actionButton: {
+    width: '48%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 12,
   },
   recordCard: {
     width: "48%",
@@ -2255,9 +2511,22 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignSelf: 'flex-start',
   },
+  addActionButton: {
+    backgroundColor: '#10B981',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
   prActionText: {
     color: '#fff',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     marginLeft: 6,
   },
@@ -2284,6 +2553,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#666",
     marginTop: 4,
+  },
+  prListRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  prListName: {
+    fontSize: 16,
+    color: '#333',
+  },
+  prListValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#4A90E2',
   },
   emptyPlansContainer: {
     alignItems: "center",
@@ -2369,6 +2655,65 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#666",
     marginBottom: 6,
+  },
+  selectContainer: {
+    position: 'relative',
+  },
+  selectControl: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#f8f9fa',
+  },
+  selectValue: {
+    color: '#333',
+    fontSize: 16,
+    flex: 1,
+    marginRight: 8,
+  },
+  selectMenu: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 46,
+    maxHeight: 220,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+    zIndex: 1000,
+    elevation: 5, // for Android shadow/layering
+  },
+  selectOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  selectOptionText: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1,
+  },
+  selectOptionValue: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  selectEmptyText: {
+    color: '#777',
+    textAlign: 'center',
+    padding: 10,
   },
   modalInput: {
     borderWidth: 1,

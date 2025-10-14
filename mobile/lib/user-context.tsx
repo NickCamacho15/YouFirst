@@ -3,6 +3,7 @@ import { Image } from "react-native"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { getCurrentUser, type User } from "./auth"
 import { supabase, forceClearAuthStorage } from "./supabase"
+import { apiCall } from "./api-utils"
 
 type UserContextValue = {
   user: User | null
@@ -94,7 +95,16 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     console.log(`[UserProvider] doRefresh #${refreshCounter}`)
     
     try {
-      const u = await getCurrentUser()
+      // Wrap getCurrentUser with timeout protection
+      const u = await apiCall(
+        () => getCurrentUser(),
+        {
+          timeoutMs: 15000, // 15 second timeout
+          maxRetries: 2,
+          timeoutMessage: 'Failed to fetch user data'
+        }
+      )
+      
       if (!mountedRef.current) return
       
       // Only update state if user data actually changed to prevent unnecessary re-renders
@@ -136,6 +146,10 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         try { await AsyncStorage.removeItem(CACHE_KEY) } catch {}
       }
+    } catch (error: any) {
+      console.error('[UserProvider] Failed to refresh user:', error)
+      // Don't throw - just log the error and continue
+      // The app should remain functional even if user refresh fails
     } finally {
       // Only set loading=false if it's not already false (to avoid extra state updates)
       if (mountedRef.current) {

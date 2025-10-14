@@ -97,3 +97,50 @@ export function getCachedPrSeries(lift: PrLift, maxAgeMs = 30000): Array<{ recor
   if (!rows || !at || Date.now() - at > maxAgeMs) return null
   return rows
 }
+
+// ===== Custom PRs (arbitrary exercises) =====
+
+export type CustomPr = {
+  id: string
+  user_id: string
+  exercise_name: string
+  pr_lbs: number
+  exercise_library_id?: string | null
+  updated_at: string
+}
+
+const CUSTOM_TABLE = 'personal_records_custom'
+const CUSTOM_HISTORY_TABLE = 'personal_record_history_custom'
+
+export async function addOrUpdateCustomPr(exerciseName: string, valueLbs: number): Promise<void> {
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error('Not authenticated')
+  const name = (exerciseName || '').trim()
+  if (!name) throw new Error('Exercise name is required')
+  if (!(valueLbs >= 0)) throw new Error('Weight must be a non-negative number')
+
+  // Upsert current PR
+  const { error: upsertErr } = await supabase
+    .from(CUSTOM_TABLE)
+    .upsert({ user_id: uid, exercise_name: name, pr_lbs: valueLbs }, { onConflict: 'user_id,exercise_name' } as any)
+  if (upsertErr) throw new Error(upsertErr.message)
+
+  // Insert history row
+  const { error: histErr } = await supabase
+    .from(CUSTOM_HISTORY_TABLE)
+    .insert([{ user_id: uid, exercise_name: name, value: valueLbs } as any])
+  if (histErr) throw new Error(histErr.message)
+}
+
+export async function listCustomPrs(limit = 100): Promise<CustomPr[]> {
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error('Not authenticated')
+  const { data, error } = await supabase
+    .from<CustomPr>(CUSTOM_TABLE)
+    .select('id, user_id, exercise_name, pr_lbs, exercise_library_id, updated_at')
+    .eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+    .limit(limit)
+  if (error) throw new Error(error.message)
+  return data || []
+}

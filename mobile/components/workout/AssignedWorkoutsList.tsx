@@ -1,9 +1,12 @@
-import React, { useEffect, useState } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native'
+import React, { useEffect, useState, useRef } from 'react'
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, RefreshControl, ScrollView, AppState } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
-import { getTodaysWorkouts, getThisWeeksWorkouts, getUpcomingWorkouts, listAssignedWorkoutsForUser, getAdminScheduledWorkouts, type AssignedWorkout } from '../../lib/workout-assignments'
+import { getTodaysWorkouts, getThisWeeksWorkouts, getUpcomingWorkouts, getPastWorkouts, listAssignedWorkoutsForUser, getAdminScheduledWorkouts, type AssignedWorkout } from '../../lib/workout-assignments'
 import { useUser } from '../../lib/user-context'
 import { isWorkoutCompletedOnDate } from '../../lib/workout-session'
+import { apiCall } from '../../lib/api-utils'
+import { supabase } from '../../lib/supabase'
+import WorkoutDetailsModal from './WorkoutDetailsModal'
 
 interface AssignedWorkoutsListProps {
   onWorkoutPress?: (workout: AssignedWorkout) => void
@@ -20,26 +23,62 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
   const [todaysWorkouts, setTodaysWorkouts] = useState<AssignedWorkout[]>([])
   const [weekWorkouts, setWeekWorkouts] = useState<WorkoutWithStatus[]>([])
   const [upcomingWorkouts, setUpcomingWorkouts] = useState<WorkoutWithStatus[]>([])
-  const [completedWorkouts, setCompletedWorkouts] = useState<WorkoutWithStatus[]>([])
+  const [pastWorkouts, setPastWorkouts] = useState<WorkoutWithStatus[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const appState = useRef(AppState.currentState)
+  
+  // Modal state
+  const [selectedWorkout, setSelectedWorkout] = useState<WorkoutWithStatus | AssignedWorkout | null>(null)
+  const [isDetailsModalVisible, setIsDetailsModalVisible] = useState(false)
+  const [isPastWorkout, setIsPastWorkout] = useState(false)
+  const [workoutDuration, setWorkoutDuration] = useState<number | undefined>(undefined)
 
   useEffect(() => {
     loadWorkouts()
+
+    // Refresh when app comes to foreground
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        console.log('[AssignedWorkoutsList] App came to foreground, refreshing...')
+        loadWorkouts()
+      }
+      appState.current = nextAppState
+    })
+
+    return () => {
+      subscription.remove()
+    }
   }, [])
 
-  const loadWorkouts = async () => {
-    setLoading(true)
+  const loadWorkouts = async (isRefresh: boolean = false) => {
+    if (isRefresh) {
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     setError(null)
     try {
-      // Fetch both assigned workouts and admin's own scheduled workouts
-      const [today, week, all, adminWorkouts, upcoming] = await Promise.all([
-        getTodaysWorkouts(),
-        getThisWeeksWorkouts(),
-        listAssignedWorkoutsForUser(),
-        isAdmin ? getAdminScheduledWorkouts() : Promise.resolve([]),
-        getUpcomingWorkouts(),
-      ])
+      // Fetch both assigned workouts and admin's own scheduled workouts with timeout
+      const [today, week, all, adminWorkouts, upcoming, past] = await apiCall(
+        () => Promise.all([
+          getTodaysWorkouts(),
+          getThisWeeksWorkouts(),
+          listAssignedWorkoutsForUser(),
+          isAdmin ? getAdminScheduledWorkouts() : Promise.resolve([]),
+          getUpcomingWorkouts(),
+          getPastWorkouts(),
+        ]),
+        {
+          timeoutMs: 20000, // 20 second timeout
+          maxRetries: 2,
+          timeoutMessage: 'Failed to load workouts. Please check your connection and try again.'
+        }
+      )
 
       // Helper function to get local date string
       const getLocalDateString = (date: Date = new Date()): string => {
@@ -129,15 +168,74 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
       )
       setUpcomingWorkouts(upcomingWithStatus)
 
-      // Completed = filter weekWorkoutsWithStatus for status completed and dates <= today
-      const todayStr2 = getLocalDateString()
-      const completed = weekWorkoutsWithStatus.filter(w => w.completionStatus === 'completed' && w.displayDate <= todayStr2)
-      setCompletedWorkouts(completed)
+      // Past workouts with completion status
+      const pastWithStatus: WorkoutWithStatus[] = await Promise.all(
+        (past || []).map(async (w) => {
+          const status = await getWorkoutStatus(w.plan_id, w.displayDate)
+          return {
+            ...w,
+            completionStatus: status,
+          }
+        })
+      )
+      setPastWorkouts(pastWithStatus)
     } catch (err: any) {
       console.error('Failed to load workouts:', err)
-      setError(err.message || 'Failed to load workouts')
+      setError(err.message || 'Failed to load workouts. Please try again.')
     } finally {
       setLoading(false)
+      setRefreshing(false)
+    }
+  }
+
+  const handleRefresh = () => {
+    loadWorkouts(true)
+  }
+
+  const handleWorkoutPress = async (workout: WorkoutWithStatus | AssignedWorkout, isPast: boolean = false) => {
+    setSelectedWorkout(workout)
+    setIsPastWorkout(isPast)
+    
+    // If it's a past completed workout, fetch the duration
+    const completionStatus = 'completionStatus' in workout ? workout.completionStatus : undefined
+    const displayDate = 'displayDate' in workout ? workout.displayDate : undefined
+    
+    if (isPast && completionStatus === 'completed' && displayDate) {
+      try {
+        const { data, error } = await supabase
+          .from('workout_sessions')
+          .select('total_seconds')
+          .eq('plan_id', workout.plan_id)
+          .eq('status', 'completed')
+          .gte('started_at', `${displayDate}T00:00:00`)
+          .lt('started_at', `${displayDate}T23:59:59`)
+          .order('started_at', { ascending: false })
+          .limit(1)
+          .single()
+        
+        if (!error && data) {
+          setWorkoutDuration(data.total_seconds)
+        }
+      } catch (err) {
+        console.error('Error fetching workout duration:', err)
+      }
+    } else {
+      setWorkoutDuration(undefined)
+    }
+    
+    setIsDetailsModalVisible(true)
+  }
+
+  const handleCloseModal = () => {
+    setIsDetailsModalVisible(false)
+    setSelectedWorkout(null)
+    setWorkoutDuration(undefined)
+  }
+
+  const handleStartWorkout = () => {
+    if (selectedWorkout) {
+      handleCloseModal()
+      onWorkoutPress?.(selectedWorkout)
     }
   }
 
@@ -222,14 +320,14 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
       <View style={styles.centerContainer}>
         <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={loadWorkouts}>
+        <TouchableOpacity style={styles.retryButton} onPress={() => loadWorkouts()}>
           <Text style={styles.retryText}>Retry</Text>
         </TouchableOpacity>
       </View>
     )
   }
 
-  const hasAny = todaysWorkouts.length > 0 || weekWorkouts.length > 0 || upcomingWorkouts.length > 0 || completedWorkouts.length > 0
+  const hasAny = todaysWorkouts.length > 0 || weekWorkouts.length > 0 || upcomingWorkouts.length > 0 || pastWorkouts.length > 0
   if (!hasAny) {
     return (
       <View style={styles.centerContainer}>
@@ -248,8 +346,8 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
       {todaysWorkouts.length > 0 && (
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Ionicons name="today" size={22} color="#10B981" />
-            <Text style={styles.sectionTitle}>Today's Workouts</Text>
+            <Ionicons name="today" size={18} color="#10B981" />
+            <Text style={styles.subSectionTitle}>Today's Workouts</Text>
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{todaysWorkouts.length}</Text>
             </View>
@@ -294,14 +392,14 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
       {upcomingWorkouts.length > 0 && (
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Ionicons name="time-outline" size={22} color="#F59E0B" />
-            <Text style={styles.sectionTitle}>Upcoming Workouts</Text>
+            <Ionicons name="time-outline" size={18} color="#F59E0B" />
+            <Text style={styles.subSectionTitle}>Upcoming Workouts</Text>
           </View>
           {upcomingWorkouts.map((workout, idx) => (
             <TouchableOpacity
               key={`upcoming-${workout.id}-${workout.displayDate}-${idx}`}
               style={styles.weekWorkoutCard}
-              onPress={() => onWorkoutPress?.(workout)}
+              onPress={() => handleWorkoutPress(workout, false)}
             >
               <View style={styles.weekDayIndicator}>
                 <Text style={styles.weekDayText}>{getDayName(workout.displayDate)}</Text>
@@ -322,87 +420,24 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
         </View>
       )}
 
-      {/* This Week (with status) */}
-      {(() => {
-        const now = new Date()
-        const year = now.getFullYear()
-        const month = String(now.getMonth() + 1).padStart(2, '0')
-        const day = String(now.getDate()).padStart(2, '0')
-        const todayStr = `${year}-${month}-${day}`
-        
-        const weekWorkoutsExcludingToday = weekWorkouts.filter(w => w.displayDate !== todayStr)
-        
-        if (weekWorkoutsExcludingToday.length === 0) return null
-        
-        return (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Ionicons name="calendar" size={22} color="#4A90E2" />
-              <Text style={styles.sectionTitle}>This Week</Text>
-            </View>
-            {weekWorkoutsExcludingToday.map((workout, idx) => (
-              <TouchableOpacity
-                key={`week-${workout.id}-${workout.displayDate}-${idx}`}
-                style={styles.weekWorkoutCard}
-                onPress={() => onWorkoutPress?.(workout)}
-              >
-                <View style={styles.weekDayIndicator}>
-                  <Text style={styles.weekDayText}>{getDayName(workout.displayDate)}</Text>
-                </View>
-                <View style={styles.weekWorkoutInfo}>
-                  <Text style={styles.weekWorkoutName} numberOfLines={1}>{workout.name}</Text>
-                  {workout.assigned_by_username && (
-                    <Text style={styles.weekWorkoutMeta}>by {workout.assigned_by_username}</Text>
-                  )}
-                </View>
-                {workout.completionStatus && (
-                  <View style={[
-                    styles.statusBadge,
-                    workout.completionStatus === 'completed' && styles.statusBadgeCompleted,
-                    workout.completionStatus === 'incomplete' && styles.statusBadgeIncomplete,
-                    workout.completionStatus === 'upcoming' && styles.statusBadgeUpcoming,
-                  ]}>
-                    {workout.completionStatus === 'completed' && (
-                      <Ionicons name="checkmark-circle" size={12} color="#10B981" />
-                    )}
-                    {workout.completionStatus === 'incomplete' && (
-                      <Ionicons name="close-circle" size={12} color="#EF4444" />
-                    )}
-                    {workout.completionStatus === 'upcoming' && (
-                      <Ionicons name="time-outline" size={12} color="#F59E0B" />
-                    )}
-                    <Text style={[
-                      styles.statusBadgeText,
-                      workout.completionStatus === 'completed' && styles.statusBadgeTextCompleted,
-                      workout.completionStatus === 'incomplete' && styles.statusBadgeTextIncomplete,
-                      workout.completionStatus === 'upcoming' && styles.statusBadgeTextUpcoming,
-                    ]}>
-                      {workout.completionStatus === 'completed' ? 'Completed' : 
-                       workout.completionStatus === 'incomplete' ? 'Incomplete' : 'Upcoming'}
-                    </Text>
-                  </View>
-                )}
-                <Ionicons name="chevron-forward" size={18} color="#999" />
-              </TouchableOpacity>
-            ))}
-          </View>
-        )
-      })()}
-
-      {/* Completed Workouts */}
-      {completedWorkouts.length > 0 && (
+      {/* Past Workouts (last 14 days) */}
+      {pastWorkouts.length > 0 && (
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Ionicons name="checkmark-done" size={22} color="#10B981" />
-            <Text style={styles.sectionTitle}>Completed Workouts</Text>
+            <Ionicons name="calendar-outline" size={18} color="#8B5CF6" />
+            <Text style={styles.subSectionTitle}>Past Workouts</Text>
+            <Text style={styles.sectionSubtitle}>Last 14 days</Text>
           </View>
-          {completedWorkouts.map((workout, idx) => (
+          {pastWorkouts.map((workout, idx) => (
             <TouchableOpacity
-              key={`completed-${workout.id}-${workout.displayDate}-${idx}`}
+              key={`past-${workout.id}-${workout.displayDate}-${idx}`}
               style={styles.weekWorkoutCard}
-              onPress={() => onWorkoutPress?.(workout)}
+              onPress={() => handleWorkoutPress(workout, true)}
             >
-              <View style={styles.weekDayIndicator}>
+              <View style={[
+                styles.weekDayIndicator,
+                styles.pastDayIndicator
+              ]}>
                 <Text style={styles.weekDayText}>{getDayName(workout.displayDate)}</Text>
               </View>
               <View style={styles.weekWorkoutInfo}>
@@ -411,15 +446,43 @@ const AssignedWorkoutsList: React.FC<AssignedWorkoutsListProps> = ({ onWorkoutPr
                   <Text style={styles.weekWorkoutMeta}>by {workout.assigned_by_username}</Text>
                 )}
               </View>
-              <View style={[styles.statusBadge, styles.statusBadgeCompleted]}>
-                <Ionicons name="checkmark-circle" size={12} color="#10B981" />
-                <Text style={[styles.statusBadgeText, styles.statusBadgeTextCompleted]}>Completed</Text>
-              </View>
+              {workout.completionStatus && (
+                <View style={[
+                  styles.statusBadge,
+                  workout.completionStatus === 'completed' && styles.statusBadgeCompleted,
+                  workout.completionStatus === 'incomplete' && styles.statusBadgeIncomplete,
+                ]}>
+                  {workout.completionStatus === 'completed' && (
+                    <Ionicons name="checkmark-circle" size={12} color="#10B981" />
+                  )}
+                  {workout.completionStatus === 'incomplete' && (
+                    <Ionicons name="close-circle" size={12} color="#EF4444" />
+                  )}
+                  <Text style={[
+                    styles.statusBadgeText,
+                    workout.completionStatus === 'completed' && styles.statusBadgeTextCompleted,
+                    workout.completionStatus === 'incomplete' && styles.statusBadgeTextIncomplete,
+                  ]}>
+                    {workout.completionStatus === 'completed' ? 'Completed' : 'Incomplete'}
+                  </Text>
+                </View>
+              )}
               <Ionicons name="chevron-forward" size={18} color="#999" />
             </TouchableOpacity>
           ))}
         </View>
       )}
+
+      {/* Workout Details Modal */}
+      <WorkoutDetailsModal
+        visible={isDetailsModalVisible}
+        onClose={handleCloseModal}
+        workout={selectedWorkout as any}
+        onStartWorkout={handleStartWorkout}
+        isPast={isPastWorkout}
+        completionStatus={selectedWorkout && 'completionStatus' in selectedWorkout ? selectedWorkout.completionStatus : undefined}
+        duration={workoutDuration}
+      />
     </View>
   )
 }
@@ -483,6 +546,17 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#333',
+  },
+  subSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#555',
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#999',
+    marginLeft: 8,
   },
   badge: {
     backgroundColor: '#10B981',
@@ -583,6 +657,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     minWidth: 80,
+  },
+  pastDayIndicator: {
+    backgroundColor: '#8B5CF6',
   },
   weekDayText: {
     fontSize: 13,

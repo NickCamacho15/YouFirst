@@ -2,13 +2,14 @@
 
 import { useMemo, useState, useEffect, useRef } from "react"
 import type React from "react"
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, Dimensions, Modal, TextInput, ActivityIndicator, Animated, Easing, KeyboardAvoidingView, Platform } from "react-native"
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, Dimensions, Modal, TextInput, ActivityIndicator, Animated, Easing, KeyboardAvoidingView, Platform, AppState, RefreshControl, Alert } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { Shield, CalendarDays, Plus } from "lucide-react-native"
 import TopHeader from "../components/TopHeader"
 import { createChallenge, listChallenges, type ChallengeRow, setRuleCompleted, getRuleChecksForChallenge, deleteChallenge } from "../lib/challenges"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { addPersonalRule, deletePersonalRule, listPersonalRuleChecks, listPersonalRules, setPersonalRuleCompleted } from "../lib/personal-rules"
+import { apiCall } from "../lib/api-utils"
 
 interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void }
 
@@ -22,6 +23,7 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
   const [rules, setRules] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [challenges, setChallenges] = useState<ChallengeRow[]>([])
   const [todayChecks, setTodayChecks] = useState<Record<string, Set<number>>>({})
   const [checksByDate, setChecksByDate] = useState<Record<string, Record<string, Set<number>>>>({})
@@ -30,11 +32,23 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
   const progressAnims = useRef<Record<string, Animated.Value>>({})
   const [animNonce, setAnimNonce] = useState(0)
   const [showBanner, setShowBanner] = useState(true)
+  const appState = useRef(AppState.currentState)
 
-  const reloadData = async () => {
-    setLoading(true)
+  const reloadData = async (isRefresh: boolean = false) => {
+    if (isRefresh) {
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     try {
-      const data = await listChallenges()
+      const data = await apiCall(
+        () => listChallenges(),
+        {
+          timeoutMs: 15000,
+          maxRetries: 2,
+          timeoutMessage: 'Failed to load challenges. Please check your connection and try again.'
+        }
+      )
       setChallenges(data)
       const todayIsoStr = new Date().toISOString().slice(0, 10)
 
@@ -76,14 +90,38 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
       setTodayChecks(todayMap)
       setChecksByDate(dateToChecksMap)
       setDaysCompleted(completedDaysMap)
+    } catch (error: any) {
+      console.error('Failed to load challenges:', error)
+      Alert.alert('Error', error.message || 'Failed to load challenges. Please try again.')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
   useEffect(() => {
     reloadData()
+
+    // Refresh when app comes to foreground
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        console.log('[DisciplinesScreen] App came to foreground, refreshing...')
+        reloadData()
+      }
+      appState.current = nextAppState
+    })
+
+    return () => {
+      subscription.remove()
+    }
   }, [])
+
+  const handleRefresh = () => {
+    reloadData(true)
+  }
 
   // Schedule a refresh at the next local midnight so day number advances and today's checkboxes reset
   const midnightTimer = useRef<NodeJS.Timeout | null>(null)
@@ -215,7 +253,18 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
 
       {/* Header rendered persistently in App */}
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.scrollView} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#4A90E2"
+            colors={['#4A90E2']}
+          />
+        }
+      >
         {/* Tab Navigation */}
         <View style={styles.tabContainer}>
           <TouchableOpacity

@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "3",
+      "buildNumber": "4",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "We use your photo library so you can choose a profile picture.",
         "NSCameraUsageDescription": "We use the camera to let you take a profile picture."

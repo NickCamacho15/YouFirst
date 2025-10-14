@@ -16,6 +16,9 @@ import {
   Vibration,
   KeyboardAvoidingView,
   Platform,
+  AppState,
+  RefreshControl,
+  Alert,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import TopHeader from "../components/TopHeader"
@@ -27,6 +30,7 @@ import { saveMeditationSession, getMeditationStats, getMilestonesWithStatus, awa
 import { preloadSounds, playIntervalChime, playFinalBell } from "../lib/sounds"
 import { listTrackedApps, addTrackedApp, deleteTrackedApp, saveUsage, getUsageForRange, getMonthlyTotals, getStats, type TrackedApp } from "../lib/distraction"
 import AsyncStorage from "@react-native-async-storage/async-storage"
+import { apiCall } from "../lib/api-utils"
 
 type StatCardProps = {
     title: string
@@ -469,6 +473,8 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
   const [milestones, setMilestones] = useState<MilestoneWithStatus[]>([])
   const [readingCompletedToday, setReadingCompletedToday] = useState(false)
   const [meditationCompletedToday, setMeditationCompletedToday] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const appState = useRef(AppState.currentState)
   // Meditation session UI state
   const [medPhase, setMedPhase] = useState<"idle" | "prep" | "meditating" | "complete">("idle")
   const [medPaused, setMedPaused] = useState(false)
@@ -533,33 +539,71 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
   }, [isSessionActive, isPaused])
 
   // Load stats and recent sessions
+  const loadData = async (isRefresh: boolean = false) => {
+    if (isRefresh) {
+      setRefreshing(true)
+    }
+    try {
+      const [stats, sessions, booksList, insightsList, medStats, status] = await apiCall(
+        () => Promise.all([
+          getReadingStats(),
+          listReadingSessions(10),
+          listBooks(),
+          listInsights(20),
+          getMeditationStats(),
+          getDailyWinStatus(),
+        ]),
+        {
+          timeoutMs: 20000,
+          maxRetries: 2,
+          timeoutMessage: 'Failed to load mind data. Please check your connection and try again.'
+        }
+      )
+      
+      setTotalSeconds(stats.totalSeconds)
+      setSessionCount(stats.sessionCount)
+      setAverageSeconds(stats.averageSeconds)
+      setRecentSessions(sessions)
+      setBooks(booksList)
+      setInsights(insightsList)
+      await preloadSounds()
+      setMedTotalSeconds(medStats.totalSeconds)
+      setMedSessionCount(medStats.sessionCount)
+      setMedDayStreak(medStats.dayStreak)
+      setMilestones(await getMilestonesWithStatus(medStats))
+      setReadingCompletedToday(!!status.reading)
+      setMeditationCompletedToday(!!status.prayerMeditation)
+    } catch (error: any) {
+      console.error('Failed to load mind data:', error)
+      Alert.alert('Error', error.message || 'Failed to load data. Please try again.')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   useEffect(() => {
-    ;(async () => {
-      try {
-        const stats = await getReadingStats()
-        setTotalSeconds(stats.totalSeconds)
-        setSessionCount(stats.sessionCount)
-        setAverageSeconds(stats.averageSeconds)
-        setRecentSessions(await listReadingSessions(10))
-        setBooks(await listBooks())
-        setInsights(await listInsights(20))
-        const m = await getMeditationStats()
-        await preloadSounds()
-        setMedTotalSeconds(m.totalSeconds)
-        setMedSessionCount(m.sessionCount)
-        setMedDayStreak(m.dayStreak)
-        setMilestones(await getMilestonesWithStatus(m))
-        // initial daily completion status
-        try {
-          const status = await getDailyWinStatus()
-          setReadingCompletedToday(!!status.reading)
-          setMeditationCompletedToday(!!status.prayerMeditation)
-        } catch {}
-      } catch {
-        // ignore for now
+    loadData()
+
+    // Refresh when app comes to foreground
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        console.log('[MindScreen] App came to foreground, refreshing...')
+        loadData()
       }
-    })()
+      appState.current = nextAppState
+    })
+
+    return () => {
+      subscription.remove()
+    }
   }, [])
+
+  const handleRefresh = () => {
+    loadData(true)
+  }
 
   // live wins subscription to keep pills in sync
   useEffect(() => {
@@ -656,7 +700,20 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
       {/* Header rendered persistently in App */}
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView 
+        style={styles.scrollView} 
+        contentContainerStyle={styles.scrollContent} 
+        showsVerticalScrollIndicator={false} 
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#4A90E2"
+            colors={['#4A90E2']}
+          />
+        }
+      >
         {/* Mind Training Section */}
         <View style={styles.mindTrainingSection}>
           <View style={styles.mindTrainingHeader}>

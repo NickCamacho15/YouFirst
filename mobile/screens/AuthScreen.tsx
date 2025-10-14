@@ -17,6 +17,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  useWindowDimensions,
 } from "react-native"
 
 interface AuthScreenProps {
@@ -50,6 +51,11 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
   const groupNameRef = useRef<TextInput | null>(null)
   const accessCodeRef = useRef<TextInput | null>(null)
   const scrollRef = useRef<ScrollView | null>(null)
+
+  // Screen size awareness for responsive spacing on compact devices
+  const { height } = useWindowDimensions()
+  const isSmall = height < 700
+  const isTiny = height < 620
 
   // Keep focused fields visible by scrolling as focus changes
   const scrollToTop = () => scrollRef.current?.scrollTo({ y: 0, animated: true })
@@ -249,7 +255,10 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
       <KeyboardAvoidingView style={styles.keyboardAvoidingView} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={0}>
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[
+            styles.content,
+            { flexGrow: 1, paddingBottom: isSmall ? 20 : 32, paddingTop: isSmall ? 8 : 0 },
+          ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
@@ -257,32 +266,34 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
           scrollIndicatorInsets={{ bottom: 24 }}
         >
           {/* Logo Section */}
-          <View style={styles.logoSection}>
-            <Text style={styles.logo}>.uoY</Text>
-            <Text style={styles.tagline}>The Premium Personal Excellence Platform</Text>
+          <View style={[styles.logoSection, { marginTop: isSmall ? 8 : 24, marginBottom: isSmall ? 24 : 60 }]}>
+            <Text style={[styles.logo, { fontSize: isSmall ? 40 : 48 } ]}>.uoY</Text>
+            {!isTiny && (
+              <Text style={[styles.tagline, isSmall && { fontSize: 14 }]}>The Premium Personal Excellence Platform</Text>
+            )}
           </View>
 
           {/* Auth Card */}
-          <View style={styles.authCard}>
+          <View style={[styles.authCard, { padding: isSmall ? 20 : 32 }] }>
             <View style={styles.welcomeSection}>
-              <Text style={styles.welcomeTitle}>Welcome</Text>
-              <Text style={styles.welcomeSubtitle}>Focus on who you want to become</Text>
+              <Text style={[styles.welcomeTitle, isSmall && { fontSize: 24 } ]}>Welcome</Text>
+              <Text style={[styles.welcomeSubtitle, isSmall && { fontSize: 14 } ]}>Focus on who you want to become</Text>
             </View>
 
             {/* Tab Navigation */}
-            <View style={styles.tabContainer}>
+            <View style={[styles.tabContainer, { marginBottom: isSmall ? 20 : 32 }] }>
               <TouchableOpacity
                 style={[styles.tab, activeTab === "login" && styles.activeTab]}
                 onPress={() => setActiveTab("login")}
               >
-                <Text style={[styles.tabText, activeTab === "login" && styles.activeTabText]}>Login</Text>
+                <Text style={[styles.tabText, isSmall && { fontSize: 14 }, activeTab === "login" && styles.activeTabText]}>Login</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={[styles.tab, activeTab === "register" && styles.activeTab]}
                 onPress={() => setActiveTab("register")}
               >
-                <Text style={[styles.tabText, activeTab === "register" && styles.activeTabText]}>Register</Text>
+                <Text style={[styles.tabText, isSmall && { fontSize: 14 }, activeTab === "register" && styles.activeTabText]}>Register</Text>
               </TouchableOpacity>
             </View>
 
@@ -292,7 +303,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>Username</Text>
                   <TextInput
-                    style={styles.textInput}
+                    style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
                     placeholder="Choose a username"
                     placeholderTextColor="#999"
                     value={username}
@@ -311,7 +322,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>Email or Username</Text>
                   <TextInput
-                    style={styles.textInput}
+                    style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
                     placeholder="Enter your email or username"
                     placeholderTextColor="#999"
                     value={email || username}
@@ -342,7 +353,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>Email</Text>
                   <TextInput
-                    style={styles.textInput}
+                    style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
                     placeholder="Enter your email"
                     placeholderTextColor="#999"
                     value={email}
@@ -364,7 +375,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Password</Text>
                 <TextInput
-                  style={styles.textInput}
+                  style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
                   placeholder="Enter your password"
                   placeholderTextColor="#999"
                   value={password}
@@ -389,7 +400,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>Confirm Password</Text>
                   <TextInput
-                    style={styles.textInput}
+                    style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
                     placeholder="Confirm your password"
                     placeholderTextColor="#999"
                     value={confirmPassword}
@@ -430,7 +441,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                       <View style={styles.inputGroup}>
                         <Text style={styles.inputLabel}>Group Name</Text>
                         <TextInput
-                          style={styles.textInput}
+                          style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
                           placeholder="e.g., Alpha Cohort"
                           placeholderTextColor="#999"
                           value={groupName}
@@ -447,7 +458,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                       <View style={styles.inputGroup}>
                         <Text style={styles.inputLabel}>Access Code</Text>
                         <TextInput
-                          style={styles.textInput}
+                          style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
                           placeholder="6–12 letters/numbers (UPPERCASE)"
                           placeholderTextColor="#999"
                           value={accessCode}
@@ -468,7 +479,7 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                     <View style={styles.inputGroup}>
                       <Text style={styles.inputLabel}>Access Code</Text>
                       <TextInput
-                        style={styles.textInput}
+                        style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
                         placeholder="Enter code from your coach"
                         placeholderTextColor="#999"
                         value={accessCode}
@@ -515,9 +526,9 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
               </View>
 
               {/* Action buttons stacked */}
-              <View style={styles.actionsContainer}>
-                <TouchableOpacity style={[styles.submitButton, submitting && { opacity: 0.6 }]} disabled={submitting} onPress={activeTab === "login" ? handleSignIn : handleRegister}>
-                  <Text style={styles.submitButtonText}>
+              <View style={[styles.actionsContainer, { marginTop: isSmall ? 4 : 8 } ]}>
+                <TouchableOpacity style={[styles.submitButton, isSmall && { paddingVertical: 14 }, submitting && { opacity: 0.6 }]} disabled={submitting} onPress={activeTab === "login" ? handleSignIn : handleRegister}>
+                  <Text style={[styles.submitButtonText, isSmall && { fontSize: 15 } ]}>
                     {submitting ? "Please wait…" : activeTab === "login" ? "Sign In" : "Create Account"}
                   </Text>
                 </TouchableOpacity>

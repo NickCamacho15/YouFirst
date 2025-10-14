@@ -35,6 +35,22 @@ export function getPublicUrlFromStorage(bucket: string, path: string | null | un
   }
 }
 
+// Create a signed URL for private buckets
+export async function getSignedUrlFromStorage(
+  bucket: string,
+  path: string | null | undefined,
+  expiresInSeconds: number = 60 * 60 * 24 * 7 // 7 days
+): Promise<string | null> {
+  if (!path) return null
+  try {
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expiresInSeconds)
+    if (error) return null
+    return data?.signedUrl || null
+  } catch {
+    return null
+  }
+}
+
 // Upload a file (Uint8Array/Blob) to storage at a deterministic per-user path.
 // Returns the storage path (e.g., avatar/USER_ID/filename.jpg) and public URL if the bucket has public read.
 export async function uploadToStorage(
