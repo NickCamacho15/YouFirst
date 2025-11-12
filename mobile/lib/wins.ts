@@ -107,7 +107,11 @@ async function refreshWinsBetween(uid: string, startKey: string, endKeyInclusive
     .order('win_date')
   if (error) return new Set<string>()
   const set = new Set<string>()
-  for (const row of data || []) set.add(row.win_date)
+  for (const row of data || []) {
+    // Normalize to YYYY-MM-DD in case drivers return full timestamps
+    const key = String((row as any).win_date || '').slice(0, 10)
+    if (key) set.add(key)
+  }
   
   // Cache in memory
   cacheSet(cacheKey, set, 5 * 60 * 1000)
@@ -147,6 +151,17 @@ export async function markWon(dateKey?: string): Promise<void> {
   cacheInvalidatePrefix(`wins:${uid}:`)
   // Invalidate daily status cache for this date
   try { await AsyncStorage.removeItem(`winStatus:${uid}:${key}`) } catch {}
+  // Also invalidate persistent caches so UI refreshes immediately:
+  // - Remove any stored month wins sets (keys prefixed with wins:${uid}:)
+  // - Remove streaks cache so counters recompute
+  try {
+    const allKeys = await AsyncStorage.getAllKeys()
+    const winsPrefix = `wins:${uid}:`
+    const toRemove = allKeys.filter(k => k.startsWith(winsPrefix) || k === `${STREAKS_CACHE_KEY}_${uid}`)
+    if (toRemove.length) {
+      await AsyncStorage.multiRemove(toRemove)
+    }
+  } catch {}
   emitWinsChanged()
 }
 
@@ -167,6 +182,13 @@ export async function getStreaks(): Promise<{ current: number; best: number }> {
   } catch {}
   
   // No cache, fetch fresh
+  return await refreshStreaks(uid)
+}
+
+// Always fetch fresh streaks, bypassing cache (used after win events)
+export async function getStreaksFresh(): Promise<{ current: number; best: number }> {
+  const uid = await getCurrentUserId()
+  if (!uid) throw new Error('Not authenticated')
   return await refreshStreaks(uid)
 }
 

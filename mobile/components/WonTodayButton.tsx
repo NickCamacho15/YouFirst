@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from "react"
 import { View, Text, TouchableOpacity, StyleSheet, Alert, Modal } from "react-native"
-import { checkEligibility, hasWon, markWon, subscribeWins } from "../lib/wins"
+import { hasWon, markWon, subscribeWins } from "../lib/wins"
 import { subscribePersonalMastery } from "../lib/dashboard"
 import { toDateKey } from "../lib/wins"
 import ConfettiCannon from "react-native-confetti-cannon"
 
 const WonTodayButton: React.FC = () => {
   const [wonToday, setWonToday] = useState(false)
-  const [eligible, setEligible] = useState(false)
+  // Always allow pressing unless already won today
+  const [eligible, setEligible] = useState(true)
   const [loading, setLoading] = useState(false)
   const [hasAnyConfigured, setHasAnyConfigured] = useState(true)
   const [showCongrats, setShowCongrats] = useState(false)
@@ -19,11 +20,11 @@ const WonTodayButton: React.FC = () => {
       // Already won today disables button as well
       const already = await hasWon(key)
       if (already) { setWonToday(true); setEligible(false); return }
-      const elig = await checkEligibility(key)
+      // No requirements: always allow
       setWonToday(false)
-      setEligible(!!elig.allComplete)
-      setHasAnyConfigured(!!elig.hasAnyConfigured)
-    } catch { setWonToday(false); setEligible(false) }
+      setEligible(true)
+      setHasAnyConfigured(true)
+    } catch { setWonToday(false); setEligible(true) }
   }
 
   useEffect(() => {
@@ -37,29 +38,8 @@ const WonTodayButton: React.FC = () => {
   }, [])
 
   const onPress = async () => {
-    if (wonToday || !eligible) {
-      try {
-        const key = toDateKey(new Date())
-        // show granular message
-        const { allComplete, missing, hasAnyConfigured: anyConfig } = await checkEligibility(key)
-        if (wonToday) return
-        if (allComplete) { setEligible(true); return }
-        if (!anyConfig) {
-          Alert.alert('Create your daily routine first', 'Please create a daily routine and complete it to win the day!')
-          setHasAnyConfigured(false)
-          return
-        }
-        const parts: string[] = []
-        if (missing.morning) parts.push("Morning Priming")
-        if (missing.tasks) parts.push("Today's Tasks")
-        if (missing.evening) parts.push("Evening Reflection")
-        if ((missing as any).workout) parts.push("Move")
-        if ((missing as any).reading) parts.push("Read")
-        if ((missing as any).prayerMeditation) parts.push("Center")
-        Alert.alert("Finish today's items first", parts.length ? `You need to complete: ${parts.join(", ")}.` : "You need to complete all required items.")
-      } catch {
-        Alert.alert("Not ready yet", "Complete all morning, tasks, and evening items first.")
-      }
+    // No requirements: allow pressing unless already won
+    if (wonToday) {
       return
     }
     try {
@@ -80,7 +60,7 @@ const WonTodayButton: React.FC = () => {
     <View style={styles.container}>
       <TouchableOpacity style={[
         styles.winButton,
-        (wonToday ? styles.winButtonDisabled : (eligible ? styles.winButtonEnabled : styles.winButtonInfo)),
+        (wonToday ? styles.winButtonDisabled : styles.winButtonEnabled),
         (!hasAnyConfigured && !eligible && !wonToday) ? styles.winButtonSmall : undefined,
       ]} onPress={onPress} disabled={loading || wonToday}>
         <Text style={[
@@ -88,11 +68,7 @@ const WonTodayButton: React.FC = () => {
           wonToday ? styles.winButtonTextDisabled : (hasAnyConfigured ? styles.winButtonTextEnabled : styles.winButtonTextInfo)
         ]}>
           {loading ? 'Saving…' : (
-            wonToday ? 'You won today!' : (
-              eligible ? 'I Won Today' : (
-                hasAnyConfigured ? 'I Won Today' : 'Create a daily routine to get started.'
-              )
-            )
+            wonToday ? 'You won today!' : 'I Won Today'
           )}
         </Text>
       </TouchableOpacity>

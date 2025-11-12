@@ -338,15 +338,15 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
                   const daysRemaining = Math.max(0, c.duration_days - completedDays)
                   return (
                     <View key={c.id} style={styles.challengeItem}>
-                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                        <View>
+                      <View style={styles.challengeItemHeader}>
+                        <View style={styles.challengeItemHeaderLeft}>
                           <Text style={styles.challengeItemTitle}>{c.title}</Text>
                           {!!c.description && <Text style={styles.challengeItemSubtitle}>{c.description}</Text>}
                         </View>
-                        <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <View style={styles.challengeItemHeaderRight}>
                           <Text style={styles.challengeItemDay}>Day {dayNumber}</Text>
                           <Text style={styles.challengeItemOf}> of {c.duration_days}</Text>
-                          <TouchableOpacity onPress={async () => { try { await deleteChallenge(c.id); setChallenges((prev) => prev.filter((x) => x.id !== c.id)) } catch(e) { /* noop */ } }} style={{ paddingLeft: 10 }}>
+                          <TouchableOpacity onPress={async () => { try { await deleteChallenge(c.id); setChallenges((prev) => prev.filter((x) => x.id !== c.id)) } catch(e) { /* noop */ } }} style={styles.deleteBtn}>
                             <Ionicons name="trash" size={18} color="#EF4444" />
                           </TouchableOpacity>
                         </View>
@@ -391,7 +391,7 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
 
                       {/* Requirements */}
                       <View style={styles.requirementsCard}>
-                        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <View style={styles.requirementsHeader}>
                           <Text style={styles.requirementsTitle}>Today's Requirements</Text>
                           <Text style={styles.requirementsHint}>Complete all to win the day</Text>
                         </View>
@@ -908,6 +908,26 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 1,
   },
+  challengeItemHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    flexWrap: "wrap",
+  },
+  challengeItemHeaderLeft: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 8,
+  },
+  challengeItemHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+    marginTop: 4,
+  },
+  deleteBtn: {
+    paddingLeft: 10,
+  },
   challengeItemTitle: {
     fontSize: 18,
     fontWeight: "700",
@@ -991,6 +1011,13 @@ const styles = StyleSheet.create({
     padding: 12,
     marginTop: 12,
   },
+  requirementsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+    flexWrap: "wrap",
+  },
   requirementsTitle: {
     fontWeight: "700",
     color: "#111827",
@@ -998,6 +1025,9 @@ const styles = StyleSheet.create({
   requirementsHint: {
     color: "#6b7280",
     fontSize: 12,
+    flexShrink: 1,
+    textAlign: "right",
+    marginLeft: 8,
   },
   winButton: {
     height: 40,

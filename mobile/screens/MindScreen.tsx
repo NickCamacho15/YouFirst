@@ -29,6 +29,7 @@ import { listBooks, addBook, listInsights, addInsight, deleteBook, markBookCompl
 import { saveMeditationSession, getMeditationStats, getMilestonesWithStatus, awardEligibleMilestones, type MilestoneWithStatus } from "../lib/meditation"
 import { preloadSounds, playIntervalChime, playFinalBell } from "../lib/sounds"
 import { listTrackedApps, addTrackedApp, deleteTrackedApp, saveUsage, getUsageForRange, getMonthlyTotals, getStats, type TrackedApp } from "../lib/distraction"
+import { requestNotificationsPermissionIfNeeded, scheduleMeditationNotifications, cancelScheduledNotifications } from "../lib/meditation-notifications"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { apiCall } from "../lib/api-utils"
 
@@ -482,6 +483,7 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
   const [nextChimeIn, setNextChimeIn] = useState(0) // seconds
   const [medStartAt, setMedStartAt] = useState<Date | null>(null)
   const medLoopRef = useRef<NodeJS.Timeout | null>(null)
+  const medNotifIdsRef = useRef<string[]>([])
 
   // Persist meditation slider settings across app restarts
   useEffect(() => {
@@ -583,6 +585,8 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
 
   useEffect(() => {
     loadData()
+    // Prepare notifications permissions proactively
+    requestNotificationsPermissionIfNeeded().catch(() => {})
 
     // Refresh when app comes to foreground
     const subscription = AppState.addEventListener('change', nextAppState => {
@@ -686,6 +690,15 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
           playFinalBell()
           setMedPhase("complete")
           setMedActive(false)
+          // Clear any remaining scheduled notifications (final bell already played)
+          ;(async () => {
+            try {
+              if (medNotifIdsRef.current.length) {
+                await cancelScheduledNotifications(medNotifIdsRef.current)
+                medNotifIdsRef.current = []
+              }
+            } catch {}
+          })()
           // save (natural completion uses planned duration)
           const start = medStartAt || new Date()
           const total = meditationMinutes * 60
@@ -726,16 +739,13 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
         {/* Tab Navigation */}
         <View style={styles.tabContainer}>
           <TouchableOpacity style={[styles.tab, activeTab === "reading" && styles.activeTab]} onPress={() => setActiveTab("reading")}>
-            <Ionicons name="book-outline" size={20} color={activeTab === "reading" ? "#333" : "#999"} />
-            <Text numberOfLines={1} style={[styles.tabText, activeTab === "reading" && styles.activeTabText]}>Reading</Text>
+            <Ionicons name="book-outline" size={24} color="#4A90E2" />
           </TouchableOpacity>
           <TouchableOpacity style={[styles.tab, activeTab === "meditation" && styles.activeTab]} onPress={() => setActiveTab("meditation")}>
-            <Brain stroke={activeTab === "meditation" ? "#333" : "#999"} width={20} height={20} />
-            <Text numberOfLines={1} style={[styles.tabText, activeTab === "meditation" && styles.activeTabText]}>Meditation</Text>
+            <Brain stroke="#8B5CF6" width={24} height={24} />
           </TouchableOpacity>
           <TouchableOpacity style={[styles.tab, activeTab === "distraction" && styles.activeTab]} onPress={() => setActiveTab("distraction")}>
-            <Ionicons name="phone-portrait-outline" size={20} color={activeTab === "distraction" ? "#333" : "#999"} />
-            <Text numberOfLines={1} style={[styles.tabText, activeTab === "distraction" && styles.activeTabText]}>Distraction</Text>
+            <Ionicons name="phone-portrait-outline" size={24} color="#FF6B35" />
           </TouchableOpacity>
         </View>
 
@@ -800,6 +810,21 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
                 setMedActive(true)
                 setMedPhase(prepSeconds > 0 ? "prep" : "meditating")
                 if (prepSeconds === 0) { Vibration.vibrate(100) }
+                // Schedule local notifications for interval chimes and final bell (works in background/locked)
+                ;(async () => {
+                  try {
+                    // Cancel any previous stray schedules
+                    if (medNotifIdsRef.current.length) {
+                      await cancelScheduledNotifications(medNotifIdsRef.current)
+                      medNotifIdsRef.current = []
+                    }
+                    medNotifIdsRef.current = await scheduleMeditationNotifications({
+                      prepSeconds,
+                      intervalMinutes,
+                      meditationMinutes,
+                    })
+                  } catch {}
+                })()
               } else {
                 // End early
                 const start = medStartAt || new Date()
@@ -807,13 +832,33 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
                 setMedPhase("complete")
                 setMedActive(false)
                 setMedPaused(true)
+                // Cancel any pending notifications since session ended early
+                ;(async () => {
+                  try {
+                    if (medNotifIdsRef.current.length) {
+                      await cancelScheduledNotifications(medNotifIdsRef.current)
+                      medNotifIdsRef.current = []
+                    }
+                  } catch {}
+                })()
                 if (elapsed > 0) {
                   ;(async () => { await persistMeditationSession({ startedAt: start, durationSeconds: elapsed }) })()
                 }
               }
             }}
             onPauseResume={() => setMedPaused((p)=>!p)}
-            onDoneComplete={() => setMedPhase("idle")}
+            onDoneComplete={() => {
+              setMedPhase("idle")
+              // Ensure notifications are cleared when user dismisses completion
+              ;(async () => {
+                try {
+                  if (medNotifIdsRef.current.length) {
+                    await cancelScheduledNotifications(medNotifIdsRef.current)
+                    medNotifIdsRef.current = []
+                  }
+                } catch {}
+              })()
+            }}
             meditationCompletedToday={meditationCompletedToday}
           />
           </>

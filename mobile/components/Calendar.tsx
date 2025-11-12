@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons'
 import { addMonths, format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay } from 'date-fns';
-import { getWinsForMonth, subscribeWins, toDateKey, listDailyStatusesBetween, type DailyWinStatus, getDailyWinStatus, parseDateKey, getDailyWinDetails, type DailyWinDetails } from '../lib/wins'
+import { getWinsForMonth, subscribeWins, toDateKey, listDailyStatusesBetween, type DailyWinStatus, getDailyWinStatus, parseDateKey, getDailyWinDetails, type DailyWinDetails, hasWon } from '../lib/wins'
 import { useUser } from '../lib/user-context'
 
 export default function Calendar({ embedded }: { embedded?: boolean }) {
@@ -61,6 +61,12 @@ export default function Calendar({ embedded }: { embedded?: boolean }) {
         getWinsForMonth(currentDate).catch(() => new Set<string>()),
         listDailyStatusesBetween(startKey, endKey).catch(() => ({}))
       ])
+      // Fallback: ensure today's server state is reflected even if month query is stale
+      try {
+        const todayKey = toDateKey(new Date())
+        const already = await hasWon(todayKey)
+        if (already) newWonDays.add(todayKey)
+      } catch {}
       
       // Update wonDays only if changed
       setWonDays(prev => {
@@ -86,7 +92,22 @@ export default function Calendar({ embedded }: { embedded?: boolean }) {
     // Don't depend on 'loading' to avoid double-loads
     if (user) {
       load(false) // Initial load
-      unsub = subscribeWins(() => { load(true) }) // Force reload on win events
+      // Burst refresh on win events and optimistically set today green
+      const burst = () => {
+        // Optimistic: immediately mark today as won locally
+        try {
+          const todayKey = toDateKey(new Date())
+          setWonDays((prev) => {
+            if (prev.has(todayKey)) return prev
+            const next = new Set(prev); next.add(todayKey); return next
+          })
+        } catch {}
+        // Network refreshes to reconcile
+        load(true)
+        setTimeout(() => load(true), 350)
+        setTimeout(() => load(true), 1200)
+      }
+      unsub = subscribeWins(() => { burst() }) // Force reload on win events
     }
     return () => { if (unsub) unsub() }
   }, [currentDate, user?.id])

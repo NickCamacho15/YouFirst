@@ -1,8 +1,9 @@
 "use client"
 
 import type React from "react"
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, ActivityIndicator } from "react-native"
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, ActivityIndicator, AppState, Platform } from "react-native"
 import { useEffect, useState } from "react"
+import * as Notifications from "expo-notifications"
 import AuthScreen from "./screens/AuthScreen"
 import GoalsScreen from "./screens/GoalsScreen"
 import DisciplinesScreen from "./screens/DisciplinesScreen"
@@ -54,6 +55,27 @@ const App: React.FC = () => {
 
   // Detect existing session on cold start and respond to auth events
   useEffect(() => {
+    // Configure notifications: play sound only when backgrounded, create default channel on Android
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: false,
+        shouldPlaySound: AppState.currentState !== "active",
+        shouldSetBadge: false,
+      }),
+    })
+    if (Platform.OS === "android") {
+      ;(async () => {
+        try {
+          await Notifications.setNotificationChannelAsync("default", {
+            name: "Default",
+            importance: Notifications.AndroidImportance.HIGH,
+            vibrationPattern: [0, 200, 200, 200],
+            sound: "default",
+          })
+        } catch {}
+      })()
+    }
+
     let mounted = true
     ;(async () => {
       try {

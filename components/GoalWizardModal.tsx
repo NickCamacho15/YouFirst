@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Platform,
+  KeyboardAvoidingView,
 } from "react-native"
 
 export type GoalWizardData = {
@@ -219,7 +220,11 @@ const GoalWizardModal: React.FC<GoalWizardModalProps> = ({ visible, onClose, onC
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.modal}>
+        <KeyboardAvoidingView
+          style={styles.modal}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 40 : 0}
+        >
           <View style={[styles.progressTrack]}>
             <View style={[styles.progressFill, { width: `${progress * 100}%`, backgroundColor: accentColor }]} />
           </View>
@@ -233,25 +238,24 @@ const GoalWizardModal: React.FC<GoalWizardModalProps> = ({ visible, onClose, onC
               </View>
             ))}
           </View>
-          <ScrollView contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
+          <ScrollView contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             {contentByStep[stepIndex]}
+            <View style={[styles.footer, { marginTop: 16 }]}>
+              <TouchableOpacity onPress={stepIndex === 0 ? onClose : handleBack} style={[styles.footerBtn, styles.secondaryBtn]}>
+                <Text style={[styles.footerBtnText, { color: "#111827" }]}>{stepIndex === 0 ? "Cancel" : "Back"}</Text>
+              </TouchableOpacity>
+              {stepIndex < steps.length - 1 ? (
+                <TouchableOpacity onPress={handleNext} style={[styles.footerBtn, { backgroundColor: accentColor }]}>
+                  <Text style={styles.footerBtnText}>Next</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity onPress={handleCreate} style={[styles.footerBtn, { backgroundColor: accentColor }]}>
+                  <Text style={styles.footerBtnText}>Create Goal</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </ScrollView>
-
-          <View style={styles.footer}>
-            <TouchableOpacity onPress={stepIndex === 0 ? onClose : handleBack} style={[styles.footerBtn, styles.secondaryBtn]}>
-              <Text style={[styles.footerBtnText, { color: "#111827" }]}>{stepIndex === 0 ? "Cancel" : "Back"}</Text>
-            </TouchableOpacity>
-            {stepIndex < steps.length - 1 ? (
-              <TouchableOpacity onPress={handleNext} style={[styles.footerBtn, { backgroundColor: accentColor }]}>
-                <Text style={styles.footerBtnText}>Next</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity onPress={handleCreate} style={[styles.footerBtn, { backgroundColor: accentColor }]}>
-                <Text style={styles.footerBtnText}>Create Goal</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   )

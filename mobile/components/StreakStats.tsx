@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { useEffect, useRef, useState } from 'react'
-import { getStreaks, subscribeWins } from '../lib/wins'
+import { getStreaks, getStreaksFresh, subscribeWins } from '../lib/wins'
 
 const StreakStats = ({ embedded }: { embedded?: boolean }) => {
   const [current, setCurrent] = useState(0)
@@ -30,7 +30,18 @@ const StreakStats = ({ embedded }: { embedded?: boolean }) => {
     load(false)
 
     // Subsequent updates from win changes
-    const unsub = subscribeWins(() => { load(true) })
+    const unsub = subscribeWins(async () => {
+      // Fetch fresh (bypass cache) and then do a burst to reconcile any lag
+      try {
+        const s = await getStreaksFresh()
+        if (isActive) {
+          setCurrent(prev => s.current === prev ? prev : s.current)
+          setBest(prev => s.best === prev ? prev : s.best)
+        }
+      } catch {}
+      setTimeout(() => load(true), 350)
+      setTimeout(() => load(true), 1200)
+    })
 
     return () => { isActive = false; if (unsub) unsub() }
   }, [])

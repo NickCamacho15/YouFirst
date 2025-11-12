@@ -74,12 +74,15 @@ const EditEntityModal: React.FC<EditEntityModalProps> = ({ visible, title, accen
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.modal}>
+        <KeyboardAvoidingView
+          style={styles.modal}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+        >
           <View style={styles.headerRow}>
             <Text style={styles.title}>{title}</Text>
           </View>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             {fields.map((f) => {
               const type = f.type || "text"
               if (type === "date") {
@@ -129,18 +132,16 @@ const EditEntityModal: React.FC<EditEntityModalProps> = ({ visible, title, accen
                 </View>
               )
             })}
+            <View style={[styles.footer, { marginTop: 16 }]}>
+              <TouchableOpacity onPress={onClose} style={[styles.footerBtn, styles.secondaryBtn]}>
+                <Text style={[styles.footerBtnText, { color: "#111827" }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleSubmit} disabled={!canSubmit || saving} style={[styles.footerBtn, { backgroundColor: accentColor, opacity: !canSubmit || saving ? 0.7 : 1 }]}>
+                {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.footerPrimaryText}>{submitLabel}</Text>}
+              </TouchableOpacity>
+            </View>
           </ScrollView>
-          </KeyboardAvoidingView>
-
-          <View style={styles.footer}>
-            <TouchableOpacity onPress={onClose} style={[styles.footerBtn, styles.secondaryBtn]}>
-              <Text style={[styles.footerBtnText, { color: "#111827" }]}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleSubmit} disabled={!canSubmit || saving} style={[styles.footerBtn, { backgroundColor: accentColor, opacity: !canSubmit || saving ? 0.7 : 1 }]}>
-              {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.footerPrimaryText}>{submitLabel}</Text>}
-            </TouchableOpacity>
-          </View>
-        </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   )
