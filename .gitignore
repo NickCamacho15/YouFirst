@@ -1,3 +1,56 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env files
+.env
+.env.*
+!.env.example
+!.env.example.local
+
+# Node
+node_modules/
+web/node_modules/
+mobile/node_modules/
+*.tsbuildinfo
+
+# Next.js (root app)
+.next/
+out/
+.vercel/
+.turbo/
+.cache/
+
+# Next.js (web app)
+web/.next/
+web/out/
+web/.vercel/
+web/.turbo/
+
+# Expo / React Native (mobile)
+mobile/.expo/
+mobile/.expo-shared/
+mobile/.eas/
+mobile/dist/
+mobile/build/
+mobile/ios/
+mobile/android/
+mobile/.gradle/
+
+# Coverage / reports
+coverage/
+reports/
+
+# Editor
+.vscode/
+.idea/
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
