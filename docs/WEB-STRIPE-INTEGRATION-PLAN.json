@@ -1,0 +1,187 @@
+{
+  "goal": "Enable web-based account creation and subscription purchase with Stripe; mobile apps sign in via Supabase and unlock paid features based on Supabase-stored entitlements.",
+  "why_now": [
+    "Avoid in-app purchase fees and keep iOS app sign-in-only.",
+    "Centralize subscriptions in Stripe; store entitlements in Supabase for cross-platform access."
+  ],
+  "current_auth_inventory": {
+    "mobile": {
+      "supabase_client": "mobile/lib/supabase.ts",
+      "auth_flows": "mobile/lib/auth.ts (login, register, profile updates, helpers)",
+      "ui": "mobile/screens/AuthScreen.tsx",
+      "notes": [
+        "Email/password auth via Supabase.",
+        "Username->email resolution via RPC or table lookup.",
+        "Users mirrored into public.users with display_name/username.",
+        "Group/role setup via RPCs (create_admin_group, redeem_access_code, verify_user_setup)."
+      ]
+    },
+    "web": {
+      "status": "No auth implemented yet under web/; clean Next.js scaffold.",
+      "desired": "Supabase auth (email/password + OAuth later) using browser storage."
+    }
+  },
+  "compliance": {
+    "apple_ios": {
+      "policy": "No in-app steering to web payments in the iOS app. App provides sign-in to access subscriptions purchased on the web.",
+      "optional_external_links": "If ever pursued, use Apple’s external link entitlement and disclosures per region; outside MVP."
+    },
+    "pci": "Use Stripe-hosted Checkout and Customer Portal so card data never hits our servers.",
+    "privacy": "Store only minimal Stripe identifiers (customer_id, subscription_id) and status in Supabase."
+  },
+  "env_vars": [
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    "NEXT_PUBLIC_SITE_URL"
+  ],
+  "data_model": {
+    "tables": [
+      {
+        "name": "subscriptions",
+        "schema": [
+          "id uuid primary key default gen_random_uuid()",
+          "user_id uuid not null references auth.users(id) on delete cascade",
+          "stripe_customer_id text not null",
+          "stripe_subscription_id text unique",
+          "plan_id text not null", 
+          "price_id text not null",
+          "status text not null check (status in ('trialing','active','past_due','canceled','incomplete','incomplete_expired','unpaid'))",
+          "current_period_end timestamptz",
+          "cancel_at_period_end boolean default false",
+          "created_at timestamptz default now()",
+          "updated_at timestamptz default now()"
+        ],
+        "indexes": [
+          "create index on subscriptions(user_id)",
+          "create index on subscriptions(stripe_customer_id)",
+          "create index on subscriptions(stripe_subscription_id)"
+        ],
+        "rls": [
+          "enable row level security",
+          "policy user_can_read_own: select using (auth.uid() = user_id)",
+          "policy user_can_upsert_own: insert with check (auth.uid() = user_id)"
+        ]
+      },
+      {
+        "name": "stripe_events",
+        "schema": [
+          "id text primary key",
+          "type text not null",
+          "created_at timestamptz default now()",
+          "payload jsonb not null"
+        ],
+        "purpose": "Idempotency and audit log for webhook handling"
+      }
+    ],
+    "views": [
+      {
+        "name": "entitlements",
+        "definition": "select user_id, (status in ('trialing','active') and (current_period_end is null or current_period_end > now())) as is_active from subscriptions"
+      }
+    ]
+  },
+  "api_surface": [
+    {
+      "route": "POST /api/auth/register",
+      "auth": "anonymous",
+      "input": { "email": "string", "password": "string", "displayName": "string", "username": "string" },
+      "action": [
+        "Create Supabase user via service call or client-side; return session or require email verification depending on settings.",
+        "Create Stripe customer with metadata { supabaseUserId: <uuid>, email } if user session exists.",
+        "Upsert subscriptions row stub (no subscription_id yet)."
+      ],
+      "returns": { "ok": true, "userId": "uuid" }
+    },
+    {
+      "route": "POST /api/checkout",
+      "auth": "requires Supabase session (JWT or cookie) on web",
+      "input": { "priceId": "string", "mode": "subscription" },
+      "action": [
+        "Ensure Stripe customer exists for current user (lookup by user_id or create).",
+        "Create Checkout Session with success_url and cancel_url pointing to NEXT_PUBLIC_SITE_URL.",
+        "Return session.url."
+      ],
+      "returns": { "url": "https://checkout.stripe.com/..." }
+    },
+    {
+      "route": "POST /api/portal",
+      "auth": "requires Supabase session",
+      "action": ["Create a Stripe billing portal session for the user's customer id."],
+      "returns": { "url": "https://billing.stripe.com/..." }
+    },
+    {
+      "route": "POST /api/stripe/webhook",
+      "auth": "Stripe signatures only",
+      "events": [
+        "checkout.session.completed",
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+        "invoice.payment_succeeded",
+        "invoice.payment_failed"
+      ],
+      "action": [
+        "Verify signature.",
+        "Insert event into stripe_events if not processed (idempotency).",
+        "Upsert subscriptions row with subscription_id, status, current_period_end, cancel_at_period_end."
+      ],
+      "returns": { "received": true }
+    }
+  ],
+  "web_user_flow": [
+    "User visits /auth, signs up (Supabase) and lands on /pricing.",
+    "User selects plan; app POSTs /api/checkout and redirects to Stripe Checkout.",
+    "On success, Stripe redirects back to /success; UI polls or queries Supabase to confirm active entitlement.",
+    "User can manage billing at /account via /api/portal.",
+    "Mobile app: user signs in with Supabase and gains access based on entitlements view."
+  ],
+  "ui_pages": [
+    { "route": "/auth", "components": ["SignUpForm", "SignInForm"], "notes": "Supabase email/password; minimal friction." },
+    { "route": "/pricing", "components": ["PlanCard( monthly, yearly )", "CTA"] },
+    { "route": "/success", "components": ["StatusPoller", "NextSteps"], "notes": "Explain sign-in on mobile." },
+    { "route": "/account", "components": ["SubscriptionStatus", "ManageBillingButton"], "auth": "required" }
+  ],
+  "server_implementation": {
+    "framework": "Next.js route handlers (web/app/api/*)",
+    "stripe_sdk": "@stripe/stripe-js on client (only for redirect) and stripe on server with STRIPE_SECRET_KEY",
+    "supabase_server": "Use SUPABASE_SERVICE_ROLE_KEY in server routes/webhooks for writes; client uses anon key",
+    "security": [
+      "Verify Stripe webhook signature.",
+      "Do not expose price IDs or amounts in the client except via a server-validated map.",
+      "Rate-limit checkout and portal endpoints (Basic token bucket)."
+    ]
+  },
+  "step_by_step": [
+    { "id": "S1", "title": "Create Supabase client for web", "tasks": ["web/lib/supabase.ts with browser storage", "load env vars NEXT_PUBLIC_*"] },
+    { "id": "S2", "title": "Create Stripe products/prices", "tasks": ["Monthly, Yearly prices", "Copy price IDs to server config map"] },
+    { "id": "S3", "title": "Add env and secrets", "tasks": ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "SUPABASE_*", "NEXT_PUBLIC_SITE_URL"] },
+    { "id": "S4", "title": "Create DB tables and RLS", "tasks": ["subscriptions", "stripe_events", "entitlements view"] },
+    { "id": "S5", "title": "Auth pages", "tasks": ["Build /auth with sign up/in via Supabase", "Redirect to /pricing when signed in"] },
+    { "id": "S6", "title": "Checkout endpoint", "tasks": ["POST /api/checkout", "Ensure customer", "Create checkout session", "Redirect"] },
+    { "id": "S7", "title": "Webhook handler", "tasks": ["POST /api/stripe/webhook", "Verify signature", "Upsert subscription status", "Idempotency via stripe_events"] },
+    { "id": "S8", "title": "Account & portal", "tasks": ["GET status from entitlements", "POST /api/portal to get portal URL"] },
+    { "id": "S9", "title": "Mobile entitlement check", "tasks": ["On login fetch entitlements in mobile", "Gate premium features"] },
+    { "id": "S10", "title": "QA scenarios", "tasks": ["New signup→checkout→active", "Cancel at period end", "Payment failed", "Resume", "Refund", "Webhooks retry"] },
+    { "id": "S11", "title": "Prod readiness", "tasks": ["Add monitoring/logging", "Backfill scripts", "Disaster recovery notes"] }
+  ],
+  "acceptance_criteria": [
+    "User can create an account on web and purchase a subscription.",
+    "Stripe webhook marks subscription active in Supabase within seconds.",
+    "Account page shows correct status; portal link works.",
+    "Mobile app sign-in unlocks premium based on entitlements without code changes to Apple billing."
+  ],
+  "future_options": [
+    "Offer trials/coupons via Stripe.",
+    "Apple external link entitlement for iOS (region-specific, optional).",
+    "Provider abstraction (Paddle) if we want MoR later."
+  ],
+  "risks": [
+    "Webhook delivery delays—UI should poll or refresh status after return.",
+    "Regional policy changes—keep copy iOS-neutral and avoid steering.",
+    "RLS misconfig—test reads/writes from both client and webhook using service role."
+  ]
+}
+

@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { login, register } from "../lib/auth"
-import { supabase, REMEMBER_ME_KEY } from "../lib/supabase"
+import { login } from "../lib/auth"
+import { REMEMBER_ME_KEY } from "../lib/supabase"
 // Biometrics removed
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useUser } from "../lib/user-context"
@@ -28,28 +28,16 @@ const CACHE_KEY = "youfirst_cached_user_v1" // Same key as UserProvider
 
 const AuthScreen = ({ onLogin }: AuthScreenProps) => {
   const { refresh } = useUser()
-  const [activeTab, setActiveTab] = useState("login")
-  const [email, setEmail] = useState("")
+  const [identifier, setIdentifier] = useState("")
   const [password, setPassword] = useState("")
-  const [username, setUsername] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
 
   const [submitting, setSubmitting] = useState(false)
   const [rememberMe, setRememberMe] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Role + group/access code (registration)
-  const [registerRole, setRegisterRole] = useState<'admin' | 'user'>('user')
-  const [groupName, setGroupName] = useState("")
-  const [accessCode, setAccessCode] = useState("")
-
   // Refs to control focus order so fields scroll into view automatically
-  const usernameRef = useRef<TextInput | null>(null)
-  const emailRef = useRef<TextInput | null>(null)
+  const identifierRef = useRef<TextInput | null>(null)
   const passwordRef = useRef<TextInput | null>(null)
-  const confirmRef = useRef<TextInput | null>(null)
-  const groupNameRef = useRef<TextInput | null>(null)
-  const accessCodeRef = useRef<TextInput | null>(null)
   const scrollRef = useRef<ScrollView | null>(null)
 
   // Screen size awareness for responsive spacing on compact devices
@@ -65,24 +53,20 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
   // Autofocus the first relevant field when tab changes or on mount
   useEffect(() => {
     const t = setTimeout(() => {
-      if (activeTab === "register") {
-        usernameRef.current?.focus()
-      } else {
-        emailRef.current?.focus()
-      }
+      identifierRef.current?.focus()
     }, 250)
     return () => clearTimeout(t)
-  }, [activeTab])
+  }, [])
 
   const handleSignIn = async () => {
-    if (!(email || username) || !password) return
+    if (!identifier || !password) return
     setSubmitting(true)
     setError(null)
     try {
-      const identifier = activeTab === "login" ? (email || username) : email
+      const trimmedIdentifier = identifier.trim()
       // Give login adequate time because username→email resolution may need a network roundtrip
       const result = await Promise.race([
-        login({ identifier: identifier || "", password }),
+        login({ identifier: trimmedIdentifier, password }),
         new Promise((_, reject) => setTimeout(() => reject(new Error("Login is taking longer than expected. Please try again.")), 15000)),
       ])
       // Biometrics disabled: do not prompt to enable
@@ -103,148 +87,6 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
     setError(null)
     setSubmitting(false)
   }, [])
-
-  const handleRegister = async () => {
-    // Basic validation
-    if (!email || !username || !password || password !== confirmPassword) {
-      setError(!email || !username || !password ? "Please fill all fields" : "Passwords do not match")
-      return
-    }
-    // Role-specific validation
-    const normalizedCode = accessCode.trim().toUpperCase()
-    const adminCodeValid = /^[A-Z0-9]{6,12}$/.test(normalizedCode)
-    if (registerRole === 'admin') {
-      if (!groupName.trim()) { setError("Group name is required") ; return }
-      if (!adminCodeValid) { setError("Access code must be 6–12 uppercase letters/numbers") ; return }
-    } else {
-      if (!normalizedCode) { setError("Access code is required") ; return }
-    }
-    setSubmitting(true)
-    setError(null)
-    try {
-      // Register the user
-      await register({ email, username, displayName: email.split("@")[0], password })
-      
-      // Wait for auth session to be fully established
-      let sessionReady = false
-      for (let i = 0; i < 20; i++) {
-        const { data: sess } = await supabase.auth.getSession()
-        if (sess.session?.access_token) {
-          sessionReady = true
-          break
-        }
-        await new Promise(r => setTimeout(r, 200))
-      }
-      
-      if (!sessionReady) {
-        // Try to sign in to establish session
-        await supabase.auth.signInWithPassword({ email, password })
-        await new Promise(r => setTimeout(r, 500))
-      }
-
-      // Call the appropriate RPC based on role
-      const { data: rpcData, error: rpcError } = await (async () => {
-        if (registerRole === 'admin') {
-          return await supabase.rpc('create_admin_group', { 
-            p_name: groupName.trim(), 
-            p_access_code: normalizedCode 
-          })
-        } else {
-          return await supabase.rpc('redeem_access_code', { 
-            p_access_code: normalizedCode 
-          })
-        }
-      })()
-
-      if (rpcError) {
-        console.error('RPC Error:', rpcError)
-        
-        // If authentication error, try to sign in and retry once
-        if (rpcError.message?.toLowerCase().includes('not authenticated')) {
-          await supabase.auth.signInWithPassword({ email, password })
-          await new Promise(r => setTimeout(r, 500))
-          
-          // Retry the RPC call
-          const { data: retryData, error: retryError } = await (async () => {
-            if (registerRole === 'admin') {
-              return await supabase.rpc('create_admin_group', { 
-                p_name: groupName.trim(), 
-                p_access_code: normalizedCode 
-              })
-            } else {
-              return await supabase.rpc('redeem_access_code', { 
-                p_access_code: normalizedCode 
-              })
-            }
-          })()
-          
-          if (retryError) {
-            throw new Error(retryError.message || 'Failed to complete registration')
-          }
-        } else {
-          throw new Error(rpcError.message || 'Failed to complete registration')
-        }
-      }
-
-      // Verify the user setup is complete
-      let setupVerified = false
-      let verifiedUserData: any = null
-      for (let i = 0; i < 10; i++) {
-        const { data: userVerify } = await supabase.rpc('verify_user_setup')
-        if (userVerify && userVerify.length > 0) {
-          const user = userVerify[0]
-          if (user.role && (registerRole === 'user' ? user.group_id : true)) {
-            setupVerified = true
-            verifiedUserData = user
-            break
-          }
-        }
-        await new Promise(r => setTimeout(r, 300))
-      }
-
-      if (!setupVerified) {
-        console.warn('User setup verification failed, but proceeding anyway')
-      }
-
-      // Persist remember-me preference after successful registration
-      try { await AsyncStorage.setItem(REMEMBER_ME_KEY, rememberMe ? '1' : '0') } catch {}
-
-      // Cache the verified user data so UserProvider loads it immediately
-      // This prevents the "glitch" where the app renders with no data then suddenly loads it
-      if (setupVerified && verifiedUserData) {
-        try {
-          const userToCache = {
-            id: verifiedUserData.user_id,
-            email: verifiedUserData.email,
-            username: verifiedUserData.username,
-            displayName: verifiedUserData.email.split('@')[0],
-            role: verifiedUserData.role,
-            groupId: verifiedUserData.group_id,
-            profileImageUrl: null,
-          }
-          await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(userToCache))
-        } catch (e) {
-          console.warn('Failed to cache user data:', e)
-        }
-      }
-
-      // Biometrics disabled
-      
-      // Immediately refresh user context to load the new role
-      try {
-        await refresh()
-      } catch (e) {
-        console.warn('Failed to refresh user context after registration:', e)
-      }
-      
-      onLogin()
-    } catch (e: any) {
-      console.error('Registration error:', e)
-      setError(e?.message || "Registration failed. Please try again.")
-    } finally {
-      setSubmitting(false)
-    }
-  }
 
   // No auto biometric here; gating will be in app shell
 
@@ -280,97 +122,27 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
               <Text style={[styles.welcomeSubtitle, isSmall && { fontSize: 14 } ]}>Focus on who you want to become</Text>
             </View>
 
-            {/* Tab Navigation */}
-            <View style={[styles.tabContainer, { marginBottom: isSmall ? 20 : 32 }] }>
-              <TouchableOpacity
-                style={[styles.tab, activeTab === "login" && styles.activeTab]}
-                onPress={() => setActiveTab("login")}
-              >
-                <Text style={[styles.tabText, isSmall && { fontSize: 14 }, activeTab === "login" && styles.activeTabText]}>Login</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.tab, activeTab === "register" && styles.activeTab]}
-                onPress={() => setActiveTab("register")}
-              >
-                <Text style={[styles.tabText, isSmall && { fontSize: 14 }, activeTab === "register" && styles.activeTabText]}>Register</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Form Fields */}
             <View style={styles.formContainer}>
-              {activeTab === "register" ? (
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Username</Text>
-                  <TextInput
-                    style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
-                    placeholder="Choose a username"
-                    placeholderTextColor="#999"
-                    value={username}
-                    onChangeText={setUsername}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    ref={usernameRef}
-                    autoFocus={activeTab === "register"}
-                    returnKeyType="next"
-                    blurOnSubmit={false}
-                    onSubmitEditing={() => emailRef.current?.focus()}
-                    onFocus={scrollToTop}
-                  />
-                </View>
-              ) : (
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Email or Username</Text>
-                  <TextInput
-                    style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
-                    placeholder="Enter your email or username"
-                    placeholderTextColor="#999"
-                    value={email || username}
-                    onChangeText={(v) => {
-                      // heuristically set email or username field
-                      if (v.includes("@")) {
-                        setEmail(v)
-                        setUsername("")
-                      } else {
-                        setUsername(v)
-                        setEmail("")
-                      }
-                    }}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    ref={emailRef}
-                    autoFocus={activeTab === "login"}
-                    textContentType={Platform.OS === "ios" ? "none" : "none"}
-                    autoComplete="off"
-                    returnKeyType="next"
-                    blurOnSubmit={false}
-                    onSubmitEditing={() => passwordRef.current?.focus()}
-                    onFocus={scrollToMid}
-                  />
-                </View>
-              )}
-              {activeTab === "register" && (
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Email</Text>
-                  <TextInput
-                    style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
-                    placeholder="Enter your email"
-                    placeholderTextColor="#999"
-                    value={email}
-                    onChangeText={setEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    textContentType={Platform.OS === "ios" ? "none" : "none"}
-                    autoComplete="off"
-                    ref={emailRef}
-                    returnKeyType="next"
-                    blurOnSubmit={false}
-                    onSubmitEditing={() => passwordRef.current?.focus()}
-                    onFocus={scrollToMid}
-                  />
-                </View>
-              )}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Email or Username</Text>
+                <TextInput
+                  style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
+                  placeholder="Enter your email or username"
+                  placeholderTextColor="#999"
+                  value={identifier}
+                  onChangeText={setIdentifier}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  ref={identifierRef}
+                  autoFocus
+                  textContentType={Platform.OS === "ios" ? "none" : "none"}
+                  autoComplete="off"
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => passwordRef.current?.focus()}
+                  onFocus={scrollToMid}
+                />
+              </View>
 
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Password</Text>
@@ -383,118 +155,22 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                   secureTextEntry
                   autoCapitalize="none"
                   autoCorrect={false}
-                  textContentType={Platform.OS === "ios" ? (activeTab === 'register' ? 'oneTimeCode' : 'password') : 'none'}
-                  autoComplete={activeTab === 'register' ? 'off' : 'password'}
+                  textContentType={Platform.OS === "ios" ? 'password' : 'none'}
+                  autoComplete="password"
                   ref={passwordRef}
-                  returnKeyType={activeTab === "register" ? "next" : "done"}
-                  blurOnSubmit={activeTab !== "register"}
-                  onSubmitEditing={() => {
-                    if (activeTab === "register") confirmRef.current?.focus()
-                    else handleSignIn()
-                  }}
+                  returnKeyType="done"
+                  blurOnSubmit={false}
+                  onSubmitEditing={handleSignIn}
                   onFocus={scrollToBottom}
                 />
               </View>
 
-              {activeTab === "register" && (
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Confirm Password</Text>
-                  <TextInput
-                    style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
-                    placeholder="Confirm your password"
-                    placeholderTextColor="#999"
-                    value={confirmPassword}
-                    onChangeText={setConfirmPassword}
-                    secureTextEntry
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    textContentType={Platform.OS === "ios" ? "none" : "none"}
-                    autoComplete="off"
-                    ref={confirmRef}
-                    returnKeyType="done"
-                    onSubmitEditing={handleRegister}
-                    onFocus={scrollToBottom}
-                  />
-                </View>
-              )}
-
-              {activeTab === "register" && (
-                <View style={{ gap: 12 }}>
-                  <Text style={styles.inputLabel}>Role</Text>
-                  <View style={styles.tabContainer}>
-                    <TouchableOpacity
-                      style={[styles.tab, registerRole === 'user' && styles.activeTab]}
-                      onPress={() => setRegisterRole('user')}
-                    >
-                      <Text style={[styles.tabText, registerRole === 'user' && styles.activeTabText]}>User</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.tab, registerRole === 'admin' && styles.activeTab]}
-                      onPress={() => setRegisterRole('admin')}
-                    >
-                      <Text style={[styles.tabText, registerRole === 'admin' && styles.activeTabText]}>Admin</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {registerRole === 'admin' && (
-                    <View style={{ gap: 16 }}>
-                      <View style={styles.inputGroup}>
-                        <Text style={styles.inputLabel}>Group Name</Text>
-                        <TextInput
-                          style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
-                          placeholder="e.g., Alpha Cohort"
-                          placeholderTextColor="#999"
-                          value={groupName}
-                          onChangeText={setGroupName}
-                          autoCapitalize="words"
-                          autoCorrect={false}
-                          ref={groupNameRef}
-                          returnKeyType="next"
-                          blurOnSubmit={false}
-                          onSubmitEditing={() => accessCodeRef.current?.focus()}
-                          onFocus={scrollToBottom}
-                        />
-                      </View>
-                      <View style={styles.inputGroup}>
-                        <Text style={styles.inputLabel}>Access Code</Text>
-                        <TextInput
-                          style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
-                          placeholder="6–12 letters/numbers (UPPERCASE)"
-                          placeholderTextColor="#999"
-                          value={accessCode}
-                          onChangeText={(v) => setAccessCode(v.toUpperCase())}
-                          autoCapitalize="characters"
-                          autoCorrect={false}
-                          maxLength={12}
-                          ref={accessCodeRef}
-                          returnKeyType="done"
-                          onSubmitEditing={handleRegister}
-                          onFocus={scrollToBottom}
-                        />
-                      </View>
-                    </View>
-                  )}
-
-                  {registerRole === 'user' && (
-                    <View style={styles.inputGroup}>
-                      <Text style={styles.inputLabel}>Access Code</Text>
-                      <TextInput
-                        style={[styles.textInput, isSmall && { paddingVertical: 14 } ]}
-                        placeholder="Enter code from your coach"
-                        placeholderTextColor="#999"
-                        value={accessCode}
-                        onChangeText={(v) => setAccessCode(v.toUpperCase())}
-                        autoCapitalize="characters"
-                        autoCorrect={false}
-                        ref={accessCodeRef}
-                        returnKeyType="done"
-                        onSubmitEditing={handleRegister}
-                        onFocus={scrollToBottom}
-                      />
-                    </View>
-                  )}
-                </View>
-              )}
+              <View style={{ gap: 8 }}>
+                <Text style={{ color: '#666', fontSize: 13 }}>
+                  Need an account? Complete registration on the YouFirst website to stay compliant with App Store rules.
+                  Payments happen on the web, then you sign in here.
+                </Text>
+              </View>
 
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
               {/* Remember Me toggle (applies to both login and register) */}

@@ -19,7 +19,7 @@ import WeeklyPerformance from "./components/WeeklyPerformance"
 import DailyRoutines from "./components/DailyRoutines"
 import PersonalMasteryDashboard from "./components/PersonalMasteryDashboard"
 import TopHeader from "./components/TopHeader"
-import { UserProvider } from "./lib/user-context"
+import { UserProvider, useUser } from "./lib/user-context"
 import { supabase, REMEMBER_ME_KEY } from "./lib/supabase"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { getTodaySummary, getActivityGoals } from "./lib/dashboard"
@@ -123,108 +123,153 @@ const App: React.FC = () => {
 
   return (
     <UserProvider key={`provider-${appEpoch}`}>
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" />
-        
-        <TopHeader onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-        {/* Keep screens mounted to avoid refetch/re-render on tab return; toggle visibility instead */}
-        <View style={{ flex: 1 }}>
-          <ScrollView
-            style={[styles.scrollView, currentScreen === "home" ? undefined : styles.hidden]}
-            showsVerticalScrollIndicator={false}
-          >
-            <Calendar />
-            <StreakStats />
-            <WonTodayButton />
-            <DailyRoutines />
-            <WeeklyPerformance />
-            <PersonalMasteryDashboard />
-          </ScrollView>
+      <SubscriptionGate onLogout={handleLogout}>
+        <SafeAreaView style={styles.container}>
+          <StatusBar barStyle="dark-content" />
+          
+          <TopHeader onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
+          {/* Keep screens mounted to avoid refetch/re-render on tab return; toggle visibility instead */}
+          <View style={{ flex: 1 }}>
+            <ScrollView
+              style={[styles.scrollView, currentScreen === "home" ? undefined : styles.hidden]}
+              showsVerticalScrollIndicator={false}
+            >
+              <Calendar />
+              <StreakStats />
+              <WonTodayButton />
+              <DailyRoutines />
+              <WeeklyPerformance />
+              <PersonalMasteryDashboard />
+            </ScrollView>
 
-          <View style={currentScreen === "goals" ? styles.visible : styles.hidden}>
-            <GoalsScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-          </View>
-          <View style={currentScreen === "disciplines" ? styles.visible : styles.hidden}>
-            <DisciplinesScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-          </View>
-          <View style={currentScreen === "mind" ? styles.visible : styles.hidden}>
-            <MindScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
-          </View>
-          <View style={currentScreen === "body" ? styles.visible : styles.hidden}>
-            <BodyScreen 
-              key={`body-${bodyEpoch}`}
-              onLogout={handleLogout} 
-              onOpenProfile={() => setCurrentScreen("profile")} 
-              activeEpoch={bodyEpoch}
-              navigation={{
-                navigate: (screen: string) => setCurrentScreen(screen)
-              }}
-            />
-          </View>
-          <View style={currentScreen === "profile" ? styles.visible : styles.hidden}>
-            <ProfileScreen onLogout={handleLogout} />
-          </View>
-          {currentScreen === "ActiveWorkout" && (
-            <View style={styles.visible}>
-              <ActiveWorkoutScreen 
+            <View style={currentScreen === "goals" ? styles.visible : styles.hidden}>
+              <GoalsScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
+            </View>
+            <View style={currentScreen === "disciplines" ? styles.visible : styles.hidden}>
+              <DisciplinesScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
+            </View>
+            <View style={currentScreen === "mind" ? styles.visible : styles.hidden}>
+              <MindScreen onLogout={handleLogout} onOpenProfile={() => setCurrentScreen("profile")} />
+            </View>
+            <View style={currentScreen === "body" ? styles.visible : styles.hidden}>
+              <BodyScreen 
+                key={`body-${bodyEpoch}`}
+                onLogout={handleLogout} 
+                onOpenProfile={() => setCurrentScreen("profile")} 
+                activeEpoch={bodyEpoch}
                 navigation={{
-                  navigate: (screen: string) => setCurrentScreen(screen),
-                  goBack: () => setCurrentScreen("body")
+                  navigate: (screen: string) => setCurrentScreen(screen)
                 }}
-                onCompleted={() => setBodyEpoch((e) => e + 1)}
               />
             </View>
+            <View style={currentScreen === "profile" ? styles.visible : styles.hidden}>
+              <ProfileScreen onLogout={handleLogout} />
+            </View>
+            {currentScreen === "ActiveWorkout" && (
+              <View style={styles.visible}>
+                <ActiveWorkoutScreen 
+                  navigation={{
+                    navigate: (screen: string) => setCurrentScreen(screen),
+                    goBack: () => setCurrentScreen("body")
+                  }}
+                  onCompleted={() => setBodyEpoch((e) => e + 1)}
+                />
+              </View>
+            )}
+          </View>
+          <View style={styles.bottomNavContainer}>
+            <View style={styles.bottomNavigation}>
+              <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("disciplines")}>
+                <View style={styles.navIconContainer}>
+                  <Mountain stroke="#777" width={24} height={24} />
+                </View>
+                <Text style={styles.navLabel}>Disciplines</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("goals")}>
+                <View style={styles.navIconContainer}>
+                  <Target stroke="#777" width={24} height={24} />
+                </View>
+                <Text style={styles.navLabel}>Goals</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.centerNavItem} onPress={() => setCurrentScreen("home")}>
+                <View style={styles.centerButton}>
+                  <Text style={styles.centerButtonText}>.uoY</Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("mind")}>
+                <View style={styles.navIconContainer}>
+                  <Brain stroke="#777" width={24} height={24} />
+                </View>
+                <Text style={styles.navLabel}>Mind</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.navItem} onPress={() => { setCurrentScreen("body"); setBodyEpoch((e) => e + 1) }}>
+                <View style={styles.navIconContainer}>
+                  <Dumbbell stroke="#777" width={24} height={24} />
+                </View>
+                <Text style={styles.navLabel}>Body</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.navIndicator}>
+              {currentScreen === "disciplines" && <View style={[styles.indicatorLine, { left: "0%", width: "20%" }]} />}
+              {currentScreen === "goals" && <View style={[styles.indicatorLine, { left: "20%", width: "20%" }]} />}
+              {currentScreen === "home" && <View style={[styles.indicatorLine, { left: "40%", width: "20%" }]} />}
+              {currentScreen === "mind" && <View style={[styles.indicatorLine, { left: "60%", width: "20%" }]} />}
+              {currentScreen === "body" && <View style={[styles.indicatorLine, { left: "80%", width: "20%" }]} />}
+            </View>
+          </View>
+          {showStartupOverlay && (
+            <View style={styles.startupOverlay}>
+              <Image source={require('./assets/you-icon.png')} style={styles.overlayLogo} resizeMode="contain" />
+              <ActivityIndicator size="small" color="#888" style={{ marginTop: 16 }} />
+            </View>
           )}
-        </View>
-        <View style={styles.bottomNavContainer}>
-          <View style={styles.bottomNavigation}>
-            <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("disciplines")}>
-              <View style={styles.navIconContainer}>
-                <Mountain stroke="#777" width={24} height={24} />
-              </View>
-              <Text style={styles.navLabel}>Disciplines</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("goals")}>
-              <View style={styles.navIconContainer}>
-                <Target stroke="#777" width={24} height={24} />
-              </View>
-              <Text style={styles.navLabel}>Goals</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.centerNavItem} onPress={() => setCurrentScreen("home")}>
-              <View style={styles.centerButton}>
-                <Text style={styles.centerButtonText}>.uoY</Text>
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.navItem} onPress={() => setCurrentScreen("mind")}>
-              <View style={styles.navIconContainer}>
-                <Brain stroke="#777" width={24} height={24} />
-              </View>
-              <Text style={styles.navLabel}>Mind</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.navItem} onPress={() => { setCurrentScreen("body"); setBodyEpoch((e) => e + 1) }}>
-              <View style={styles.navIconContainer}>
-                <Dumbbell stroke="#777" width={24} height={24} />
-              </View>
-              <Text style={styles.navLabel}>Body</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.navIndicator}>
-            {currentScreen === "disciplines" && <View style={[styles.indicatorLine, { left: "0%", width: "20%" }]} />}
-            {currentScreen === "goals" && <View style={[styles.indicatorLine, { left: "20%", width: "20%" }]} />}
-            {currentScreen === "home" && <View style={[styles.indicatorLine, { left: "40%", width: "20%" }]} />}
-            {currentScreen === "mind" && <View style={[styles.indicatorLine, { left: "60%", width: "20%" }]} />}
-            {currentScreen === "body" && <View style={[styles.indicatorLine, { left: "80%", width: "20%" }]} />}
-          </View>
-        </View>
-        {showStartupOverlay && (
-          <View style={styles.startupOverlay}>
-            <Image source={require('./assets/you-icon.png')} style={styles.overlayLogo} resizeMode="contain" />
-            <ActivityIndicator size="small" color="#888" style={{ marginTop: 16 }} />
-          </View>
-        )}
-      </SafeAreaView>
+        </SafeAreaView>
+      </SubscriptionGate>
     </UserProvider>
   )
+}
+
+const SubscriptionGate: React.FC<{ children: React.ReactNode; onLogout: () => void }> = ({ children, onLogout }) => {
+  const { user, refresh, loading } = useUser()
+  const [refreshing, setRefreshing] = useState(false)
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.loadingGate}>
+        <ActivityIndicator size="large" color="#000" />
+      </SafeAreaView>
+    )
+  }
+
+  if (!user?.hasActiveSubscription) {
+    const handleRefresh = async () => {
+      setRefreshing(true)
+      try {
+        await refresh()
+      } finally {
+        setRefreshing(false)
+      }
+    }
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.subscriptionCard}>
+          <Text style={styles.subscriptionTitle}>Subscription Required</Text>
+          <Text style={styles.subscriptionCopy}>
+            Access requires an active membership purchased on the YouFirst website. Once your Stripe payment is complete,
+            tap refresh and sign back into the mobile app.
+          </Text>
+          <TouchableOpacity style={[styles.submitButton, refreshing && { opacity: 0.6 }]} onPress={handleRefresh} disabled={refreshing}>
+            <Text style={styles.submitButtonText}>{refreshing ? "Refreshing…" : "Refresh Status"}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryButton} onPress={onLogout}>
+            <Text style={styles.secondaryButtonText}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    )
+  }
+
+  return <>{children}</>
 }
 
 const styles = StyleSheet.create({
@@ -321,6 +366,33 @@ const styles = StyleSheet.create({
   overlayLogo: {
     width: 96,
     height: 96,
+  },
+  loadingGate: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f8f9fa",
+  },
+  subscriptionCard: {
+    margin: 24,
+    padding: 24,
+    borderRadius: 20,
+    backgroundColor: "#fff",
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    elevation: 5,
+    gap: 16,
+  },
+  subscriptionTitle: {
+    fontSize: 24,
+    fontWeight: "600",
+    color: "#111",
+  },
+  subscriptionCopy: {
+    fontSize: 16,
+    color: "#444",
+    lineHeight: 22,
   },
 })
 

@@ -7,13 +7,6 @@ export interface LoginPayload {
   password: string
 }
 
-export interface RegisterPayload {
-  email: string
-  displayName: string
-  username: string
-  password: string
-}
-
 export interface User {
   id: string
   email: string
@@ -24,6 +17,9 @@ export interface User {
   groupId?: string | null
   // ISO timestamp when the user account (row in public.users) was created
   createdAt?: string
+  hasActiveSubscription?: boolean
+  subscriptionStatus?: string | null
+  subscriptionExpiresAt?: string | null
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label?: string): Promise<T> {
@@ -61,6 +57,30 @@ async function upsertUserRow(user: { id: string; email: string; displayName?: st
   } catch (err: any) {
     // eslint-disable-next-line no-console
     console.warn("Upsert users row exception:", err?.message || String(err))
+  }
+}
+
+async function fetchEntitlementState(userId: string): Promise<Pick<User, 'hasActiveSubscription' | 'subscriptionStatus' | 'subscriptionExpiresAt'>> {
+  try {
+    const [entitlements, subscription] = await Promise.all([
+      supabase.from('entitlements').select('is_active').eq('user_id', userId).maybeSingle(),
+      supabase
+        .from('subscriptions')
+        .select('status, current_period_end')
+        .eq('user_id', userId)
+        .maybeSingle(),
+    ])
+    return {
+      hasActiveSubscription: entitlements.data?.is_active ?? false,
+      subscriptionStatus: subscription.data?.status ?? null,
+      subscriptionExpiresAt: subscription.data?.current_period_end ? String(subscription.data.current_period_end) : null,
+    }
+  } catch {
+    return {
+      hasActiveSubscription: false,
+      subscriptionStatus: null,
+      subscriptionExpiresAt: null,
+    }
   }
 }
 
@@ -190,6 +210,8 @@ export async function login(payload: LoginPayload): Promise<User> {
     // Prefer created_at from canonical users table when available
     createdAt: profileRow?.created_at ? String(profileRow.created_at) : undefined,
   }
+  const entitlements = await fetchEntitlementState(user.id)
+  Object.assign(user, entitlements)
   // Update local username→email cache for faster next login
   await mapUsernameToEmailLocally(user.username, user.email)
   // Ensure a corresponding row exists in public.users (non-blocking)
@@ -199,45 +221,6 @@ export async function login(payload: LoginPayload): Promise<User> {
       new Promise<void>((resolve) => setTimeout(() => resolve(), 1200)),
     ])
   } catch {}
-  return user
-}
-
-export async function register(payload: RegisterPayload): Promise<User> {
-  const { data, error } = await supabase.auth.signUp({
-    email: payload.email,
-    password: payload.password,
-    options: {
-      data: { display_name: payload.displayName, username: payload.username.toLowerCase() },
-    },
-  })
-  if (error || !data.user) throw new Error(error?.message || "Registration failed")
-
-  const user: User = {
-    id: data.user.id,
-    email: data.user.email || payload.email,
-    displayName: payload.displayName,
-    username: payload.username.toLowerCase(),
-    profileImageUrl: null,
-  }
-
-  // If email confirmations are disabled in Supabase, signUp returns a session
-  // and we can immediately create the users row. If confirmations are enabled,
-  // this call may be blocked by RLS — we'll try again on the first successful login.
-  if (data.session) {
-    await upsertUserRow({ id: user.id, email: user.email, displayName: user.displayName, username: user.username })
-  }
-
-  // If there's no session, it means email confirmation is enabled server-side.
-  // We surface a clearer message so this is easy to diagnose.
-  if (!data.session) {
-    throw new Error(
-      "Email confirmation is enabled in Supabase. Disable 'Confirm email' in Authentication settings to allow immediate login."
-    )
-  }
-
-  // Cache mapping for future username login
-  await mapUsernameToEmailLocally(user.username, user.email)
-
   return user
 }
 
@@ -252,7 +235,7 @@ export async function getCurrentUser(): Promise<User | null> {
       .select("email, display_name, username, profile_image_url, role, group_id, created_at")
       .eq("id", authUser.id)
       .maybeSingle()
-    return {
+    const base: User = {
       id: authUser.id,
       email: profile?.email || authUser.email || "",
       displayName: profile?.display_name || authUser.user_metadata?.display_name || "",
@@ -262,8 +245,10 @@ export async function getCurrentUser(): Promise<User | null> {
       groupId: (profile?.group_id as string | null | undefined) ?? null,
       createdAt: (profile as any)?.created_at ? String((profile as any).created_at) : undefined,
     }
+    const entitlements = await fetchEntitlementState(authUser.id)
+    return { ...base, ...entitlements }
   } catch {
-    return {
+    const fallback: User = {
       id: authUser.id,
       email: authUser.email || "",
       displayName: authUser.user_metadata?.display_name || "",
@@ -272,6 +257,8 @@ export async function getCurrentUser(): Promise<User | null> {
       // If the public.users lookup failed, we can still fall back to auth's created_at (if present)
       createdAt: (authUser as any)?.created_at ? String((authUser as any).created_at) : undefined,
     }
+    const entitlements = await fetchEntitlementState(authUser.id)
+    return { ...fallback, ...entitlements }
   }
 }
 

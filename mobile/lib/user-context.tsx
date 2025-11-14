@@ -121,7 +121,10 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           prevUser.displayName === u.displayName &&
           prevUser.role === u.role &&
           prevUser.groupId === u.groupId &&
-          prevUser.profileImageUrl === u.profileImageUrl
+          prevUser.profileImageUrl === u.profileImageUrl &&
+          prevUser.hasActiveSubscription === u.hasActiveSubscription &&
+          prevUser.subscriptionStatus === u.subscriptionStatus &&
+          prevUser.subscriptionExpiresAt === u.subscriptionExpiresAt
         
         if (unchanged) {
           console.log('[UserProvider] User data unchanged, keeping same reference to prevent re-renders')
