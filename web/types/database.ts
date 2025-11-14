@@ -110,7 +110,36 @@ export interface Database {
       }
     }
     Functions: {
-      // placeholder for existing RPCs
+      create_admin_group: {
+        Args: {
+          p_name: string
+          p_access_code: string
+        }
+        Returns: {
+          group_id: string | null
+        } | null
+      }
+      redeem_access_code: {
+        Args: {
+          p_access_code: string
+        }
+        Returns: {
+          group_id: string | null
+        } | null
+      }
+      verify_user_setup: {
+        Args: Record<string, never>
+        Returns: Array<{
+          user_id: string
+          email: string | null
+          username: string | null
+          role: 'admin' | 'user' | null
+          group_id: string | null
+        }>
+      }
+    }
+    Enums: {
+      [_ in never]: never
     }
   }
 }

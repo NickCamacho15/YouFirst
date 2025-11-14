@@ -56,12 +56,15 @@ export async function POST(request: Request) {
 
     const userId = userData.user.id
 
-    await supabase.from('users').upsert({
-      id: userId,
-      email,
-      display_name: payload.displayName,
-      username,
-    })
+    await supabase.from('users').upsert(
+      {
+        id: userId,
+        email,
+        display_name: payload.displayName,
+        username,
+      },
+      { onConflict: 'id' },
+    )
 
     await ensureStripeCustomer(userId, email)
 

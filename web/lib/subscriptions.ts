@@ -143,7 +143,7 @@ export function extractSubscriptionPayload(
   if (event.type === 'invoice.payment_succeeded' || event.type === 'invoice.payment_failed') {
     const invoice = event.data.object as Stripe.Invoice
     return {
-      userId: invoice.metadata?.supabaseUserId ?? invoice.customer_email ?? null,
+      userId: invoice.metadata?.supabaseUserId ?? null,
       stripeCustomerId: typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id ?? null,
       stripeSubscriptionId: typeof invoice.subscription === 'string' ? invoice.subscription : null,
       priceId: invoice.lines.data[0]?.price?.id ?? null,
