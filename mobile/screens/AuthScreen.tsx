@@ -27,7 +27,7 @@ interface AuthScreenProps {
 
 const CACHE_KEY = "youfirst_cached_user_v1" // Same key as UserProvider
 
-const webSignupUrl = 'https://youfirst.com/pricing'
+const webSignupUrl = "https://you-first-rho.vercel.app/"
 
 const AuthScreen = ({ onLogin }: AuthScreenProps) => {
   const { refresh } = useUser()
@@ -169,7 +169,8 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
 
               <TouchableOpacity style={styles.signupLink} onPress={() => Linking.openURL(webSignupUrl)}>
                 <Text style={styles.signupLinkText}>
-                  Don’t have an account? <Text style={styles.signupLinkHighlight}>Create one here</Text>
+                  {"Don't have an account? "}
+                  <Text style={styles.signupLinkHighlight}>sign up here</Text>
                 </Text>
               </TouchableOpacity>
 
