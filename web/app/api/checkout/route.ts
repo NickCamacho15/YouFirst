@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
 
     assertRateLimit(`checkout:${user.id}`, 5, 60_000)
 
-    const subscriptionRow = await ensureStripeCustomer(user.id, user.email)
+    const subscriptionRow = await ensureStripeCustomer(user.id, user.email ?? null)
     const stripe = getStripeClient()
     const priceConfig = getStripePriceConfig(planId)
 

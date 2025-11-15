@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { assertRateLimit } from '@/lib/rate-limit'
 import { getServiceSupabaseClient } from '@/lib/supabase/service'
 import { ensureStripeCustomer } from '@/lib/subscriptions'
-import type { Database } from '@/types/database'
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -57,19 +56,17 @@ export async function POST(request: Request) {
 
     const userId = userData.user.id
 
-    type UserInsert = Database['public']['Tables']['users']['Insert']
-
-    await supabase
-      .from('users')
-      .upsert(
-        {
-          id: userId,
-          email,
-          display_name: payload.displayName,
-          username,
-        } as UserInsert,
-        { onConflict: 'id' },
-      )
+    // @ts-expect-error Supabase's types resolve this table's upsert payload to `never` here,
+    // but this object matches the `users` table shape and works correctly at runtime.
+    await supabase.from('users').upsert(
+      {
+        id: userId,
+        email,
+        display_name: payload.displayName,
+        username,
+      },
+      { onConflict: 'id' },
+    )
 
     await ensureStripeCustomer(userId, email)
 

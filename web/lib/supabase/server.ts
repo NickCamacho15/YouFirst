@@ -8,14 +8,17 @@ export function getServerSupabaseClient(): SupabaseClient<Database> {
   const cookieStore = cookies()
   return createServerClient<Database>(env.supabaseUrl, env.supabaseAnonKey, {
     cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value
+      // Adapt Next.js app router cookies API to Supabase's CookieMethodsServer
+      getAll() {
+        return cookieStore.getAll().map((cookie) => ({
+          name: cookie.name,
+          value: cookie.value,
+        }))
       },
-      set(name: string, value: string, options: Parameters<typeof cookieStore.set>[1]) {
-        cookieStore.set({ name, value, ...options })
-      },
-      remove(name: string, options: Parameters<typeof cookieStore.set>[1]) {
-        cookieStore.set({ name, value: '', expires: new Date(0), ...options })
+      setAll(cookies) {
+        cookies.forEach(({ name, value, options }) => {
+          cookieStore.set({ name, value, ...options })
+        })
       },
     },
   })

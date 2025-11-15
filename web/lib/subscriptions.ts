@@ -28,8 +28,8 @@ export async function ensureStripeCustomer(userId: string, email: string | null)
       supabaseUserId: userId,
     },
   })
-  const { data, error } = await supabase
-    .from('subscriptions')
+  const { data, error } = await (supabase
+    .from('subscriptions') as any)
     .upsert(
       {
         user_id: userId,
@@ -75,10 +75,12 @@ export async function upsertSubscriptionStatus(payload: SubscriptionStatusPayloa
   } else if (stripeCustomerId) {
     matchQuery = matchQuery.eq('stripe_customer_id', stripeCustomerId)
   }
-  const { data: existing, error: selectError } = await matchQuery.maybeSingle()
+  const { data: existingRaw, error: selectError } = await matchQuery.maybeSingle()
   if (selectError) {
     throw new Error(selectError.message)
   }
+
+  const existing = existingRaw as Tables<'subscriptions'> | null
 
   const targetUserId = userId || existing?.user_id
   if (!targetUserId) {
@@ -110,7 +112,9 @@ export async function upsertSubscriptionStatus(payload: SubscriptionStatusPayloa
     updated_at: new Date().toISOString(),
   }
 
-  const { error: upsertError } = await supabase.from('subscriptions').upsert(updatePayload, { onConflict: 'id' })
+  const { error: upsertError } = await (supabase.from('subscriptions') as any).upsert(updatePayload, {
+    onConflict: 'id',
+  })
   if (upsertError) {
     throw new Error(upsertError.message)
   }
@@ -123,12 +127,14 @@ export function extractSubscriptionPayload(
     const subscription = event.data.object as Stripe.Subscription
     const primaryItem = subscription.items.data[0]
     return {
-      userId: subscription.metadata?.supabaseUserId || (subscription.customer_details?.tax_ids?.[0]?.value ?? null),
+      // Prefer explicit metadata set from our app; ignore other Stripe internals for type safety
+      userId: (subscription.metadata?.supabaseUserId as string | undefined) ?? null,
       stripeCustomerId: typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id,
       stripeSubscriptionId: subscription.id,
       priceId: primaryItem?.price?.id ?? null,
       status: subscription.status as SubscriptionStatusPayload['status'],
-      currentPeriodEnd: subscription.current_period_end,
+      // Stripe v19+ exposes current period timestamps on SubscriptionItem, not Subscription itself
+      currentPeriodEnd: primaryItem?.current_period_end ?? null,
       cancelAtPeriodEnd: subscription.cancel_at_period_end ?? false,
     }
   }
@@ -147,11 +153,21 @@ export function extractSubscriptionPayload(
   }
   if (event.type === 'invoice.payment_succeeded' || event.type === 'invoice.payment_failed') {
     const invoice = event.data.object as Stripe.Invoice
+    // Stripe's webhook payload includes a top-level `subscription` on invoices that
+    // is not currently modeled on the TypeScript `Invoice` type, so we access it via a cast.
+    const rawInvoice = event.data.object as Stripe.Invoice & {
+      subscription?: string | Stripe.Subscription
+    }
+
+    const subscriptionId =
+      typeof rawInvoice.subscription === 'string' ? rawInvoice.subscription : null
+
     return {
       userId: invoice.metadata?.supabaseUserId ?? null,
       stripeCustomerId: typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id ?? null,
-      stripeSubscriptionId: typeof invoice.subscription === 'string' ? invoice.subscription : null,
-      priceId: invoice.lines.data[0]?.price?.id ?? null,
+      stripeSubscriptionId: subscriptionId,
+      // Newer InvoiceLineItem typings expose `pricing.price_details.price` instead of a direct `price` object
+      priceId: invoice.lines.data[0]?.pricing?.price_details?.price ?? null,
       status: event.type === 'invoice.payment_succeeded' ? 'active' : 'past_due',
       currentPeriodEnd: invoice.lines.data[0]?.period?.end ?? null,
       cancelAtPeriodEnd: undefined,

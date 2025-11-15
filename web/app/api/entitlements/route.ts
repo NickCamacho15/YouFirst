@@ -27,8 +27,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: subscriptionResp.error.message }, { status: 400 })
   }
 
+  const entitlementData = entitlementResp.data as { is_active: boolean | null } | null
+
   return NextResponse.json({
-    isActive: entitlementResp.data?.is_active ?? false,
+    isActive: entitlementData?.is_active ?? false,
     subscription: subscriptionResp.data,
   })
 }

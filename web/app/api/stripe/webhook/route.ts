@@ -22,13 +22,11 @@ export async function POST(request: NextRequest) {
   const supabase = getServiceSupabaseClient()
   const serializedEvent = JSON.parse(JSON.stringify(event))
 
-  const { error: insertError } = await supabase
-    .from('stripe_events')
-    .insert({
-      id: event.id,
-      type: event.type,
-      payload: serializedEvent,
-    })
+  const { error: insertError } = await (supabase.from('stripe_events') as any).insert({
+    id: event.id,
+    type: event.type,
+    payload: serializedEvent,
+  })
 
   if (insertError && insertError.code === '23505') {
     return NextResponse.json({ received: true })

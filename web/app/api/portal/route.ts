@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
 
     assertRateLimit(`portal:${user.id}`, 5, 60_000)
 
-    const subscriptionRow = await ensureStripeCustomer(user.id, user.email)
+    const subscriptionRow = await ensureStripeCustomer(user.id, user.email ?? null)
     const stripe = getStripeClient()
 
     const session = await stripe.billingPortal.sessions.create({
