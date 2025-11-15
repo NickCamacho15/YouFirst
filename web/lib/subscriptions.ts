@@ -82,7 +82,12 @@ export async function upsertSubscriptionStatus(payload: SubscriptionStatusPayloa
 
   const targetUserId = userId || existing?.user_id
   if (!targetUserId) {
-    throw new Error('Unable to determine user for subscription update')
+    console.warn('Skipping subscription update; no matching user for payload', {
+      stripeCustomerId,
+      stripeSubscriptionId,
+      status,
+    })
+    return
   }
 
   const resolvedPlan =

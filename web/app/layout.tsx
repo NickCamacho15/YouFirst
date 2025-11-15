@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import { validateEnv } from '@/lib/env'
 import { SupabaseProvider } from '@/components/providers/SupabaseProvider'
+import SiteHeader from '@/components/layout/SiteHeader'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -21,7 +22,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={inter.variable}>
       <body className="bg-carbon text-slate-100 antialiased">
-        <SupabaseProvider>{children}</SupabaseProvider>
+        <SupabaseProvider>
+          <SiteHeader />
+          {children}
+        </SupabaseProvider>
       </body>
     </html>
   )

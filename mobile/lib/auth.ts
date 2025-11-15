@@ -20,6 +20,68 @@ export interface User {
   hasActiveSubscription?: boolean
   subscriptionStatus?: string | null
   subscriptionExpiresAt?: string | null
+  subscriptionBypassReason?: string | null
+}
+
+type SubscriptionSnapshot = Pick<User, 'hasActiveSubscription' | 'subscriptionStatus' | 'subscriptionExpiresAt' | 'subscriptionBypassReason'>
+
+const SUBSCRIPTION_BYPASS_STATUS_LABEL = 'legacy_access'
+const LEGACY_ACCESS_ROLES = new Set<User['role']>(['admin'])
+const LEGACY_ACCESS_EMAILS = new Set(
+  (typeof process !== 'undefined'
+    ? process?.env?.EXPO_PUBLIC_SUBSCRIPTION_BYPASS_EMAILS
+    : undefined
+  )
+    ?.split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean) ?? []
+)
+const LEGACY_ACCESS_CUTOFF_ISO =
+  (typeof process !== 'undefined' ? process?.env?.EXPO_PUBLIC_SUBSCRIPTION_BYPASS_CUTOFF : undefined) ||
+  '2099-01-01T00:00:00.000Z'
+const LEGACY_ACCESS_CUTOFF_MS = Date.parse(LEGACY_ACCESS_CUTOFF_ISO)
+
+export type BypassEvaluation = { bypass: boolean; reason?: string }
+
+export function getSubscriptionBypass(user: Pick<User, 'role' | 'createdAt' | 'email'>): BypassEvaluation {
+  const email = user.email?.toLowerCase()
+  if (email && LEGACY_ACCESS_EMAILS.has(email)) {
+    return { bypass: true, reason: 'legacy_allowlist' }
+  }
+
+  if (user.role && LEGACY_ACCESS_ROLES.has(user.role)) {
+    return { bypass: true, reason: 'admin_role' }
+  }
+
+  if (!Number.isNaN(LEGACY_ACCESS_CUTOFF_MS) && user.createdAt) {
+    const createdMs = Date.parse(user.createdAt)
+    if (!Number.isNaN(createdMs) && createdMs < LEGACY_ACCESS_CUTOFF_MS) {
+      return { bypass: true, reason: 'legacy_account' }
+    }
+  }
+
+  return { bypass: false }
+}
+
+export function shouldBypassSubscription(user: Pick<User, 'role' | 'createdAt' | 'email'>): boolean {
+  return getSubscriptionBypass(user).bypass
+}
+
+function applySubscriptionBypass(user: Pick<User, 'role' | 'createdAt' | 'email'>, snapshot: SubscriptionSnapshot): SubscriptionSnapshot {
+  const next: SubscriptionSnapshot = { ...snapshot }
+  const { bypass, reason } = getSubscriptionBypass(user)
+  if (bypass) {
+    if (!next.hasActiveSubscription) {
+      next.hasActiveSubscription = true
+      if (!next.subscriptionStatus) {
+        next.subscriptionStatus = SUBSCRIPTION_BYPASS_STATUS_LABEL
+      }
+    }
+    next.subscriptionBypassReason = reason ?? SUBSCRIPTION_BYPASS_STATUS_LABEL
+  } else {
+    next.subscriptionBypassReason = null
+  }
+  return next
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label?: string): Promise<T> {
@@ -60,7 +122,7 @@ async function upsertUserRow(user: { id: string; email: string; displayName?: st
   }
 }
 
-async function fetchEntitlementState(userId: string): Promise<Pick<User, 'hasActiveSubscription' | 'subscriptionStatus' | 'subscriptionExpiresAt'>> {
+async function fetchEntitlementState(userId: string): Promise<SubscriptionSnapshot> {
   try {
     const [entitlements, subscription] = await Promise.all([
       supabase.from('entitlements').select('is_active').eq('user_id', userId).maybeSingle(),
@@ -74,12 +136,14 @@ async function fetchEntitlementState(userId: string): Promise<Pick<User, 'hasAct
       hasActiveSubscription: entitlements.data?.is_active ?? false,
       subscriptionStatus: subscription.data?.status ?? null,
       subscriptionExpiresAt: subscription.data?.current_period_end ? String(subscription.data.current_period_end) : null,
+      subscriptionBypassReason: null,
     }
   } catch {
     return {
       hasActiveSubscription: false,
       subscriptionStatus: null,
       subscriptionExpiresAt: null,
+      subscriptionBypassReason: null,
     }
   }
 }
@@ -208,10 +272,14 @@ export async function login(payload: LoginPayload): Promise<User> {
     role,
     groupId: groupId ?? null,
     // Prefer created_at from canonical users table when available
-    createdAt: profileRow?.created_at ? String(profileRow.created_at) : undefined,
+    createdAt: profileRow?.created_at
+      ? String(profileRow.created_at)
+      : (data.user as any)?.created_at
+        ? String((data.user as any).created_at)
+        : undefined,
   }
   const entitlements = await fetchEntitlementState(user.id)
-  Object.assign(user, entitlements)
+  Object.assign(user, applySubscriptionBypass(user, entitlements))
   // Update local username→email cache for faster next login
   await mapUsernameToEmailLocally(user.username, user.email)
   // Ensure a corresponding row exists in public.users (non-blocking)
@@ -246,7 +314,7 @@ export async function getCurrentUser(): Promise<User | null> {
       createdAt: (profile as any)?.created_at ? String((profile as any).created_at) : undefined,
     }
     const entitlements = await fetchEntitlementState(authUser.id)
-    return { ...base, ...entitlements }
+    return { ...base, ...applySubscriptionBypass(base, entitlements) }
   } catch {
     const fallback: User = {
       id: authUser.id,
@@ -258,7 +326,7 @@ export async function getCurrentUser(): Promise<User | null> {
       createdAt: (authUser as any)?.created_at ? String((authUser as any).created_at) : undefined,
     }
     const entitlements = await fetchEntitlementState(authUser.id)
-    return { ...fallback, ...entitlements }
+    return { ...fallback, ...applySubscriptionBypass(fallback, entitlements) }
   }
 }
 

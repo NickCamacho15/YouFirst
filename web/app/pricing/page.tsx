@@ -6,11 +6,11 @@ export default function PricingPage() {
     <main className="shell">
       <section className="section-card" style={{ padding: '3rem' }}>
         <div style={{ textAlign: 'center', maxWidth: 640, margin: '0 auto 3rem' }}>
-          <span className="gradient-pill">Plans</span>
-          <h1 style={{ fontSize: '3rem', margin: '1rem 0' }}>Choose how you want to level up</h1>
+          <span className="gradient-pill">Simple Pricing</span>
+          <h1 style={{ fontSize: '3rem', margin: '1rem 0' }}>Invest in your personal mastery</h1>
           <p style={{ color: 'var(--text-muted)' }}>
-            Hosted Stripe Checkout + Supabase entitlements means you can cancel or upgrade anytime and stay synced on
-            mobile instantly.
+            One subscription unlocks the complete mobile experience. All features included. 
+            Cancel or upgrade anytime with instant mobile sync.
           </p>
         </div>
         <div className="plan-grid">

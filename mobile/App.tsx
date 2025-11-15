@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, ActivityIndicator, AppState, Platform } from "react-native"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import * as Notifications from "expo-notifications"
 import AuthScreen from "./screens/AuthScreen"
 import GoalsScreen from "./screens/GoalsScreen"
@@ -20,6 +20,7 @@ import DailyRoutines from "./components/DailyRoutines"
 import PersonalMasteryDashboard from "./components/PersonalMasteryDashboard"
 import TopHeader from "./components/TopHeader"
 import { UserProvider, useUser } from "./lib/user-context"
+import { shouldBypassSubscription } from "./lib/auth"
 import { supabase, REMEMBER_ME_KEY } from "./lib/supabase"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { getTodaySummary, getActivityGoals } from "./lib/dashboard"
@@ -42,12 +43,19 @@ const App: React.FC = () => {
     setShowStartupOverlay(false)
   }
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     setIsAuthenticated(false)
     setCurrentScreen("home")
     // Remount UserProvider on logout for a clean slate
     setAppEpoch((e) => e + 1)
-  }
+  }, [])
+
+  const handleRequireSubscription = useCallback(async () => {
+    try {
+      await supabase.auth.signOut()
+    } catch {}
+    handleLogout()
+  }, [handleLogout])
 
   const [currentScreen, setCurrentScreen] = useState("home")
   const [bodyEpoch, setBodyEpoch] = useState(0)
@@ -59,6 +67,8 @@ const App: React.FC = () => {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: false,
+        shouldShowBanner: false,
+        shouldShowList: false,
         shouldPlaySound: AppState.currentState !== "active",
         shouldSetBadge: false,
       }),
@@ -123,7 +133,7 @@ const App: React.FC = () => {
 
   return (
     <UserProvider key={`provider-${appEpoch}`}>
-      <SubscriptionGate onLogout={handleLogout}>
+      <SubscriptionGate onRequireSubscription={handleRequireSubscription}>
         <SafeAreaView style={styles.container}>
           <StatusBar barStyle="dark-content" />
           
@@ -229,9 +239,34 @@ const App: React.FC = () => {
   )
 }
 
-const SubscriptionGate: React.FC<{ children: React.ReactNode; onLogout: () => void }> = ({ children, onLogout }) => {
-  const { user, refresh, loading } = useUser()
-  const [refreshing, setRefreshing] = useState(false)
+const SubscriptionGate: React.FC<{
+  children: React.ReactNode
+  onRequireSubscription: () => void
+}> = ({ children, onRequireSubscription }) => {
+  const { user, loading } = useUser()
+  const hasTriggeredRef = useRef(false)
+
+  useEffect(() => {
+    if (loading || !user) return
+    const bypass = shouldBypassSubscription(user)
+    console.log("[SubscriptionGate] entitlement check", {
+      userId: user.id,
+      hasActive: user.hasActiveSubscription,
+      subscriptionStatus: user.subscriptionStatus,
+      bypass,
+      bypassReason: user.subscriptionBypassReason,
+      createdAt: user.createdAt,
+      role: user.role,
+    })
+    if (!bypass && !user.hasActiveSubscription && !hasTriggeredRef.current) {
+      hasTriggeredRef.current = true
+      onRequireSubscription()
+      return
+    }
+    if (bypass || user.hasActiveSubscription) {
+      hasTriggeredRef.current = false
+    }
+  }, [loading, user, onRequireSubscription])
 
   if (loading) {
     return (
@@ -241,32 +276,8 @@ const SubscriptionGate: React.FC<{ children: React.ReactNode; onLogout: () => vo
     )
   }
 
-  if (!user?.hasActiveSubscription) {
-    const handleRefresh = async () => {
-      setRefreshing(true)
-      try {
-        await refresh()
-      } finally {
-        setRefreshing(false)
-      }
-    }
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.subscriptionCard}>
-          <Text style={styles.subscriptionTitle}>Subscription Required</Text>
-          <Text style={styles.subscriptionCopy}>
-            Access requires an active membership purchased on the YouFirst website. Once your Stripe payment is complete,
-            tap refresh and sign back into the mobile app.
-          </Text>
-          <TouchableOpacity style={[styles.submitButton, refreshing && { opacity: 0.6 }]} onPress={handleRefresh} disabled={refreshing}>
-            <Text style={styles.submitButtonText}>{refreshing ? "Refreshing…" : "Refresh Status"}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} onPress={onLogout}>
-            <Text style={styles.secondaryButtonText}>Sign Out</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    )
+  if (!user) {
+    return null
   }
 
   return <>{children}</>
@@ -372,27 +383,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#f8f9fa",
-  },
-  subscriptionCard: {
-    margin: 24,
-    padding: 24,
-    borderRadius: 20,
-    backgroundColor: "#fff",
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
-    elevation: 5,
-    gap: 16,
-  },
-  subscriptionTitle: {
-    fontSize: 24,
-    fontWeight: "600",
-    color: "#111",
-  },
-  subscriptionCopy: {
-    fontSize: 16,
-    color: "#444",
-    lineHeight: 22,
   },
 })
 

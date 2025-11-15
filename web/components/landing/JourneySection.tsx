@@ -1,62 +1,27 @@
-const steps = [
-  { id: 'S1', title: 'Supabase client for web', detail: 'Browser + server helpers wired to env-safe configs.' },
-  { id: 'S4', title: 'Subscriptions schema', detail: 'RLS policies, entitlements view, webhook idempotency.' },
-  { id: 'S6', title: 'Stripe Checkout', detail: 'Hosted flow with plan map + metadata for Supabase.' },
-  { id: 'S7', title: 'Webhook brain', detail: 'Status upserts, retries, and Stripe event audit trail.' },
-  { id: 'S9', title: 'Mobile unlock', detail: 'Sign-in only app reads entitlements and gates premium.' },
+const phases = [
+  { title: 'Sign up & Subscribe', body: 'Create your account on the web, choose your plan, and complete payment. Your mobile app access is activated instantly.' },
+  { title: 'Set Your Foundation', body: 'Define your goals, create discipline challenges, add books to read, configure your meditation preferences, and set your personal records.' },
+  { title: 'Execute Daily', body: 'Complete workouts with guided tracking, meditate with interval chimes, log reading sessions, check off challenge rules, and track your wins.' },
+  { title: 'Measure Progress', body: 'View visual progress charts, streak counters, body metrics evolution, PR improvements, and comprehensive analytics across all areas of development.' },
 ]
 
 export default function JourneySection() {
   return (
-    <section className="section-card" style={{ padding: '3rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '2rem' }}>
-        <div style={{ maxWidth: 520 }}>
-          <span className="gradient-pill">Roadmap</span>
-          <h2 style={{ fontSize: '2.4rem', margin: '1rem 0' }}>Step-by-step delivery</h2>
-          <p style={{ color: 'var(--text-muted)' }}>
-            Mirrors the implementation plan in docs/WEB-STRIPE-INTEGRATION-PLAN.json so engineering, finance, and ops all
-            stay aligned.
-          </p>
+    <section className="section-card journey-section">
+      <header className="section-head">
+        <div>
+          <span className="gradient-pill">How it works</span>
+          <h2>Your path to personal mastery</h2>
+          <p>A structured system that helps you build discipline, achieve goals, and measure real progress across mind, body, and spirit.</p>
         </div>
-        <div className="success-banner">
-          <strong>Acceptance Criteria</strong>
-          <ul style={{ marginTop: '0.75rem', paddingLeft: '1.2rem', lineHeight: 1.5 }}>
-            <li>Web sign-up + payment succeeds end-to-end.</li>
-            <li>Webhook marks Supabase active within seconds.</li>
-            <li>Account portal & status surfaces in one place.</li>
-            <li>Mobile unlocks premium without Apple IAP.</li>
-          </ul>
-        </div>
-      </div>
-      <div style={{ marginTop: '2.5rem', display: 'grid', gap: '1rem' }}>
-        {steps.map((step) => (
-          <article
-            key={step.id}
-            style={{
-              borderRadius: 20,
-              border: '1px solid rgba(255,255,255,0.08)',
-              padding: '1.25rem 1.5rem',
-              display: 'flex',
-              gap: '1.25rem',
-              alignItems: 'center',
-            }}
-          >
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: '50%',
-                background: 'rgba(255,255,255,0.05)',
-                display: 'grid',
-                placeItems: 'center',
-                fontWeight: 600,
-              }}
-            >
-              {step.id}
-            </div>
+      </header>
+      <div className="timeline">
+        {phases.map((phase, idx) => (
+          <article key={phase.title} className="timeline-item">
+            <div className="timeline-dot">{idx + 1}</div>
             <div>
-              <h4 style={{ margin: 0 }}>{step.title}</h4>
-              <p style={{ margin: 0, color: 'var(--text-muted)' }}>{step.detail}</p>
+              <h4>{phase.title}</h4>
+              <p>{phase.body}</p>
             </div>
           </article>
         ))}

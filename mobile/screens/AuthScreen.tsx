@@ -18,6 +18,7 @@ import {
   Platform,
   ScrollView,
   useWindowDimensions,
+  Linking,
 } from "react-native"
 
 interface AuthScreenProps {
@@ -25,6 +26,8 @@ interface AuthScreenProps {
 }
 
 const CACHE_KEY = "youfirst_cached_user_v1" // Same key as UserProvider
+
+const webSignupUrl = 'https://youfirst.com/pricing'
 
 const AuthScreen = ({ onLogin }: AuthScreenProps) => {
   const { refresh } = useUser()
@@ -121,7 +124,6 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
               <Text style={[styles.welcomeTitle, isSmall && { fontSize: 24 } ]}>Welcome</Text>
               <Text style={[styles.welcomeSubtitle, isSmall && { fontSize: 14 } ]}>Focus on who you want to become</Text>
             </View>
-
             <View style={styles.formContainer}>
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Email or Username</Text>
@@ -165,12 +167,11 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
                 />
               </View>
 
-              <View style={{ gap: 8 }}>
-                <Text style={{ color: '#666', fontSize: 13 }}>
-                  Need an account? Complete registration on the YouFirst website to stay compliant with App Store rules.
-                  Payments happen on the web, then you sign in here.
+              <TouchableOpacity style={styles.signupLink} onPress={() => Linking.openURL(webSignupUrl)}>
+                <Text style={styles.signupLinkText}>
+                  Don’t have an account? <Text style={styles.signupLinkHighlight}>Create one here</Text>
                 </Text>
-              </View>
+              </TouchableOpacity>
 
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
               {/* Remember Me toggle (applies to both login and register) */}
@@ -203,9 +204,13 @@ const AuthScreen = ({ onLogin }: AuthScreenProps) => {
 
               {/* Action buttons stacked */}
               <View style={[styles.actionsContainer, { marginTop: isSmall ? 4 : 8 } ]}>
-                <TouchableOpacity style={[styles.submitButton, isSmall && { paddingVertical: 14 }, submitting && { opacity: 0.6 }]} disabled={submitting} onPress={activeTab === "login" ? handleSignIn : handleRegister}>
+                <TouchableOpacity
+                  style={[styles.submitButton, isSmall && { paddingVertical: 14 }, submitting && { opacity: 0.6 }]}
+                  disabled={submitting}
+                  onPress={handleSignIn}
+                >
                   <Text style={[styles.submitButtonText, isSmall && { fontSize: 15 } ]}>
-                    {submitting ? "Please wait…" : activeTab === "login" ? "Sign In" : "Create Account"}
+                    {submitting ? "Please wait…" : "Sign In"}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -276,6 +281,25 @@ const styles = StyleSheet.create({
     color: "#666",
     textAlign: "center",
   },
+  noticeCard: {
+    backgroundColor: "#fdf2f8",
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#fbcfe8",
+  },
+  noticeTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#a21caf",
+    marginBottom: 4,
+  },
+  noticeCopy: {
+    fontSize: 13,
+    color: "#831843",
+    lineHeight: 18,
+  },
   tabContainer: {
     flexDirection: "row",
     backgroundColor: "#f8f9fa",
@@ -341,6 +365,19 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  signupLink: {
+    marginTop: 4,
+  },
+  signupLinkText: {
+    textAlign: "center",
+    color: "#444",
+    fontSize: 14,
+  },
+  signupLinkHighlight: {
+    color: "#7c3aed",
+    fontWeight: "600",
+    textDecorationLine: "underline",
   },
   actionsContainer: {
     marginTop: 8,

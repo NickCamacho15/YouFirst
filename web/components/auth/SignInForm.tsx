@@ -38,7 +38,7 @@ export default function SignInForm({ switchToSignUp }: { switchToSignUp: () => v
       setServerError(error.message)
       return
     }
-    router.push('/pricing')
+    router.push('/account')
   }
 
   return (
