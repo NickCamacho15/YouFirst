@@ -17,7 +17,6 @@ export default function SiteHeader() {
     <header className="site-header">
       <Link href="/" className="logo-mark">
         <Image src="/youlogo.png" alt="YouFirst logo" width={48} height={48} priority />
-        <span className="logo-title">.uoY First</span>
       </Link>
       <nav className="site-nav main-nav">
         {navLinks.map((link) => (
@@ -27,7 +26,7 @@ export default function SiteHeader() {
         ))}
       </nav>
       <div className="site-actions">
-        <Link href="/auth" className="btn btn-ghost">
+        <Link href="/auth" className="btn btn-ghost btn-compact">
           Sign in
         </Link>
         <Link href="/pricing" className="btn btn-primary btn-compact">
