@@ -733,16 +733,13 @@ const MindScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
             <Brain stroke="#4A90E2" width={24} height={24} />
             <Text style={styles.mindTrainingTitle}>Mind Training</Text>
             </View>
-          <Text style={styles.mindTrainingSubtitle}>Optimize your mental well-being through reading, meditation, and mindful technology use</Text>
+          <Text style={styles.mindTrainingSubtitle}>Optimize your mental well-being through reading and mindful technology use</Text>
           </View>
 
         {/* Tab Navigation */}
         <View style={styles.tabContainer}>
           <TouchableOpacity style={[styles.tab, activeTab === "reading" && styles.activeTab]} onPress={() => setActiveTab("reading")}>
             <Ionicons name="book-outline" size={24} color="#4A90E2" />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.tab, activeTab === "meditation" && styles.activeTab]} onPress={() => setActiveTab("meditation")}>
-            <Brain stroke="#8B5CF6" width={24} height={24} />
           </TouchableOpacity>
           <TouchableOpacity style={[styles.tab, activeTab === "distraction" && styles.activeTab]} onPress={() => setActiveTab("distraction")}>
             <Ionicons name="phone-portrait-outline" size={24} color="#FF6B35" />

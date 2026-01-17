@@ -1,0 +1,286 @@
+{
+  "source": {
+    "type": "reference_screenshots",
+    "notes": [
+      "Derived from screenshots of a CrossFit gym app showing workout feed, workout detail, logging, and leaderboard/results."
+    ]
+  },
+  "designSystem": {
+    "brand": {
+      "name": "Habit Tracker App (Whoop-inspired)",
+      "style": "clean_minimal_gamified",
+      "colorTokens": {
+        "background": "#0B1220",
+        "surface": "#0F1B2D",
+        "surfaceAlt": "#12213A",
+        "textPrimary": "#F3F6FF",
+        "textSecondary": "#A9B4CC",
+        "border": "rgba(255,255,255,0.10)",
+        "primary": "#00C853",
+        "primaryMuted": "#2E7D32",
+        "primaryElectric": "#00E676",
+        "danger": "#FF4D4D",
+        "warning": "#FFB020",
+        "info": "#4EA1FF"
+      },
+      "gradientTokens": {
+        "progressGradient": ["#2E7D32", "#00E676"],
+        "badgeGlow": ["rgba(0,230,118,0.0)", "rgba(0,230,118,0.35)"]
+      },
+      "cornerRadius": {
+        "sm": 8,
+        "md": 12,
+        "lg": 18,
+        "pill": 999
+      },
+      "elevation": {
+        "cardShadow": "0 10px 30px rgba(0,0,0,0.30)"
+      }
+    }
+  },
+  "navigation": {
+    "type": "bottom_tabs",
+    "tabs": [
+      { "id": "home", "label": "Home", "icon": "home" },
+      { "id": "schedule", "label": "Schedule", "icon": "calendar" },
+      { "id": "workouts", "label": "Workouts", "icon": "dumbbell" },
+      { "id": "social", "label": "Social", "icon": "users" }
+    ],
+    "activeTabStyle": {
+      "indicator": "color",
+      "colorToken": "primaryElectric"
+    }
+  },
+  "features": {
+    "workouts": {
+      "goal": "Show daily programming with sections, allow logging results, and show community leaderboard/results.",
+      "screens": [
+        {
+          "id": "workoutsFeed",
+          "title": "Workouts (Feed)",
+          "layout": "scroll",
+          "header": {
+            "gymOrProgramLabel": "string",
+            "programPicker": {
+              "type": "dropdown",
+              "label": "Program",
+              "selectedProgramId": "string"
+            },
+            "weekCalendarStrip": {
+              "type": "week_strip",
+              "days": [
+                {
+                  "dateISO": "YYYY-MM-DD",
+                  "weekdayShort": "Mon",
+                  "dayNumber": 1,
+                  "isSelected": false,
+                  "isToday": false
+                }
+              ],
+              "controls": { "prevWeek": true, "nextWeek": true }
+            }
+          },
+          "sections": [
+            {
+              "type": "announcements",
+              "title": "Announcements",
+              "items": [
+                {
+                  "id": "string",
+                  "order": 1,
+                  "text": "string",
+                  "createdAt": "timestamp",
+                  "pinned": true
+                }
+              ]
+            },
+            {
+              "type": "workoutBlock",
+              "id": "string",
+              "title": "Front Squat",
+              "meta": {
+                "scoreType": "weight|rounds_reps|time|not_scored",
+                "historyEnabled": true
+              },
+              "content": {
+                "descriptionMarkdown": "string",
+                "warmupMarkdown": "string"
+              },
+              "actions": {
+                "primary": { "label": "Log result", "action": "openLogResult" },
+                "secondary": { "label": "Results (count)", "action": "openResults" }
+              }
+            }
+          ]
+        },
+        {
+          "id": "workoutDetail",
+          "title": "Workout Detail",
+          "layout": "scroll",
+          "header": {
+            "backButton": true,
+            "dateLabel": "YYYY-MM-DD",
+            "workoutChipTabs": [
+              { "workoutId": "string", "label": "Front Squat", "isSelected": true },
+              { "workoutId": "string", "label": "Illuminate 12.1.25", "isSelected": false }
+            ],
+            "editIconVisible": "admin_only"
+          },
+          "card": {
+            "athleteSummary": {
+              "avatarUrl": "string",
+              "displayName": "string",
+              "streakBadge": { "type": "medallion", "icon": "lucide:flame", "count": 0 }
+            },
+            "primaryMetric": {
+              "value": 295,
+              "unit": "lbs"
+            },
+            "setBreakdown": [
+              { "reps": 3, "weight": 295 },
+              { "reps": 3, "weight": 0 }
+            ],
+            "commentsPreview": {
+              "count": 0,
+              "action": "openComments"
+            }
+          }
+        },
+        {
+          "id": "logResult",
+          "title": "Log Result",
+          "presentation": "modal_or_screen",
+          "inputs": [
+            {
+              "id": "setRows",
+              "type": "table",
+              "columns": [
+                { "id": "setNumber", "label": "Set", "type": "readonly_number" },
+                { "id": "reps", "label": "Reps", "type": "number" },
+                { "id": "weight", "label": "Weight", "type": "number" },
+                { "id": "completed", "label": "Done", "type": "toggle" }
+              ],
+              "rows": 6
+            },
+            {
+              "id": "notes",
+              "type": "textarea",
+              "label": "Notes",
+              "placeholder": "Add your training notes"
+            }
+          ],
+          "actions": [
+            { "id": "save", "label": "Save", "style": "primary" },
+            { "id": "cancel", "label": "Cancel", "style": "secondary" }
+          ]
+        },
+        {
+          "id": "resultsLeaderboard",
+          "title": "Results",
+          "presentation": "modal_or_screen",
+          "header": {
+            "close": true,
+            "workoutTitle": "string",
+            "dateLabel": "YYYY-MM-DD"
+          },
+          "list": {
+            "sort": {
+              "default": "best_first",
+              "supported": ["best_first", "most_recent", "most_fire"]
+            },
+            "items": [
+              {
+                "rank": 1,
+                "athlete": {
+                  "avatarUrl": "string",
+                  "displayName": "string"
+                },
+                "scoreSummary": "3 @ 295 lbs",
+                "badges": ["personal_record"],
+                "social": {
+                  "fireCount": 3,
+                  "commentCount": 0
+                },
+                "actions": {
+                  "tapRow": "openResultDetail",
+                  "tapFire": "toggleFireReaction",
+                  "tapComments": "openComments"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "dataModel": {
+        "program": {
+          "id": "string",
+          "name": "string"
+        },
+        "workoutDay": {
+          "dateISO": "YYYY-MM-DD",
+          "programId": "string",
+          "announcements": ["announcementId"],
+          "workoutBlocks": ["workoutBlockId"]
+        },
+        "announcement": {
+          "id": "string",
+          "text": "string",
+          "createdAt": "timestamp",
+          "pinned": "boolean"
+        },
+        "workoutBlock": {
+          "id": "string",
+          "title": "string",
+          "scoreType": "weight|rounds_reps|time|not_scored",
+          "descriptionMarkdown": "string",
+          "inputsSchema": "log_result_schema_id_or_inline",
+          "createdBy": "admin_user_id",
+          "publishedAt": "timestamp"
+        },
+        "workoutResult": {
+          "id": "string",
+          "workoutBlockId": "string",
+          "userId": "string",
+          "createdAt": "timestamp",
+          "score": {
+            "type": "weight",
+            "primaryValue": 295,
+            "unit": "lbs",
+            "sets": [
+              { "set": 1, "reps": 3, "weight": 295, "completed": true }
+            ]
+          },
+          "notes": "string",
+          "isPersonalRecord": "boolean"
+        },
+        "reaction": {
+          "id": "string",
+          "entityType": "workoutResult",
+          "entityId": "string",
+          "userId": "string",
+          "type": "fire",
+          "createdAt": "timestamp"
+        },
+        "comment": {
+          "id": "string",
+          "entityType": "workoutResult",
+          "entityId": "string",
+          "userId": "string",
+          "text": "string",
+          "createdAt": "timestamp"
+        }
+      }
+    }
+  },
+  "implementationNotes": {
+    "keepSimpleV1": [
+      "Single shared community feed (no per-user programming personalization).",
+      "Admin publishes workouts/announcements; users log results; leaderboard aggregates results."
+    ],
+    "niceToHaveNext": [
+      "Video upload per result (storage + moderation + bandwidth).",
+      "Challenge tie-in: workouts can be attached to a community challenge with opt-in membership."
+    ]
+  }
+}
+

@@ -11,6 +11,7 @@ export interface ChallengeInput {
 export interface ChallengeRow {
   id: string
   user_id: string
+  template_id?: string | null
   title: string
   description: string | null
   duration_days: number

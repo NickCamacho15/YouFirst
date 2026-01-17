@@ -12,6 +12,10 @@ I've analyzed your reference images and created a comprehensive implementation p
 
 ---
 
+## ✅ New (2026-01-17): Community Challenges (Opt‑In)
+
+- **`COMMUNITY-CHALLENGES-OPT-IN-IMPLEMENTED-2026-01-17.md`**: End-to-end summary of the new opt-in community challenges system (Supabase migrations + RLS/RPC + mobile UI).
+
 ## 📖 Core Documents (6 Files)
 
 ### 1. **HEVY-STYLE-IMPLEMENTATION-SUMMARY.md**

@@ -30,6 +30,7 @@ import { warmStartupCaches } from './lib/warm-start'
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [authBootstrapped, setAuthBootstrapped] = useState(false)
   const [appEpoch, setAppEpoch] = useState(0)
   const [showStartupOverlay, setShowStartupOverlay] = useState(true)
 
@@ -110,7 +111,10 @@ const App: React.FC = () => {
           // Start warming caches in background - don't block UI
           setTimeout(() => { try { warmStartupCaches({ timeoutMs: 1800 }) } catch {} }, 0)
         }
-        if (mounted) setShowStartupOverlay(false)
+        if (mounted) {
+          setShowStartupOverlay(false)
+          setAuthBootstrapped(true)
+        }
       } catch {}
     })()
     const { data: sub } = supabase.auth.onAuthStateChange(async (event) => {
@@ -120,9 +124,19 @@ const App: React.FC = () => {
         setCurrentScreen("home")
         setShowStartupOverlay(false)
       }
+      setAuthBootstrapped(true)
     })
     return () => { mounted = false; sub.subscription.unsubscribe() }
   }, [])
+  if (!authBootstrapped) {
+    return (
+      <SafeAreaView style={styles.startupOverlay}>
+        <Image source={require('./assets/you-icon.png')} style={styles.overlayLogo} resizeMode="contain" />
+        <ActivityIndicator size="small" color="#888" style={{ marginTop: 16 }} />
+      </SafeAreaView>
+    )
+  }
+
   if (!isAuthenticated) {
     return (
       <UserProvider key={`provider-${appEpoch}`}>

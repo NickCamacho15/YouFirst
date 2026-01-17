@@ -111,7 +111,7 @@ export default function Calendar({ embedded }: { embedded?: boolean }) {
     }
     return () => { if (unsub) unsub() }
   }, [currentDate, user?.id])
-  
+
   // Render day cells
   const renderDays = () => {
     const weeks = [];

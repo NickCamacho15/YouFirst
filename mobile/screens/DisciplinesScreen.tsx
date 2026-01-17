@@ -4,18 +4,24 @@ import { useMemo, useState, useEffect, useRef } from "react"
 import type React from "react"
 import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, StatusBar, Image, Dimensions, Modal, TextInput, ActivityIndicator, Animated, Easing, KeyboardAvoidingView, Platform, AppState, RefreshControl, Alert } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
-import { Shield, CalendarDays, Plus } from "lucide-react-native"
+import { Shield, CalendarDays, Plus, Trophy } from "lucide-react-native"
 import TopHeader from "../components/TopHeader"
 import { createChallenge, listChallenges, type ChallengeRow, setRuleCompleted, getRuleChecksForChallenge, deleteChallenge } from "../lib/challenges"
+import { canPublishGlobalChallengeTemplates, createChallengeTemplate, joinChallengeTemplate, listPublishedChallengeTemplates, setChallengeTemplateStatus, type ChallengeTemplateRow, type ChallengeTemplateScope } from "../lib/challenge-templates"
+import { LinearGradient } from "expo-linear-gradient"
+import { Flame } from "lucide-react-native"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { addPersonalRule, deletePersonalRule, listPersonalRuleChecks, listPersonalRules, setPersonalRuleCompleted } from "../lib/personal-rules"
 import { apiCall } from "../lib/api-utils"
+import { useUser } from "../lib/user-context"
 
 interface ScreenProps { onLogout?: () => void; onOpenProfile?: () => void }
 
 const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) => {
+  const { user } = useUser()
   const [activeTab, setActiveTab] = useState("challenge")
   const [showCreate, setShowCreate] = useState(false)
+  const [createVisibility, setCreateVisibility] = useState<"personal" | "group" | "global">("personal")
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [duration, setDuration] = useState<40 | 70 | 100>(40)
@@ -25,6 +31,10 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [challenges, setChallenges] = useState<ChallengeRow[]>([])
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [templates, setTemplates] = useState<ChallengeTemplateRow[]>([])
+  const [canPublishGlobal, setCanPublishGlobal] = useState(false)
+  const [joiningTemplateId, setJoiningTemplateId] = useState<string | null>(null)
   const [todayChecks, setTodayChecks] = useState<Record<string, Set<number>>>({})
   const [checksByDate, setChecksByDate] = useState<Record<string, Record<string, Set<number>>>>({})
   const [daysCompleted, setDaysCompleted] = useState<Record<string, number>>({})
@@ -33,6 +43,20 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
   const [animNonce, setAnimNonce] = useState(0)
   const [showBanner, setShowBanner] = useState(true)
   const appState = useRef(AppState.currentState)
+  const pulseAnim = useRef(new Animated.Value(0)).current
+
+  const isAdminInGroup = user?.role === "admin" && !!user?.groupId
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0, duration: 900, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+      ])
+    )
+    loop.start()
+    return () => loop.stop()
+  }, [pulseAnim])
 
   const reloadData = async (isRefresh: boolean = false) => {
     if (isRefresh) {
@@ -41,15 +65,29 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
       setLoading(true)
     }
     try {
-      const data = await apiCall(
-        () => listChallenges(),
-        {
-          timeoutMs: 15000,
-          maxRetries: 2,
-          timeoutMessage: 'Failed to load challenges. Please check your connection and try again.'
-        }
-      )
+      const [data, tmpl] = await Promise.all([
+        apiCall(
+          () => listChallenges(),
+          {
+            timeoutMs: 15000,
+            maxRetries: 2,
+            timeoutMessage: 'Failed to load challenges. Please check your connection and try again.'
+          }
+        ),
+        (async () => {
+          setTemplatesLoading(true)
+          try {
+            return await apiCall(() => listPublishedChallengeTemplates(), { timeoutMs: 15000, maxRetries: 1 })
+          } catch {
+            return [] as ChallengeTemplateRow[]
+          } finally {
+            setTemplatesLoading(false)
+          }
+        })(),
+      ])
+
       setChallenges(data)
+      setTemplates(tmpl)
       const todayIsoStr = new Date().toISOString().slice(0, 10)
 
       const todayMap: Record<string, Set<number>> = {}
@@ -119,12 +157,29 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
     }
   }, [])
 
+  // Determine if this user can publish global templates (curated global challenges)
+  useEffect(() => {
+    ;(async () => {
+      try {
+        // Any admin can publish global challenges; non-admins need allowlist row
+        if (user?.role === "admin") {
+          setCanPublishGlobal(true)
+          return
+        }
+        const allowed = await canPublishGlobalChallengeTemplates()
+        setCanPublishGlobal(allowed)
+      } catch {
+        setCanPublishGlobal(false)
+      }
+    })()
+  }, [user?.id, user?.role])
+
   const handleRefresh = () => {
     reloadData(true)
   }
 
   // Schedule a refresh at the next local midnight so day number advances and today's checkboxes reset
-  const midnightTimer = useRef<NodeJS.Timeout | null>(null)
+  const midnightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     function scheduleNextMidnight() {
       if (midnightTimer.current) clearTimeout(midnightTimer.current)
@@ -178,31 +233,68 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
 
   async function handleCreate() {
     if (!title.trim()) return
+
+    // Personal
+    if (createVisibility === "personal") {
+      setSaving(true)
+      try {
+        await createChallenge({
+          title: title.trim(),
+          description: description.trim() || undefined,
+          durationDays: duration,
+          rules,
+        })
+        setShowCreate(false)
+        setTitle("")
+        setDescription("")
+        setDuration(40)
+        setRules([])
+        await reloadData(true)
+      } catch (e) {
+        console.warn("Create challenge failed", (e as any)?.message)
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
+    // Community (Group / Global) => create template, publish immediately, auto-join
+    const scope: ChallengeTemplateScope = createVisibility === "group" ? "group" : "global"
+    if (scope === "group" && !isAdminInGroup) {
+      Alert.alert("Admin required", "You need to be an admin in a group to publish group challenges.")
+      return
+    }
+    if (scope === "global" && !canPublishGlobal) {
+      Alert.alert("Not allowed", "This account is not allowed to publish global challenges.")
+      return
+    }
+
     setSaving(true)
     try {
-      await createChallenge({
+      const tmpl = await createChallengeTemplate({
+        scope,
+        groupId: scope === "group" ? (user!.groupId as string) : undefined,
         title: title.trim(),
         description: description.trim() || undefined,
         durationDays: duration,
         rules,
+        // Keep v1 simple: rolling start, can add fixed-start fields later
+        startMode: "rolling",
       })
+      await setChallengeTemplateStatus(tmpl.id, "published")
+      await joinChallengeTemplate(tmpl.id)
+
       setShowCreate(false)
       setTitle("")
       setDescription("")
       setDuration(40)
       setRules([])
-      // reload list and stats
-      const data = await listChallenges()
-      setChallenges(data)
-      // trigger initial stats load again
-      const event = new Event("reload")
-      // @ts-ignore
-      if (global && (global as any).document?.dispatchEvent) {
-        ;(global as any).document.dispatchEvent(event)
-      }
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn("Create challenge failed", (e as any)?.message)
+      setCreateVisibility("personal")
+
+      await reloadData(true)
+      setActiveTab("challenge")
+    } catch (e: any) {
+      Alert.alert("Create failed", e?.message || "Could not publish community challenge.")
     } finally {
       setSaving(false)
     }
@@ -266,6 +358,17 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
         }
       >
         {/* Tab Navigation */}
+        {(() => {
+          const joinedTemplateIds = new Set<string>(
+            challenges
+              .map((c) => c.template_id)
+              .filter((x): x is string => !!x)
+          )
+          const hasUnjoinedTemplates = templates.some((t) => !joinedTemplateIds.has(t.id))
+          const pulseScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.35] })
+          const pulseOpacity = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.85] })
+
+          return (
         <View style={styles.tabContainer}>
           <TouchableOpacity
             style={[styles.tab, activeTab === "challenge" && styles.activeTab]}
@@ -282,7 +385,41 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
             <Shield width={20} height={20} color={activeTab === "rules" ? "#333" : "#999"} />
             <Text style={[styles.tabText, activeTab === "rules" && styles.activeTabText]}>Rules</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.tab,
+              styles.communityTab,
+              activeTab === "community" && styles.activeTab,
+              hasUnjoinedTemplates && styles.communityTabHighlighted,
+            ]}
+            onPress={() => setActiveTab("community")}
+          >
+            <Ionicons name="people-outline" size={20} color={activeTab === "community" ? "#7c3aed" : hasUnjoinedTemplates ? "#7c3aed" : "#999"} />
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === "community" && styles.activeTabText,
+                hasUnjoinedTemplates && styles.communityTabTextHighlighted,
+              ]}
+            >
+              Community
+            </Text>
+            {hasUnjoinedTemplates && (
+              <Animated.View
+                style={[
+                  styles.communityPulseDot,
+                  {
+                    opacity: pulseOpacity as any,
+                    transform: [{ scale: pulseScale as any }],
+                  },
+                ]}
+              />
+            )}
+          </TouchableOpacity>
         </View>
+          )
+        })()}
 
         {activeTab === "challenge" ? (
           <>
@@ -305,7 +442,13 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
             )}
 
             {/* Start New Challenge Button */}
-            <TouchableOpacity style={styles.startChallengeButton} onPress={() => setShowCreate(true)}>
+            <TouchableOpacity
+              style={styles.startChallengeButton}
+              onPress={() => {
+                setCreateVisibility("personal")
+                setShowCreate(true)
+              }}
+            >
               <Ionicons name="add" size={20} color="#fff" />
               <Text style={styles.startChallengeButtonText}>Start New Challenge</Text>
             </TouchableOpacity>
@@ -426,6 +569,28 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
 
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
                 <ScrollView style={{ marginTop: 16 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+                  <Text style={styles.inputLabel}>Visibility</Text>
+                  <View style={{ flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                    <TouchableOpacity onPress={() => setCreateVisibility("personal")} style={[styles.durationPill, createVisibility === "personal" && styles.durationPillActive]}>
+                      <Text style={[styles.durationPillText, createVisibility === "personal" && styles.durationPillTextActive]}>Personal</Text>
+                    </TouchableOpacity>
+                    {isAdminInGroup ? (
+                      <TouchableOpacity onPress={() => setCreateVisibility("group")} style={[styles.durationPill, createVisibility === "group" && styles.durationPillActive]}>
+                        <Text style={[styles.durationPillText, createVisibility === "group" && styles.durationPillTextActive]}>Group</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {canPublishGlobal ? (
+                      <TouchableOpacity onPress={() => setCreateVisibility("global")} style={[styles.durationPill, createVisibility === "global" && styles.durationPillActive]}>
+                        <Text style={[styles.durationPillText, createVisibility === "global" && styles.durationPillTextActive]}>Global</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  {createVisibility !== "personal" ? (
+                    <Text style={styles.communityCreateHint}>
+                      This will publish to {createVisibility === "group" ? "your group" : "everyone"} and auto-join you.
+                    </Text>
+                  ) : null}
+
                   <Text style={styles.inputLabel}>Challenge Title *</Text>
                   <TextInput value={title} onChangeText={setTitle} placeholder="e.g., No Social Media, No Fast Food" style={styles.input} />
 
@@ -458,7 +623,17 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
                   ))}
 
                   <TouchableOpacity style={[styles.primaryButton, { marginTop: 12, opacity: saving || !title.trim() ? 0.7 : 1 }]} disabled={saving || !title.trim()} onPress={handleCreate}>
-                    {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Start Challenge</Text>}
+                    {saving ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.primaryButtonText}>
+                        {createVisibility === "personal"
+                          ? "Start Challenge"
+                          : createVisibility === "group"
+                            ? "Publish to Group & Join"
+                            : "Publish Globally & Join"}
+                      </Text>
+                    )}
                   </TouchableOpacity>
 
                   <TouchableOpacity style={[styles.secondaryButton, { marginTop: 10 }]} onPress={() => setShowCreate(false)}>
@@ -469,8 +644,146 @@ const DisciplinesScreen: React.FC<ScreenProps> = ({ onLogout, onOpenProfile }) =
               </SafeAreaView>
             </Modal>
           </>
-        ) : (
+        ) : activeTab === "rules" ? (
           <RulesTabConnected />
+        ) : (
+          <>
+            <View style={styles.communityHeaderCard}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <View style={styles.communityIconWrap}>
+                    <Ionicons name="people" size={18} color="#7c3aed" />
+                  </View>
+                  <View>
+                    <Text style={styles.communityTitle}>Community Challenges</Text>
+                    <Text style={styles.communitySubtitle}>Opt in to global or group challenges</Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  {templatesLoading ? <ActivityIndicator size="small" /> : null}
+                  {isAdminInGroup || canPublishGlobal ? (
+                    <TouchableOpacity
+                      style={styles.communityCreateBtn}
+                      onPress={() => {
+                        const defaultVisibility: "group" | "global" =
+                          isAdminInGroup ? "group" : "global"
+                        setCreateVisibility(defaultVisibility)
+                        setShowCreate(true)
+                      }}
+                    >
+                      <Ionicons name="add" size={18} color="#fff" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </View>
+            </View>
+
+            {(() => {
+              const joinedTemplateIds = new Set<string>(
+                challenges
+                  .map((c) => c.template_id)
+                  .filter((x): x is string => !!x)
+              )
+
+              if (!templatesLoading && templates.length === 0) {
+                return (
+                  <View style={styles.emptyStateContainer}>
+                    <View style={styles.emptyStateIcon}>
+                      <Ionicons name="people-outline" size={60} color="#ccc" />
+                    </View>
+                    <Text style={styles.emptyStateTitle}>No Community Challenges</Text>
+                    <Text style={styles.emptyStateDescription}>
+                      When an admin publishes a group challenge — or when global challenges are available — you’ll see them here.
+                    </Text>
+                  </View>
+                )
+              }
+
+              return (
+                <View style={{ gap: 14, marginBottom: 24 }}>
+                  {templates.map((t) => {
+                    const joined = joinedTemplateIds.has(t.id)
+                    const joining = joiningTemplateId === t.id
+                    const startLabel =
+                      t.start_mode === "fixed"
+                        ? `Starts ${t.start_date || "soon"}`
+                        : "Start anytime"
+                    return (
+                      <View key={t.id} style={styles.communityCard}>
+                        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.communityCardTitle}>{t.title}</Text>
+                            {!!t.description && <Text style={styles.communityCardSubtitle}>{t.description}</Text>}
+                            <View style={styles.communityMetaRow}>
+                              <View style={styles.communityPill}>
+                                <Text style={styles.communityPillText}>{t.scope === "global" ? "GLOBAL" : "GROUP"}</Text>
+                              </View>
+                              <View style={styles.communityPillMuted}>
+                                <Text style={styles.communityPillMutedText}>{t.duration_days} days</Text>
+                              </View>
+                              <View style={styles.communityPillMuted}>
+                                <Text style={styles.communityPillMutedText}>{startLabel}</Text>
+                              </View>
+                            </View>
+                          </View>
+
+                          {joined ? (
+                            <View style={{ alignItems: "flex-end", gap: 10 }}>
+                              <View style={styles.joinedBadge}>
+                                <Text style={styles.joinedBadgeText}>JOINED</Text>
+                              </View>
+                              <TouchableOpacity
+                                style={styles.openJoinedBtn}
+                                onPress={() => setActiveTab("challenge")}
+                              >
+                                <Text style={styles.openJoinedBtnText}>Open</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ) : (
+                            <TouchableOpacity
+                              disabled={joining}
+                              style={[styles.joinBtn, joining && { opacity: 0.7 }]}
+                              onPress={async () => {
+                                setJoiningTemplateId(t.id)
+                                try {
+                                  await joinChallengeTemplate(t.id)
+                                  await reloadData(true)
+                                  setActiveTab("challenge")
+                                } catch (e: any) {
+                                  Alert.alert("Could not join", e?.message || "Please try again.")
+                                } finally {
+                                  setJoiningTemplateId(null)
+                                }
+                              }}
+                            >
+                              {joining ? <ActivityIndicator color="#fff" /> : <Text style={styles.joinBtnText}>Join</Text>}
+                            </TouchableOpacity>
+                          )}
+                        </View>
+
+                        {t.rules?.length ? (
+                          <View style={{ marginTop: 12 }}>
+                            <Text style={styles.communityRulesLabel}>Rules</Text>
+                            <View style={{ gap: 6 }}>
+                              {t.rules.slice(0, 4).map((r, idx) => (
+                                <View key={`${t.id}-r-${idx}`} style={styles.communityRuleRow}>
+                                  <View style={styles.communityRuleDot} />
+                                  <Text style={styles.communityRuleText}>{r}</Text>
+                                </View>
+                              ))}
+                              {t.rules.length > 4 ? (
+                                <Text style={styles.communityMoreRules}>+{t.rules.length - 4} more</Text>
+                              ) : null}
+                            </View>
+                          </View>
+                        ) : null}
+                      </View>
+                    )
+                  })}
+                </View>
+              )
+            })()}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -489,6 +802,7 @@ const RulesTabConnected = () => {
   const scaleAnims = useRef<Record<string, Animated.Value>>({})
   const bgAnims = useRef<Record<string, Animated.Value>>({})
   const checkAnims = useRef<Record<string, Animated.Value>>({})
+  const pulseAnims = useRef<Record<string, Animated.Value>>({})
 
   // Load from backend
   useEffect(() => {
@@ -542,15 +856,17 @@ const RulesTabConnected = () => {
 
   // Ensure animation values exist and match current day state
   useEffect(() => {
+    const checksForToday = checksByDate[todayIso] || {}
     rules.forEach((r) => {
       if (!scaleAnims.current[r.id]) scaleAnims.current[r.id] = new Animated.Value(1)
-      const isChecked = !!todayChecks[r.id]
+      const isChecked = !!checksForToday[r.id]
       if (!bgAnims.current[r.id]) bgAnims.current[r.id] = new Animated.Value(isChecked ? 1 : 0)
       else bgAnims.current[r.id].setValue(isChecked ? 1 : 0)
       if (!checkAnims.current[r.id]) checkAnims.current[r.id] = new Animated.Value(isChecked ? 1 : 0)
       else checkAnims.current[r.id].setValue(isChecked ? 1 : 0)
+      if (!pulseAnims.current[r.id]) pulseAnims.current[r.id] = new Animated.Value(0)
     })
-  }, [rules, todayIso])
+  }, [rules, todayIso, checksByDate])
 
   async function handleAddRule() {
     const text = newRule.trim()
@@ -592,22 +908,46 @@ const RulesTabConnected = () => {
       scaleAnims.current[ruleId] = scale
       Animated.sequence([
         Animated.timing(scale, { toValue: 0.9, duration: 80, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.spring(scale, { toValue: 1, friction: 5, useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1, friction: 4.5, tension: 180, useNativeDriver: true }),
       ]).start()
       const bg = bgAnims.current[ruleId] || new Animated.Value(!currently ? 1 : 0)
       bgAnims.current[ruleId] = bg
-      Animated.timing(bg, { toValue: !currently ? 1 : 0, duration: 250, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
+      if (!currently) {
+        // a little more "pop" on check
+        Animated.spring(bg, { toValue: 1, speed: 18, bounciness: 8, useNativeDriver: false }).start()
+      } else {
+        Animated.timing(bg, { toValue: 0, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
+      }
       const chk = checkAnims.current[ruleId] || new Animated.Value(!currently ? 1 : 0)
       checkAnims.current[ruleId] = chk
-      Animated.timing(chk, { toValue: !currently ? 1 : 0, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: true }).start()
+      if (!currently) {
+        Animated.spring(chk, { toValue: 1, speed: 22, bounciness: 10, useNativeDriver: true }).start()
+      } else {
+        Animated.timing(chk, { toValue: 0, duration: 140, easing: Easing.out(Easing.quad), useNativeDriver: true }).start()
+      }
+
+      // pulse ring on "check" for extra feedback
+      if (!currently) {
+        const pulse = pulseAnims.current[ruleId] || new Animated.Value(0)
+        pulseAnims.current[ruleId] = pulse
+        pulse.stopAnimation()
+        pulse.setValue(0)
+        Animated.timing(pulse, { toValue: 1, duration: 420, easing: Easing.out(Easing.quad), useNativeDriver: true }).start(() => {
+          pulse.setValue(0)
+        })
+      }
     } catch (e) {
       console.warn("Failed to toggle rule", e)
     }
   }
 
   const screenWidth = Dimensions.get("window").width
+  const isSmallScreen = screenWidth < 360
   const horizontalGutters = 40 + 32 + 6 * 8
   const cellSize = Math.max(36, Math.floor((screenWidth - horizontalGutters) / 7))
+  const medallionSize = isSmallScreen ? 38 : 44
+  const medallionPad = 2
+  const medallionInnerRadius = Math.max(14, Math.floor(medallionSize / 2) - medallionPad)
 
   const last30Days = useMemo(() => {
     return Array.from({ length: 30 }, (_, i) => {
@@ -619,11 +959,12 @@ const RulesTabConnected = () => {
 
   function colorFromPercent(p: number): string {
     if (p <= 0) return "#f3f4f6"
-    if (p < 0.25) return "#e57373"
-    if (p < 0.5) return "#ffb74d"
-    if (p < 0.75) return "#fff176"
-    if (p < 1) return "#aed581"
-    return "#81c784"
+    // Dull green → vibrant electric green (no red→green gradient)
+    if (p < 0.25) return "#2E7D32"
+    if (p < 0.5) return "#43A047"
+    if (p < 0.75) return "#66BB6A"
+    if (p < 1) return "#00C853"
+    return "#00E676"
   }
 
   function isDayComplete(d: Date): boolean {
@@ -647,6 +988,19 @@ const RulesTabConnected = () => {
     return best
   }, [today, checksByDate, rules])
 
+  const currentStreak = useMemo(() => {
+    // Count consecutive fully-complete days ending today.
+    // If today isn't complete, streak is 0.
+    let streak = 0
+    for (let i = 0; i < 365; i++) {
+      const d = new Date(today)
+      d.setDate(today.getDate() - i)
+      if (isDayComplete(d)) streak += 1
+      else break
+    }
+    return streak
+  }, [today, checksByDate, rules])
+
   // UI copied from original RulesTab, with delete handler and add handler wired
   return (
     <>
@@ -662,9 +1016,45 @@ const RulesTabConnected = () => {
               <Text style={styles.metricLabel}>TODAY</Text>
             </View>
             <View style={styles.metricDivider} />
-            <View style={styles.metricGroup}>
-              <Text style={styles.metricPrimary}>{bestStreak}</Text>
-              <Text style={styles.metricLabel}>BEST STREAK</Text>
+            <View style={styles.streakPair}>
+              <View style={styles.metricGroup}>
+                <LinearGradient
+                  colors={["#2E7D32", "#00E676"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[
+                    styles.streakMedallionOuter,
+                    { width: medallionSize, height: medallionSize, borderRadius: medallionSize / 2, padding: medallionPad },
+                  ]}
+                >
+                  <View style={[styles.streakMedallionInner, { borderRadius: medallionInnerRadius }]}>
+                    <View style={styles.streakMedallionRow}>
+                      <Flame width={isSmallScreen ? 13 : 14} height={isSmallScreen ? 13 : 14} color="#0f172a" />
+                      <Text style={styles.streakMedallionValue}>{currentStreak}</Text>
+                    </View>
+                  </View>
+                </LinearGradient>
+                <Text style={styles.metricLabel}>CURRENT</Text>
+              </View>
+              <View style={styles.metricGroup}>
+                <LinearGradient
+                  colors={["#F6C453", "#FFB800"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[
+                    styles.streakMedallionOuter,
+                    { width: medallionSize, height: medallionSize, borderRadius: medallionSize / 2, padding: medallionPad },
+                  ]}
+                >
+                  <View style={[styles.streakMedallionInner, { borderRadius: medallionInnerRadius }]}>
+                    <View style={styles.streakMedallionRow}>
+                      <Trophy width={isSmallScreen ? 13 : 14} height={isSmallScreen ? 13 : 14} color="#0f172a" />
+                      <Text style={styles.streakMedallionValue}>{bestStreak}</Text>
+                    </View>
+                  </View>
+                </LinearGradient>
+                <Text style={styles.metricLabel}>BEST</Text>
+              </View>
             </View>
           </View>
         </View>
@@ -674,7 +1064,7 @@ const RulesTabConnected = () => {
           <View style={styles.legendScale}>
             <Text style={styles.legendPercent}>0%</Text>
             <View style={styles.legendDots}>
-              {["#e57373", "#ffb74d", "#fff176", "#aed581", "#81c784"].map((c, idx) => (
+              {["#2E7D32", "#43A047", "#66BB6A", "#00C853", "#00E676"].map((c, idx) => (
                 <View key={idx} style={[styles.legendDot, { backgroundColor: c }]} />
               ))}
             </View>
@@ -689,7 +1079,7 @@ const RulesTabConnected = () => {
             if (isToday) {
               const todayColor = progressAnim.current.interpolate({
                 inputRange: [0, 0.25, 0.5, 0.75, 1],
-                outputRange: ["#f3f4f6", "#e57373", "#ffb74d", "#aed581", "#81c784"],
+                outputRange: ["#f3f4f6", "#2E7D32", "#43A047", "#00C853", "#00E676"],
               })
               const todayScale = progressAnim.current.interpolate({ inputRange: [0, 1], outputRange: [1, 1.03] })
               return (
@@ -751,20 +1141,38 @@ const RulesTabConnected = () => {
             const checked = !!todayChecks[r.id]
             const bg = bgAnims.current[r.id]
             const cardBg = bg
-              ? bg.interpolate({ inputRange: [0, 1], outputRange: ["#fff", "#bbf7d0"] })
+              ? bg.interpolate({ inputRange: [0, 1], outputRange: ["#fff", "#A7F3D0"] })
               : "#fff"
             const scale = scaleAnims.current[r.id] || new Animated.Value(1)
             const chk = checkAnims.current[r.id] || new Animated.Value(checked ? 1 : 0)
+            const pulse = pulseAnims.current[r.id] || new Animated.Value(0)
+            const pulseOpacity = pulse.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 0.35, 0] })
+            const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.8, 2.2] })
             return (
               <Animated.View key={r.id} style={[styles.ruleCard, { backgroundColor: cardBg as any }] }>
                 <TouchableOpacity style={styles.ruleRow} onPress={() => toggleRule(r.id)}>
-                  <Animated.View style={[styles.checkbox, checked && styles.checkboxChecked, { transform: [{ scale }] }]}>
-                    <Animated.View style={{ opacity: chk, transform: [{ scale: chk }] }}>
-                      <Ionicons name="checkmark" size={14} color="#fff" />
+                  <View style={styles.checkboxWrap}>
+                    <Animated.View style={[styles.pulseRing, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
+                    <Animated.View style={[styles.checkbox, checked && styles.checkboxChecked, { transform: [{ scale }] }]}>
+                      <Animated.View style={{ opacity: chk, transform: [{ scale: chk }] }}>
+                        <Ionicons name="checkmark" size={14} color="#fff" />
+                      </Animated.View>
                     </Animated.View>
-                  </Animated.View>
+                  </View>
                   <Text style={styles.ruleTextEmphasis}>{r.text}</Text>
-                  <View style={{ width: 22 }} />
+                  <TouchableOpacity
+                    onPress={() => {
+                      Alert.alert("Delete rule?", "This will permanently delete this rule.", [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Delete", style: "destructive", onPress: () => handleDeleteRule(r.id) },
+                      ])
+                    }}
+                    style={styles.ruleDeleteBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete rule"
+                  >
+                    <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                  </TouchableOpacity>
                 </TouchableOpacity>
               </Animated.View>
             )
@@ -824,6 +1232,26 @@ const styles = StyleSheet.create({
   activeTabText: {
     color: "#333",
     fontWeight: "600",
+  },
+  communityTab: {
+    marginRight: 0,
+    paddingRight: 10,
+  },
+  communityTabHighlighted: {
+    borderBottomWidth: 2,
+    borderBottomColor: "#7c3aed",
+  },
+  communityTabTextHighlighted: {
+    color: "#7c3aed",
+    fontWeight: "700",
+  },
+  communityPulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#7c3aed",
+    marginLeft: 8,
+    marginTop: 2,
   },
   challengeCard: {
     backgroundColor: "#E8F2FF",
@@ -893,6 +1321,166 @@ const styles = StyleSheet.create({
     color: "#666",
     textAlign: "center",
     lineHeight: 22,
+  },
+  communityHeaderCard: {
+    backgroundColor: "#f5f3ff",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#ede9fe",
+  },
+  communityIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#ede9fe",
+  },
+  communityTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#2e1065",
+  },
+  communitySubtitle: {
+    fontSize: 13,
+    color: "#6d28d9",
+    marginTop: 2,
+  },
+  communityCreateBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: "#111827",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  communityCreateHint: {
+    color: "#6b7280",
+    fontWeight: "600",
+    marginTop: -4,
+    marginBottom: 10,
+  },
+  communityCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 1,
+    borderWidth: 1,
+    borderColor: "#f3f4f6",
+  },
+  communityCardTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  communityCardSubtitle: {
+    color: "#6b7280",
+    marginTop: 4,
+    lineHeight: 18,
+  },
+  communityMetaRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  communityPill: {
+    backgroundColor: "#ede9fe",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  communityPillText: {
+    color: "#5b21b6",
+    fontWeight: "900",
+    fontSize: 11,
+    letterSpacing: 0.4,
+  },
+  communityPillMuted: {
+    backgroundColor: "#f3f4f6",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  communityPillMutedText: {
+    color: "#374151",
+    fontWeight: "700",
+    fontSize: 11,
+  },
+  joinBtn: {
+    backgroundColor: "#7c3aed",
+    paddingHorizontal: 14,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 74,
+  },
+  joinBtnText: {
+    color: "#fff",
+    fontWeight: "900",
+  },
+  joinedBadge: {
+    backgroundColor: "#dcfce7",
+    borderColor: "#bbf7d0",
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  joinedBadgeText: {
+    color: "#166534",
+    fontWeight: "900",
+    fontSize: 11,
+    letterSpacing: 0.4,
+  },
+  openJoinedBtn: {
+    backgroundColor: "#111827",
+    paddingHorizontal: 12,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  openJoinedBtnText: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 12,
+  },
+  communityRulesLabel: {
+    color: "#111827",
+    fontWeight: "800",
+    marginBottom: 8,
+  },
+  communityRuleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  communityRuleDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#7c3aed",
+    marginTop: 6,
+  },
+  communityRuleText: {
+    flex: 1,
+    color: "#374151",
+    lineHeight: 18,
+  },
+  communityMoreRules: {
+    color: "#6b7280",
+    fontWeight: "700",
+    marginTop: 2,
   },
   rulesContainer: {
     flex: 1,
@@ -1066,7 +1654,7 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     fontWeight: "800",
     letterSpacing: 0.2,
-    textAlign: "center",
+    textAlign: "left",
     flex: 1,
     fontSize: 18,
   },
@@ -1081,8 +1669,22 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   checkboxChecked: {
-    backgroundColor: "#4A90E2",
-    borderColor: "#4A90E2",
+    backgroundColor: "#10B981",
+    borderColor: "#10B981",
+  },
+  checkboxWrap: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pulseRing: {
+    position: "absolute",
+    width: 28,
+    height: 28,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#10B981",
   },
   // Rules tab styles
   card: {
@@ -1115,6 +1717,8 @@ const styles = StyleSheet.create({
   cardHeaderRight: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "flex-end",
+    flexWrap: "wrap",
   },
   metricGroup: {
     alignItems: "center",
@@ -1135,6 +1739,39 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#6b7280",
     letterSpacing: 0.5,
+  },
+  streakPair: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  streakMedallionOuter: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    padding: 2,
+    marginBottom: 4,
+  },
+  streakMedallionInner: {
+    flex: 1,
+    borderRadius: 20,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.05)",
+  },
+  streakMedallionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  streakMedallionValue: {
+    fontSize: 12,
+    fontWeight: "900",
+    color: "#0f172a",
   },
   legendRow: {
     flexDirection: "row",
@@ -1336,6 +1973,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 6,
     elevation: 1,
+  },
+  ruleDeleteBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#fee2e2",
+    marginLeft: 8,
   },
   noRulesText: {
     color: "#6b7280",
