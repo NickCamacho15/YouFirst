@@ -2,7 +2,7 @@
   "expo": {
     "name": "You.",
     "slug": "mobile",
-    "version": "1.0.9",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "6",
+      "buildNumber": "7",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "We use your photo library so you can choose a profile picture.",
         "NSCameraUsageDescription": "We use the camera to let you take a profile picture."
